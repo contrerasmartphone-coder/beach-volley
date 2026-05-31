@@ -1,0 +1,2249 @@
+import React, { useState, useEffect } from 'react';
+import { Team, Match, SetScore, NotificationLog } from '../types';
+import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList } from '../utils';
+import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+interface BracketTabProps {
+  teams: Team[];
+  matches: Match[];
+  onUpdateMatches: (newMatches: Match[]) => void;
+  onGenerateTournament: (config: {
+    name: string;
+    formula: 'direct' | 'pools' | 'combined' | 'double_elim';
+    teamsCount: number;
+    groupCount: number;
+    courtCount: number;
+    pointsPerSet?: 15 | 21;
+    maxSets?: 1 | 3;
+    sfPointsPerSet?: 15 | 21;
+    sfMaxSets?: 1 | 3;
+  }) => void;
+  onAddNotification: (notification: NotificationLog) => void;
+}
+
+export default function BracketTab({
+  teams,
+  matches,
+  onUpdateMatches,
+  onGenerateTournament,
+  onAddNotification,
+}: BracketTabProps) {
+  // New Tournament States
+  const [tournamentName, setTournamentName] = useState('Classic Beach Cup');
+  const [formula, setFormula] = useState<'direct' | 'pools' | 'combined' | 'double_elim'>('combined');
+  const [teamsCount, setTeamsCount] = useState<number>(8);
+  const [groupCount, setGroupCount] = useState<number>(2);
+  const [courtCount, setCourtCount] = useState<number>(2);
+  const [pointsPerSet, setPointsPerSet] = useState<15 | 21>(21);
+  const [maxSets, setMaxSets] = useState<1 | 3>(3);
+  const [sfPointsPerSet, setSfPointsPerSet] = useState<15 | 21>(21);
+  const [sfMaxSets, setSfMaxSets] = useState<1 | 3>(3);
+
+  // Active Phase View States
+  const [activePhaseTab, setActivePhaseTab] = useState<'gironi' | 'eliminazione'>('gironi');
+  const [selectedGroupTab, setSelectedGroupTab] = useState<string>('');
+  
+  // Scoring Dialog Mode
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null);
+  const [t1Set1, setT1Set1] = useState(0);
+  const [t2Set1, setT2Set1] = useState(0);
+  const [t1Set2, setT1Set2] = useState(0);
+  const [t2Set2, setT2Set2] = useState(0);
+  const [t1Set3, setT1Set3] = useState(0);
+  const [t2Set3, setT2Set3] = useState(0);
+  const [editCourt, setEditCourt] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [manualT1Sets, setManualT1Sets] = useState(0);
+  const [manualT2Sets, setManualT2Sets] = useState(0);
+
+  // Synchronize manual set results with calculated partial scores when they change
+  useEffect(() => {
+    if (!editingMatch) return;
+    const mMaxSets = editingMatch.maxSets || 3;
+    let calculatedT1 = 0;
+    let calculatedT2 = 0;
+    
+    if (t1Set1 > 0 || t2Set1 > 0) {
+      if (t1Set1 > t2Set1) calculatedT1++;
+      else if (t2Set1 > t1Set1) calculatedT2++;
+    }
+    if (mMaxSets === 3 && (t1Set2 > 0 || t2Set2 > 0)) {
+      if (t1Set2 > t2Set2) calculatedT1++;
+      else if (t2Set2 > t1Set2) calculatedT2++;
+    }
+    if (mMaxSets === 3 && (t1Set3 > 0 || t2Set3 > 0)) {
+      if (t1Set3 > t2Set3) calculatedT1++;
+      else if (t2Set3 > t1Set3) calculatedT2++;
+    }
+    
+    setManualT1Sets(calculatedT1);
+    setManualT2Sets(calculatedT2);
+  }, [t1Set1, t2Set1, t1Set2, t2Set2, t1Set3, t2Set3, editingMatch]);
+
+  // Live Simulation state
+  const [liveSimulatingMatchId, setLiveSimulatingMatchId] = useState<string | null>(null);
+  const [simPointsT1, setSimPointsT1] = useState(0);
+  const [simPointsT2, setSimPointsT2] = useState(0);
+  const [simCurrentSet, setSimCurrentSet] = useState(1);
+  const [simSetsT1, setSimSetsT1] = useState(0);
+  const [simSetsT2, setSimSetsT2] = useState(0);
+  const [simCompletedSets, setSimCompletedSets] = useState<SetScore[]>([]);
+  const [liveTicker, setLiveTicker] = useState('Riscaldamento atleti in corso...');
+
+  // Bracket navigation toggle
+  const [selectedRoundTab, setSelectedRoundTab] = useState<number>(1);
+  const [viewMode, setViewMode] = useState<'visual' | 'cards'>('visual');
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+
+  // Excluded teams (reserves) are strictly the latest ones registered (chronological cutoff)
+  const chronologicallySortedForCutoff = [...teams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+  const excludedTeamsList = chronologicallySortedForCutoff.slice(teamsCount);
+
+  const getSmartDefaultTeamsCount = (selectedFormula: string) => {
+    const registeredCount = teams.length;
+    if (selectedFormula === 'double_elim') return 8;
+    if (selectedFormula === 'direct') {
+      if (registeredCount <= 2) return 2;
+      return Math.pow(2, Math.ceil(Math.log2(registeredCount)));
+    }
+    if (selectedFormula === 'combined') {
+      if (registeredCount <= 4) return 4;
+      if (registeredCount <= 8) return 8;
+      return 16;
+    }
+    // 'pools'
+    if (registeredCount >= 2) return registeredCount;
+    return 8;
+  };
+
+  const getTeamsCountOptions = () => {
+    const registeredCount = teams.length;
+    
+    if (formula === 'double_elim') {
+      const diff = 8 - registeredCount;
+      let label = '8 Squadre (Doppia Eliminazione)';
+      if (diff > 0) {
+        label = `8 Squadre (${diff} BYE inclusi)`;
+      } else if (diff < 0) {
+        label = `8 Squadre (prime 8 ammesse, ${Math.abs(diff)} escluse)`;
+      }
+      return [{ value: 8, label }];
+    }
+    
+    if (formula === 'direct') {
+      const standardSizes = [2, 4, 8, 16, 32];
+      let currentMax = 32;
+      while (registeredCount > currentMax) {
+        currentMax *= 2;
+        standardSizes.push(currentMax);
+      }
+      
+      return standardSizes.map(S => {
+        const diff = S - registeredCount;
+        let label = `${S} Squadre`;
+        if (diff === 0) {
+          label += ' (Perfetto - Nessun BYE)';
+        } else if (diff > 0) {
+          label += ` (${diff} BYE inclusi)`;
+        } else {
+          label += ` (${Math.abs(diff)} escluse)`;
+        }
+        return { value: S, label };
+      });
+    }
+    
+    if (formula === 'combined') {
+      const sizes = [4, 8, 16];
+      return sizes.map(S => {
+        const diff = S - registeredCount;
+        let label = `${S} Squadre`;
+        if (diff === 0) {
+          label += ' (Perfetto - Nessun BYE)';
+        } else if (diff > 0) {
+          label += ` (${diff} BYE inclusi)`;
+        } else {
+          label += ` (${Math.abs(diff)} escluse)`;
+        }
+        return { value: S, label };
+      });
+    }
+    
+    // Formula is 'pools'
+    const standardSizes = [4, 6, 8, 12, 16];
+    if (registeredCount >= 2 && !standardSizes.includes(registeredCount)) {
+      standardSizes.push(registeredCount);
+    }
+    const sizes = Array.from(new Set(standardSizes)).sort((a, b) => a - b);
+    return sizes.map(S => {
+      const diff = S - registeredCount;
+      let label = `${S} Squadre`;
+      if (diff === 0) {
+        label += ' (Esatto numero iscritte)';
+      } else if (diff > 0) {
+        label += ` (${diff} BYE incluse)`;
+      } else {
+        label += ` (${Math.abs(diff)} escluse)`;
+      }
+      return { value: S, label };
+    });
+  };
+
+  useEffect(() => {
+    if (matches.length === 0) {
+      setTeamsCount(getSmartDefaultTeamsCount(formula));
+    }
+  }, [teams.length]);
+
+  useEffect(() => {
+    if (formula === 'pools') {
+      if (teamsCount <= 6) {
+        setGroupCount(1);
+      } else if (teamsCount > 6 && teamsCount <= 12) {
+        if (groupCount !== 1 && groupCount !== 2) {
+          setGroupCount(2);
+        }
+      } else if (teamsCount > 12) {
+        if (groupCount !== 2 && groupCount !== 4) {
+          setGroupCount(4);
+        }
+      }
+    }
+  }, [teamsCount, formula]);
+
+  const getSingleMatchDuration = (pts?: number, sets?: number) => {
+    const p = pts || 21;
+    const s = sets || 3;
+    if (s === 1) {
+      if (p === 15) return 15;
+      return 20;
+    } else {
+      if (p === 15) return 45;
+      return 50;
+    }
+  };
+
+  // Stats Calculator
+  const getCalculatedStats = (
+    currentFormula: 'direct' | 'pools' | 'combined' | 'double_elim',
+    currentTeamsCount: number,
+    currentGroupCount: number,
+    currentCourtCount: number,
+    currentPointsPerSet: number,
+    currentMaxSets: number,
+    currentSfPointsPerSet = sfPointsPerSet,
+    currentSfMaxSets = sfMaxSets
+  ) => {
+    const generalMatchDuration = getSingleMatchDuration(currentPointsPerSet, currentMaxSets);
+    const sfMatchDuration = getSingleMatchDuration(currentSfPointsPerSet, currentSfMaxSets);
+    const hasDifferentSFParams = currentFormula !== 'pools' && (currentMaxSets !== currentSfMaxSets || currentPointsPerSet !== currentSfPointsPerSet);
+
+    let mockMatches: Match[] = [];
+    const sortedTeamsTemp = [...teams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+    const clearedTeamsTemp = sortedTeamsTemp.map(t => ({
+      ...t,
+      wins: 0, losses: 0, setsWon: 0, setsLost: 0, pointsWon: 0, pointsLost: 0, points: 0
+    }));
+
+    if (currentFormula === 'direct') {
+      mockMatches = generateDirectEliminationBracket(
+        clearedTeamsTemp,
+        currentTeamsCount,
+        '09:00',
+        generalMatchDuration,
+        currentPointsPerSet as 15 | 21,
+        currentMaxSets as 1 | 3,
+        currentSfPointsPerSet as 15 | 21,
+        currentSfMaxSets as 1 | 3
+      );
+    } else if (currentFormula === 'double_elim') {
+      mockMatches = generateDoubleEliminationBracket(
+        clearedTeamsTemp,
+        '09:00',
+        generalMatchDuration,
+        currentPointsPerSet as 15 | 21,
+        currentMaxSets as 1 | 3,
+        currentSfPointsPerSet as 15 | 21,
+        currentSfMaxSets as 1 | 3
+      );
+    } else if (currentFormula === 'pools') {
+      const selectedTeams = [...clearedTeamsTemp.slice(0, currentTeamsCount)];
+      let byeCount = 1;
+      while (selectedTeams.length < currentTeamsCount) {
+        selectedTeams.push({
+          id: `bye_pool_est_${selectedTeams.length}`,
+          name: `BYE ${byeCount++}`,
+          player1: 'N/A', player2: 'N/A', level: 'Beginner', registeredAt: '2026-05-27',
+          wins: 0, losses: 0, setsWon: 0, setsLost: 0, pointsWon: 0, pointsLost: 0, points: 0
+        } as Team);
+      }
+      const groups = splitTeamsIntoGroups(selectedTeams, currentGroupCount);
+      mockMatches = generateRoundRobinMatches(groups, '09:00', generalMatchDuration, currentCourtCount, currentPointsPerSet as 15 | 21, currentMaxSets as 1 | 3);
+    } else if (currentFormula === 'combined') {
+      const selectedTeams = [...clearedTeamsTemp.slice(0, currentTeamsCount)];
+      let byeCount = 1;
+      while (selectedTeams.length < currentTeamsCount) {
+        selectedTeams.push({
+          id: `bye_combined_est_${selectedTeams.length}`,
+          name: `BYE ${byeCount++}`,
+          player1: 'N/A', player2: 'N/A', level: 'Beginner', registeredAt: '2026-05-27',
+          wins: 0, losses: 0, setsWon: 0, setsLost: 0, pointsWon: 0, pointsLost: 0, points: 0
+        } as Team);
+      }
+      const groups = splitTeamsIntoGroups(selectedTeams, currentGroupCount);
+      const groupStageMatches = generateRoundRobinMatches(groups, '09:00', generalMatchDuration, currentCourtCount, currentPointsPerSet as 15 | 21, currentMaxSets as 1 | 3);
+      mockMatches.push(...groupStageMatches);
+
+      const playoffTeamsCount = currentTeamsCount === 4 ? 2 : (currentTeamsCount === 8 ? 4 : 8);
+      const playoffMatchesCount = playoffTeamsCount === 2 ? 1 : playoffTeamsCount;
+
+      for (let i = 0; i < playoffMatchesCount; i++) {
+        const round = playoffTeamsCount === 8 ? (i < 4 ? 1 : i < 6 ? 2 : 3) : playoffTeamsCount === 4 ? (i < 2 ? 1 : 2) : 1;
+        
+        let roundLabel = '';
+        if (playoffTeamsCount === 8) {
+          if (round === 1) roundLabel = 'Quarti di finale';
+          else if (round === 2) roundLabel = 'Semifinali';
+          else if (round === 3) roundLabel = 'Finale';
+        } else if (playoffTeamsCount === 4) {
+          if (round === 1) roundLabel = 'Semifinali';
+          else if (round === 2) roundLabel = 'Finale';
+        } else {
+          roundLabel = 'Finale';
+        }
+
+        const isSFOrFinal = roundLabel.includes('Semifinali') || roundLabel.includes('Finale');
+
+        mockMatches.push({
+          id: `m-p-estimate-${i}`,
+          round,
+          roundLabel,
+          position: i + 1,
+          team1: { id: `est-1-${i}` } as Team,
+          team2: { id: `est-2-${i}` } as Team,
+          team1Score: 0, team2Score: 0, sets: [], status: 'scheduled', court: 'Campo 1', time: '12:00',
+          phase: 'eliminazione',
+          pointsPerSet: isSFOrFinal ? currentSfPointsPerSet : currentPointsPerSet,
+          maxSets: isSFOrFinal ? currentSfMaxSets : currentMaxSets,
+        });
+      }
+    }
+
+    const resolvedMockMatches = autoResolveAndPropagate(mockMatches);
+
+    // Any match that does NOT have a BYE team in either team1 or team2 slot is played
+    const realMatches = resolvedMockMatches.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
+    const realMatchesCount = realMatches.length;
+
+    // Total raw playing volume
+    const totalRawMinutes = realMatches.reduce((acc, m) => {
+      return acc + getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+    }, 0);
+
+    let totalElapsedMinutes = 0;
+
+    if (currentFormula === 'pools') {
+      const slots = Math.ceil(realMatchesCount / currentCourtCount);
+      totalElapsedMinutes = slots * generalMatchDuration;
+    } else if (currentFormula === 'direct' || currentFormula === 'double_elim') {
+      const roundCounts: Record<number, Match[]> = {};
+      realMatches.forEach(m => {
+        if (!roundCounts[m.round]) {
+          roundCounts[m.round] = [];
+        }
+        roundCounts[m.round].push(m);
+      });
+      Object.keys(roundCounts).forEach(roundKey => {
+        const roundRealMatches = roundCounts[Number(roundKey)];
+        const m = roundRealMatches[0];
+        const roundSingleDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const roundSlots = Math.ceil(roundRealMatches.length / currentCourtCount);
+        totalElapsedMinutes += roundSlots * roundSingleDuration;
+      });
+    } else if (currentFormula === 'combined') {
+      const groupMatches = realMatches.filter(m => m.phase === 'gironi' || m.id.startsWith('m-1') || !m.phase);
+      const groupSlots = Math.ceil(groupMatches.length / currentCourtCount);
+      const groupElapsed = groupSlots * generalMatchDuration;
+
+      const playoffMatches = realMatches.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
+      const pRoundCounts: Record<number, Match[]> = {};
+      playoffMatches.forEach(m => {
+        if (!pRoundCounts[m.round]) {
+          pRoundCounts[m.round] = [];
+        }
+        pRoundCounts[m.round].push(m);
+      });
+      let playoffElapsed = 0;
+      Object.keys(pRoundCounts).forEach(roundKey => {
+        const rMatches = pRoundCounts[Number(roundKey)];
+        const m = rMatches[0];
+        const roundSingleDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const roundSlots = Math.ceil(rMatches.length / currentCourtCount);
+        playoffElapsed += roundSlots * roundSingleDuration;
+      });
+
+      totalElapsedMinutes = groupElapsed + playoffElapsed;
+    }
+
+    return {
+      realMatchesCount,
+      singleMatchDuration: generalMatchDuration,
+      sfMatchDuration,
+      hasDifferentSFParams,
+      totalElapsedMinutes,
+      totalRawMinutes
+    };
+  };
+
+  let resolvedGroupCount = groupCount;
+  if (formula === 'combined') {
+    if (teamsCount === 4) resolvedGroupCount = 1;
+    else if (teamsCount === 8) resolvedGroupCount = 2;
+    else if (teamsCount === 16) resolvedGroupCount = 4;
+  } else if (formula === 'direct' || formula === 'double_elim') {
+    resolvedGroupCount = 1;
+  }
+
+  const setupStats = getCalculatedStats(
+    formula,
+    teamsCount,
+    resolvedGroupCount,
+    courtCount,
+    pointsPerSet,
+    maxSets,
+    sfPointsPerSet,
+    sfMaxSets
+  );
+
+  // Active stage calculations
+  const getActiveTournamentStats = () => {
+    if (matches.length === 0) return { realMatchesCount: 0, singleMatchDuration: 0, totalElapsedMinutes: 0, totalRawMinutes: 0 };
+    
+    const activeFormula = matches.some(m => m.phase === 'gironi')
+      ? (matches.some(m => m.phase === 'eliminazione') ? 'combined' as const : 'pools' as const)
+      : (matches.some(m => m.id.startsWith('m-de')) ? 'double_elim' as const : 'direct' as const);
+    
+    const activeFirstMatch = matches[0];
+    const activePointsPerSet = activeFirstMatch?.pointsPerSet || 21;
+    const activeMaxSets = activeFirstMatch?.maxSets || 3;
+    const generalMatchDuration = getSingleMatchDuration(activePointsPerSet, activeMaxSets);
+
+    const realMatches = matches.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
+    const realMatchesCount = realMatches.length;
+
+    const totalRawMinutes = realMatches.reduce((acc, m) => {
+      return acc + getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+    }, 0);
+
+    let totalElapsedMinutes = 0;
+
+    if (activeFormula === 'pools') {
+      const slots = Math.ceil(realMatchesCount / courtCount);
+      totalElapsedMinutes = slots * generalMatchDuration;
+    } else if (activeFormula === 'direct' || activeFormula === 'double_elim') {
+      const roundCounts: Record<number, Match[]> = {};
+      realMatches.forEach(m => {
+        if (!roundCounts[m.round]) {
+          roundCounts[m.round] = [];
+        }
+        roundCounts[m.round].push(m);
+      });
+      Object.keys(roundCounts).forEach(roundKey => {
+        const roundRealMatches = roundCounts[Number(roundKey)];
+        const m = roundRealMatches[0];
+        const roundSingleDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const roundSlots = Math.ceil(roundRealMatches.length / courtCount);
+        totalElapsedMinutes += roundSlots * roundSingleDuration;
+      });
+    } else if (activeFormula === 'combined') {
+      const groupMatches = realMatches.filter(m => m.phase === 'gironi' || m.id.startsWith('m-1') || !m.phase);
+      const groupSlots = Math.ceil(groupMatches.length / courtCount);
+      const groupElapsed = groupSlots * generalMatchDuration;
+
+      const playoffMatches = realMatches.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
+      const pRoundCounts: Record<number, Match[]> = {};
+      playoffMatches.forEach(m => {
+        if (!pRoundCounts[m.round]) {
+          pRoundCounts[m.round] = [];
+        }
+        pRoundCounts[m.round].push(m);
+      });
+      let playoffElapsed = 0;
+      Object.keys(pRoundCounts).forEach(roundKey => {
+        const rMatches = pRoundCounts[Number(roundKey)];
+        const m = rMatches[0];
+        const roundSingleDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const roundSlots = Math.ceil(rMatches.length / courtCount);
+        playoffElapsed += roundSlots * roundSingleDuration;
+      });
+
+      totalElapsedMinutes = groupElapsed + playoffElapsed;
+    }
+
+    return {
+      realMatchesCount,
+      singleMatchDuration: generalMatchDuration,
+      totalElapsedMinutes,
+      totalRawMinutes
+    };
+  };
+
+  const activeStats = getActiveTournamentStats();
+
+  // Handle setting up a Match Score manually
+  const openEditModal = (match: Match) => {
+    setEditingMatch(match);
+    setEditCourt(match.court);
+    setEditTime(match.time);
+    setManualT1Sets(match.team1Score || 0);
+    setManualT2Sets(match.team2Score || 0);
+    
+    // Set 1
+    if (match.sets[0]) {
+      setT1Set1(match.sets[0].team1);
+      setT2Set1(match.sets[0].team2);
+    } else {
+      setT1Set1(0); setT2Set1(0);
+    }
+    // Set 2
+    if (match.sets[1]) {
+      setT1Set2(match.sets[1].team1);
+      setT2Set2(match.sets[1].team2);
+    } else {
+      setT1Set2(0); setT2Set2(0);
+    }
+    // Set 3
+    if (match.sets[2]) {
+      setT1Set3(match.sets[2].team1);
+      setT2Set3(match.sets[2].team2);
+    } else {
+      setT1Set3(0); setT2Set3(0);
+    }
+  };
+
+  const handleSaveScoreManual = () => {
+    if (!editingMatch || !editingMatch.team1 || !editingMatch.team2) return;
+
+    const sets: SetScore[] = [];
+    const mMaxSets = editingMatch.maxSets || 3;
+    const requiredWins = mMaxSets === 1 ? 1 : 2;
+
+    // Validate Set 1
+    if (t1Set1 > 0 || t2Set1 > 0) {
+      sets.push({ team1: t1Set1, team2: t2Set1 });
+    }
+    // Validate Set 2 (only for maxSets === 3)
+    if (mMaxSets === 3 && (t1Set2 > 0 || t2Set2 > 0)) {
+      sets.push({ team1: t1Set2, team2: t2Set2 });
+    }
+    // Validate Set 3 (only for maxSets === 3)
+    if (mMaxSets === 3 && (t1Set3 > 0 || t2Set3 > 0)) {
+      sets.push({ team1: t1Set3, team2: t2Set3 });
+    }
+
+    // Determine target finished state based on verified manualT1Sets and manualT2Sets
+    const isFinished = manualT1Sets >= requiredWins || manualT2Sets >= requiredWins || (mMaxSets === 1 && (manualT1Sets > 0 || manualT2Sets > 0));
+    let winnerId = undefined;
+    if (isFinished) {
+      if (manualT1Sets > manualT2Sets) {
+        winnerId = editingMatch.team1.id;
+      } else if (manualT2Sets > manualT1Sets) {
+        winnerId = editingMatch.team2.id;
+      }
+    }
+
+    const updatedMatch: Match = {
+      ...editingMatch,
+      court: editCourt,
+      time: editTime,
+      sets,
+      team1Score: manualT1Sets,
+      team2Score: manualT2Sets,
+      status: isFinished ? 'completed' : editingMatch.status,
+      winnerId,
+    };
+
+    propagateWinner(updatedMatch);
+    setEditingMatch(null);
+  };
+
+  // Helper to push winners (and losers if applicable) to future bracket matches
+  const propagateWinner = (completedMatch: Match) => {
+    let updated = matches.map(m => m.id === completedMatch.id ? completedMatch : m);
+
+    if (completedMatch.winnerId && completedMatch.nextMatchId) {
+      const winnerTeam = completedMatch.winnerId === completedMatch.team1?.id ? completedMatch.team1 : completedMatch.team2;
+      const targetMatchIndex = updated.findIndex(m => m.id === completedMatch.nextMatchId);
+
+      if (targetMatchIndex !== -1 && winnerTeam) {
+        const targetMatch = { ...updated[targetMatchIndex] };
+        if (completedMatch.nextMatchSlot === 'team1') {
+          targetMatch.team1 = winnerTeam;
+        } else {
+          targetMatch.team2 = winnerTeam;
+        }
+        updated[targetMatchIndex] = targetMatch;
+
+        // Custom notification trigger for bracket progress
+        onAddNotification({
+          id: `notif-${Date.now()}-prop`,
+          title: 'Avanzamento Tabellone 🏆',
+          message: `I vincitori "${winnerTeam.name}" passano al turno successivo (${completedMatch.roundLabel} ➔ ${targetMatch.roundLabel})!`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          type: 'live_update',
+          matchId: targetMatch.id,
+        });
+      }
+    }
+
+    if (completedMatch.winnerId && completedMatch.loserMatchId) {
+      const loserTeam = completedMatch.winnerId === completedMatch.team1?.id ? completedMatch.team2 : completedMatch.team1;
+      const targetMatchIndex = updated.findIndex(m => m.id === completedMatch.loserMatchId);
+
+      if (targetMatchIndex !== -1 && loserTeam) {
+        const targetMatch = { ...updated[targetMatchIndex] };
+        if (completedMatch.loserMatchSlot === 'team1') {
+          targetMatch.team1 = loserTeam;
+        } else {
+          targetMatch.team2 = loserTeam;
+        }
+        updated[targetMatchIndex] = targetMatch;
+
+        // Custom notification trigger for loser bracket progress
+        onAddNotification({
+          id: `notif-${Date.now()}-prop-loser`,
+          title: 'Tabellone Perdenti 🔄',
+          message: `La squadra "${loserTeam.name}" scende nel tabellone dei perdenti (${completedMatch.roundLabel} ➔ ${targetMatch.roundLabel}) per giocarsi l'accesso in semifinale.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          type: 'live_update',
+          matchId: targetMatch.id,
+        });
+      }
+    }
+
+    // Trigger general notification for match completed
+    if (completedMatch.status === 'completed' && completedMatch.winnerId) {
+      const winnerTeam = completedMatch.winnerId === completedMatch.team1?.id ? completedMatch.team1 : completedMatch.team2;
+      const scoresString = completedMatch.sets.map(s => `${s.team1}-${s.team2}`).join(', ');
+      
+      onAddNotification({
+        id: `notif-${Date.now()}-res`,
+        title: `Risultato Finale: ${completedMatch.team1?.name} vs ${completedMatch.team2?.name}`,
+        message: `Vince ${winnerTeam?.name} per ${completedMatch.team1Score} a ${completedMatch.team2Score} (${scoresString}) sul ${completedMatch.court}!`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: 'result',
+        matchId: completedMatch.id,
+      });
+    }
+
+    onUpdateMatches(updated);
+  };
+
+  // Fully Automated Quick Seed
+  const handleQuickPlayAllMatch = (match: Match) => {
+    if (!match.team1 || !match.team2) return;
+    const resolved = simulateCompletedMatch(match);
+    propagateWinner(resolved);
+  };
+
+  // Live Match Play-By-Play Simulation Engine
+  const getVolleyCommentary = (t1: string, t2: string, sc1: number, sc2: number) => {
+    const comments = [
+      `Battuta potente di ${t1}... grandiosa ricezione di ${t2}!`,
+      `Incredibile muro di ${t1} a fermare l'attacco avversario!`,
+      `Schiacciata potente sulla linea laterale per ${t1}! Punto!`,
+      `Ace al servizio per ${t1}! Spettacolo sulla sabbia!`,
+      `Ersis difende di piede! ${t2} non riesce a rimandare la palla di là.`,
+      `Errore in battuta per ${t2}, pallone a rete.`,
+      `Doppio tocco fischiato a ${t2}. Giro palla.`,
+      `Pallonetto astuto di ${t1} che scavalca il muro avversario!`,
+      `Scambio lunghissimo sulla spiaggia! Tutti e quattro i giocatori stremati, alla fine la spunta ${t1}!`,
+      `Servizio corto che inganna la difesa di ${t2}. Punto diretto!`,
+    ];
+    return comments[Math.floor(Math.random() * comments.length)];
+  };
+
+  const startLiveSimulation = (match: Match) => {
+    if (!match.team1 || !match.team2 || liveSimulatingMatchId) return;
+
+    setLiveSimulatingMatchId(match.id);
+    setSimPointsT1(0);
+    setSimPointsT2(0);
+    setSimCurrentSet(1);
+    setSimSetsT1(0);
+    setSimSetsT2(0);
+    setSimCompletedSets([]);
+    setLiveTicker(`Riscaldamento completato per ${match.team1.name} e ${match.team2.name}. Il match sta per iniziare! 🏐`);
+
+    // Force match status to live
+    const ongoingMatch: Match = {
+      ...match,
+      status: 'live',
+      livePointTicker: 'Match Iniziato!'
+    };
+    onUpdateMatches(matches.map(m => m.id === match.id ? ongoingMatch : m));
+
+    onAddNotification({
+      id: `notif-${Date.now()}-live-start`,
+      title: '🚨 MATCH LIVE IN CORSO!',
+      message: `${match.team1.name} vs ${match.team2.name} è iniziato sul ${match.court}. Segui in diretta!`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'live_update',
+      matchId: match.id,
+    });
+  };
+
+  // Effect to drive point-by-point simulation ticker
+  useEffect(() => {
+    if (!liveSimulatingMatchId) return;
+
+    const matchObj = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!matchObj || !matchObj.team1 || !matchObj.team2) return;
+
+    const t1Name = matchObj.team1.name;
+    const t2Name = matchObj.team2.name;
+
+    const interval = setInterval(() => {
+      // Determine set point thresholds based on FIPAV Beach Volley standard
+      const isTieBreak = simCurrentSet === 3;
+      const targetPoints = isTieBreak ? 15 : 21;
+
+      // Random point winner based on small random bias
+      const t1WinsPoint = Math.random() < 0.51; // slight bias to prevent exact tie draws
+      
+      let nextP1 = simPointsT1;
+      let nextP2 = simPointsT2;
+
+      if (t1WinsPoint) {
+        nextP1++;
+        setSimPointsT1(nextP1);
+      } else {
+        nextP2++;
+        setSimPointsT2(nextP2);
+      }
+
+      // Live description
+      const pointWinnerName = t1WinsPoint ? t1Name : t2Name;
+      const commentary = getVolleyCommentary(pointWinnerName, t1WinsPoint ? t2Name : t1Name, nextP1, nextP2);
+      const currentScoreString = `[Set ${simCurrentSet}] ${t1Name} ${nextP1} - ${nextP2} ${t2Name}`;
+      setLiveTicker(`${commentary} ➔ ${currentScoreString}`);
+
+      // Push real-time event ticker to individual match card
+      const updatedMatchesTicker = matches.map(m => {
+        if (m.id === liveSimulatingMatchId) {
+          return {
+            ...m,
+            livePointTicker: `${pointWinnerName} assegna punto! ${nextP1}-${nextP2}`,
+            sets: [...simCompletedSets, { team1: nextP1, team2: nextP2 }]
+          };
+        }
+        return m;
+      });
+      onUpdateMatches(updatedMatchesTicker);
+
+      // Check if Set concluded
+      if ((nextP1 >= targetPoints || nextP2 >= targetPoints) && Math.abs(nextP1 - nextP2) >= 2) {
+        // Set finished
+        const finalSetScore: SetScore = { team1: nextP1, team2: nextP2 };
+        const updatedCompleted = [...simCompletedSets, finalSetScore];
+        setSimCompletedSets(updatedCompleted);
+
+        let nextSetsT1 = simSetsT1;
+        let nextSetsT2 = simSetsT2;
+
+        if (nextP1 > nextP2) {
+          nextSetsT1++;
+          setSimSetsT1(nextSetsT1);
+        } else {
+          nextSetsT2++;
+          setSimSetsT2(nextSetsT2);
+        }
+
+        // Check if Match finished
+        const matchWinnerOfSets = nextSetsT1 >= 2 ? matchObj.team1.id : nextSetsT2 >= 2 ? matchObj.team2.id : null;
+
+        if (matchWinnerOfSets) {
+          // Complete entire simulator
+          const finalMatch: Match = {
+            ...matchObj,
+            status: 'completed',
+            team1Score: nextSetsT1,
+            team2Score: nextSetsT2,
+            sets: updatedCompleted,
+            winnerId: matchWinnerOfSets,
+            livePointTicker: undefined,
+          };
+          
+          clearInterval(interval);
+          setLiveSimulatingMatchId(null);
+          propagateWinner(finalMatch);
+        } else {
+          // Proceed to next set
+          setSimCurrentSet(simCurrentSet + 1);
+          setSimPointsT1(0);
+          setSimPointsT2(0);
+          setLiveTicker(`Fine Set ${simCurrentSet}! Risultato: ${nextP1}-${nextP2}. Gli atleti cambiano campo di gioco... 🏝️`);
+        }
+      }
+
+    }, 2500); // point every 2.5 seconds feels engaging but fast!
+
+    return () => clearInterval(interval);
+  }, [liveSimulatingMatchId, simPointsT1, simPointsT2, simCurrentSet, simSetsT1, simSetsT2, simCompletedSets, matches]);
+
+
+  // Synchronize tabs and groups on load
+  const groupMatches = matches.filter(m => m.phase === 'gironi');
+  const groupNames = Array.from(new Set(groupMatches.map(m => m.groupName).filter(Boolean))) as string[];
+
+  useEffect(() => {
+    const hasGironi = matches.some(m => m.phase === 'gironi');
+    if (hasGironi) {
+      setActivePhaseTab('gironi');
+    } else {
+      setActivePhaseTab('eliminazione');
+    }
+  }, [matches.length]);
+
+  useEffect(() => {
+    if (groupNames.length > 0 && (!selectedGroupTab || !groupNames.includes(selectedGroupTab))) {
+      setSelectedGroupTab(groupNames[0]);
+    }
+  }, [groupNames, selectedGroupTab]);
+
+  // Handle advancing to Phase 2 (Playoffs Bracket)
+  const handleUnlockPlayoffs = () => {
+    const isFinished = groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed');
+    if (!isFinished) {
+      setAlertMessage("Completare tutte le partite della fase a gironi per sbloccare i playoff!");
+      return;
+    }
+
+    // Compute standings per group
+    const groupsStandings = computeGroupStandings(teams, groupMatches);
+    const firstMatch = matches[0];
+    const ptsSet = firstMatch?.pointsPerSet || 21;
+    const mSets = firstMatch?.maxSets || 3;
+    const playoffMatches = generatePlayoffsFromGroups(
+      groupsStandings,
+      '15:30',
+      40,
+      courtCount,
+      ptsSet,
+      mSets,
+      sfPointsPerSet,
+      sfMaxSets
+    );
+
+    onUpdateMatches([...matches, ...playoffMatches]);
+
+    onAddNotification({
+      id: `notif-playoffs-${Date.now()}`,
+      title: '🏆 Tabellone Playoff Generato!',
+      message: 'La fase a gironi è conclusa! Le migliori squadre si sono qualificate ufficialmente per la fase ad eliminazione diretta.',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'schedule_change',
+    });
+
+    setActivePhaseTab('eliminazione');
+  };
+
+  // Initialize tournament config with preloaded structures
+  const handleCreateTournament = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Auto adjust groupCount logically if pools/combined config chosen
+    let resolvedGroupCount = groupCount;
+    if (formula === 'combined') {
+      if (teamsCount === 4) resolvedGroupCount = 1;
+      else if (teamsCount === 8) resolvedGroupCount = 2;
+      else if (teamsCount === 16) resolvedGroupCount = 4;
+    }
+
+    onGenerateTournament({
+      name: tournamentName,
+      formula,
+      teamsCount: formula === 'double_elim' ? 8 : teamsCount,
+      groupCount: (formula === 'direct' || formula === 'double_elim') ? 1 : resolvedGroupCount,
+      courtCount,
+      pointsPerSet,
+      maxSets,
+      sfPointsPerSet,
+      sfMaxSets
+    });
+  };
+
+  // Group matches by round for Visual Bracket (filter out group stage matches to avoid overlap with playoff rounds)
+  const playoffMatchesOnly = matches.filter(m => m.phase !== 'gironi');
+
+  const roundsMap = playoffMatchesOnly.reduce((acc, m) => {
+    if (!acc[m.round]) acc[m.round] = [];
+    acc[m.round].push(m);
+    return acc;
+  }, {} as Record<number, Match[]>);
+
+  const totalRoundsCount = Object.keys(roundsMap).length;
+
+  return (
+    <div id="bracket-page-root" className="space-y-8">
+      {/* Dynamic Tournament Configuration Panel (Visible if no matches generated yet) */}
+      {matches.length === 0 ? (
+        <div id="tournament-setup-card" className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl border-4 border-orange-300 p-8 text-center space-y-6">
+          <div className="w-16 h-16 bg-orange-100 border-2 border-orange-300 rounded-full flex items-center justify-center mx-auto text-orange-600">
+            <Award className="w-8 h-8 stroke-[2.5]" />
+          </div>
+          <div>
+            <h3 className="text-2xl font-black text-orange-700 uppercase italic tracking-tight font-sans">Crea Tabellone Torneo</h3>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1 max-w-sm mx-auto">
+              Configura la formula più adatta al numero di coppie iscritte. Il sistema distribuirà e accoppierà i partecipanti.
+            </p>
+          </div>
+
+          <form onSubmit={handleCreateTournament} className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left p-6 bg-slate-50 border-2 border-slate-200 rounded-2xl">
+            {/* Nome Torneo */}
+            <div className="space-y-1 md:col-span-2">
+              <label htmlFor="setup-tournament-name" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Nome dell'Evento</label>
+              <input
+                id="setup-tournament-name"
+                type="text"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-semibold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                value={tournamentName}
+                onChange={(e) => setTournamentName(e.target.value)}
+                required
+              />
+            </div>
+
+            {/* Formula select */}
+            <div className="space-y-1">
+              <label htmlFor="setup-formula" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Formula del Torneo</label>
+              <select
+                id="setup-formula"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                value={formula}
+                onChange={(e) => {
+                  const val = e.target.value as 'direct' | 'pools' | 'combined' | 'double_elim';
+                  setFormula(val);
+                  setTeamsCount(getSmartDefaultTeamsCount(val));
+                }}
+              >
+                <option value="direct">Eliminazione Diretta 🏆</option>
+                <option value="pools">Solo Gironi all'Italiana 🏐</option>
+                <option value="combined">Fasi Multiple: Gironi + Playoff 🥇</option>
+                <option value="double_elim">Vincenti e Perdenti (Doppia Eliminazione) 🔄</option>
+              </select>
+            </div>
+
+            {/* Numero Squadre */}
+            <div className="space-y-1">
+              <label htmlFor="setup-teams-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Numero Squadre</label>
+              <select
+                id="setup-teams-count"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                value={teamsCount}
+                onChange={(e) => setTeamsCount(Number(e.target.value))}
+                disabled={formula === 'double_elim'}
+              >
+                {getTeamsCountOptions().map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Numero Gironi (Only visible for pools formula) */}
+            {formula === 'pools' && (
+              <div className="space-y-1">
+                <label htmlFor="setup-group-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Numero di Gironi</label>
+                <select
+                  id="setup-group-count"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                  value={groupCount}
+                  onChange={(e) => setGroupCount(Number(e.target.value))}
+                >
+                  {teamsCount <= 6 && <option value={1}>1 Girone Unico</option>}
+                  {teamsCount > 6 && teamsCount <= 12 && (
+                    <>
+                      <option value={1}>1 Girone Unico</option>
+                      <option value={2}>2 Gironi</option>
+                    </>
+                  )}
+                  {teamsCount > 12 && (
+                    <>
+                      <option value={2}>2 Gironi</option>
+                      <option value={4}>4 Gironi</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            )}
+
+            {/* Campi di gioco */}
+            <div className={`space-y-1 ${formula !== 'pools' ? 'md:col-span-2' : ''}`}>
+              <label htmlFor="setup-court-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Campi Disponibili</label>
+              <select
+                id="setup-court-count"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                value={courtCount}
+                onChange={(e) => setCourtCount(Number(e.target.value))}
+              >
+                <option value={1}>1 Campo da gioco</option>
+                <option value={2}>2 Campi da gioco</option>
+                <option value={3}>3 Campi (Grandi eventi)</option>
+                <option value={4}>4 Campi (Beach Slam)</option>
+              </select>
+            </div>
+
+            {/* Punti per Set */}
+            <div className="space-y-1">
+              <label htmlFor="setup-points-per-set" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Punti al Set</label>
+              <select
+                id="setup-points-per-set"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                value={pointsPerSet}
+                onChange={(e) => setPointsPerSet(Number(e.target.value) as 15 | 21)}
+              >
+                <option value={21}>Set a 21 punti (Standard)</option>
+                <option value={15}>Set a 15 punti (Veloce / Short)</option>
+              </select>
+            </div>
+
+            {/* Numero di Set */}
+            <div className="space-y-1">
+              <label htmlFor="setup-max-sets" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Numero di Set</label>
+              <select
+                id="setup-max-sets"
+                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                value={maxSets}
+                onChange={(e) => setMaxSets(Number(e.target.value) as 1 | 3)}
+              >
+                <option value={3}>Al meglio dei 3 set (2 vinti)</option>
+                <option value={1}>Set Singolo (1 set unico)</option>
+              </select>
+            </div>
+
+            {/* Punti per Set Semifinali e Finali */}
+            {formula !== 'pools' && (
+              <>
+                <div className="space-y-1">
+                  <label htmlFor="setup-sf-points-per-set" className="text-xs font-bold text-orange-600 uppercase tracking-wider flex items-center gap-1">
+                    <Trophy className="w-3.5 h-3.5 text-orange-500" /> Punti Set (Semifinali & Finali)
+                  </label>
+                  <select
+                    id="setup-sf-points-per-set"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-orange-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                    value={sfPointsPerSet}
+                    onChange={(e) => setSfPointsPerSet(Number(e.target.value) as 15 | 21)}
+                  >
+                    <option value={21}>Set a 21 punti (Standard)</option>
+                    <option value={15}>Set a 15 punti (Veloce / Short)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="setup-sf-max-sets" className="text-xs font-bold text-orange-600 uppercase tracking-wider flex items-center gap-1">
+                    <Trophy className="w-3.5 h-3.5 text-orange-500" /> Num Set (Semifinali & Finali)
+                  </label>
+                  <select
+                    id="setup-sf-max-sets"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-orange-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                    value={sfMaxSets}
+                    onChange={(e) => setSfMaxSets(Number(e.target.value) as 1 | 3)}
+                  >
+                    <option value={3}>Al meglio dei 3 set (2 vinti)</option>
+                    <option value={1}>Set Singolo (1 set unico)</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            {/* Explanatory Info text depending on configuration */}
+            <div className="md:col-span-2 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-800 font-semibold space-y-1 leading-relaxed">
+              {formula === 'direct' && (
+                <p>🏆 Formula classica ad eliminazione diretta: le squadre perdenti vengono eliminate subito. Prevede un tabellone da {teamsCount} slot totali (con passaggi automatici del turno in presenza di BYE/riposi).</p>
+              )}
+              {formula === 'pools' && (
+                <p>🏐 Formula all'italiana: {groupCount === 1 ? "girone unico" : `${groupCount} gironi separati`} di sola andata. Classifica definita in base a vittorie, quoziente set e quoziente punti.</p>
+              )}
+              {formula === 'combined' && (
+                <p>
+                  🥇 Fase 1: {teamsCount === 4 ? '1 Girone unico' : `${teamsCount / 4} Gironi`} da 4 squadre con classifica live.
+                  <br />
+                  Fase 2: I primi 2 di ciascun girone si qualificano per la fase di {teamsCount === 4 ? 'Finale' : teamsCount === 8 ? 'Semifinali' : 'Quarti di finale ad eliminazione diretta'}!
+                </p>
+              )}
+              {formula === 'double_elim' && (
+                <p>🔄 Formula Vincenti e Perdenti (Doppia Eliminazione a 8): Si inizia tutti nel Primo Turno (4 match). I vincitori giocano nel Tabellone Vincenti (2 match) e i perdenti nel Tabellone Perdenti (2 match). Da ciascun tabellone usciranno 2 squadre che si sfideranno poi nelle Semifinali incrociate e nella Finale!</p>
+              )}
+            </div>
+
+            {/* Penalized/Excluded teams notice when teams registered exceeds selection limit */}
+            {teams.length > teamsCount && (
+              <div id="excluded-teams-alert" className="md:col-span-2 p-4 bg-rose-50 border-2 border-rose-200 rounded-2xl text-xs text-rose-800 space-y-2 leading-relaxed">
+                <div className="flex items-center gap-2 font-black text-rose-700 uppercase tracking-wider text-[11px]">
+                  <span>⚠️ Attenzione: Esclusione Squadre in Eccesso</span>
+                </div>
+                <p className="font-semibold">
+                  Ci sono {teams.length} squadre iscritte ma la formula selezionata ne ammette massimo <strong className="text-rose-900">{teamsCount}</strong>. Le squadre iscritte per ultime in ordine cronologico rimarranno escluse e registrate come riserve in caso di ritiri prima del torneo:
+                </p>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {excludedTeamsList.map((team, idx) => {
+                    const timePart = team.registeredAt.includes(' ') ? team.registeredAt.split(' ')[1].substring(0, 5) : '';
+                    const datePart = team.registeredAt.includes(' ') ? team.registeredAt.split(' ')[0] : team.registeredAt;
+                    const displayTime = timePart ? `${datePart} alle ${timePart}` : datePart;
+                    return (
+                      <span
+                        key={team.id}
+                        className="inline-flex items-center bg-white text-rose-700 text-[10px] px-2.5 py-1.5 rounded-xl border-2 border-rose-200 font-extrabold shadow-sm"
+                        title={displayTime}
+                      >
+                        {idx + 1}. {team.name} ({timePart || 'Ultima'})
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Tournament Duration & Match Stats Bento Card */}
+            <div className="md:col-span-2 p-5 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 rounded-2xl border-2 border-slate-700 text-white shadow-lg space-y-4">
+              <div className="flex items-center gap-2 border-b border-slate-700/80 pb-2.5">
+                <Clock className="w-4 h-4 text-orange-400 shrink-0" />
+                <h4 className="font-black text-xs uppercase tracking-wider text-orange-300">Stima Tempi e Carico Ore Torneo 🕒</h4>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pb-1">
+                <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Partite Reali</span>
+                  <span className="text-xl font-black mt-1 text-sky-300">{setupStats.realMatchesCount} <span className="text-xs font-normal text-slate-400">match</span></span>
+                </div>
+                <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Durata Match</span>
+                  {setupStats.hasDifferentSFParams ? (
+                    <div className="mt-1 space-y-0.5 text-left">
+                      <div className="text-[11.5px] font-extrabold text-orange-300 leading-tight">
+                        Gen: <span className="text-sm font-black text-white">{setupStats.singleMatchDuration}</span> min
+                      </div>
+                      <div className="text-[11.5px] font-extrabold text-rose-300 leading-tight flex items-center gap-0.5">
+                        SF/F: <span className="text-sm font-black text-white">{setupStats.sfMatchDuration}</span> min
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-xl font-black mt-1 text-orange-300">
+                      {setupStats.singleMatchDuration} <span className="text-xs font-normal text-slate-400">min</span>
+                    </span>
+                  )}
+                </div>
+                <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Volume Gioco</span>
+                  <span className="text-xl font-black mt-1 text-emerald-300">
+                    {Math.floor(setupStats.totalRawMinutes / 60)}h {setupStats.totalRawMinutes % 60}m
+                  </span>
+                </div>
+                <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between ring-2 ring-orange-500/20">
+                  <span className="text-[10px] font-bold text-orange-200 uppercase tracking-widest">Durata Torneo</span>
+                  <span className="text-xl font-black mt-1 text-amber-300">
+                    {Math.floor(setupStats.totalElapsedMinutes / 60)}h {setupStats.totalElapsedMinutes % 60}m
+                  </span>
+                </div>
+              </div>
+              <p className="text-[10.5px] text-slate-400 leading-relaxed font-semibold">
+                * La stima teorica tiene conto dello svolgimento su <strong className="text-slate-200">{courtCount} {courtCount === 1 ? 'campo' : 'campi'}</strong> in contemporanea ed esclude i match di riposo (BYE). 
+                <br />
+                Parametri: Set al meglio di <strong className="text-slate-200">{maxSets}</strong>, fino a <strong className="text-slate-200">{pointsPerSet}</strong> punti per set
+                ({maxSets === 1 ? (pointsPerSet === 15 ? '1 set a 15 punti = 15 min' : '1 set a 21 punti = 20 min') : (pointsPerSet === 15 ? 'al meglio di 3 set a 15 punti = 45 min' : 'al meglio di 3 set a 21 punti = 50 min')}).
+                {formula !== 'pools' && (maxSets !== sfMaxSets || pointsPerSet !== sfPointsPerSet) && (
+                  <>
+                    <br />
+                    <span className="text-orange-300">⚠️ Semifinali & Finali: Set al meglio di <strong className="text-orange-200">{sfMaxSets}</strong>, fino a <strong className="text-orange-200">{sfPointsPerSet}</strong> punti per set ({sfMaxSets === 1 ? (sfPointsPerSet === 15 ? '15 min' : '20 min') : (sfPointsPerSet === 15 ? '45 min' : '50 min')}).</span>
+                  </>
+                )}
+              </p>
+            </div>
+
+            {/* Stats Check */}
+            <div className="md:col-span-2 pt-2 text-center text-xs font-bold text-slate-500/80 uppercase tracking-widest flex justify-center gap-4">
+              <span>Squadre iscritte: <strong className="text-emerald-600">{teams.length}</strong></span>
+              <span>Richieste: <strong className="text-orange-600">{teamsCount}</strong></span>
+            </div>
+
+            <div className="md:col-span-2 pt-3">
+              <button
+                id="generate-bracket-action-btn"
+                type="submit"
+                className="w-full py-3 px-4 rounded-full font-black tracking-wider uppercase italic shadow-md transition-all text-sm flex items-center justify-center gap-2 active:translate-y-0.5 border-b-4 bg-orange-400 border-orange-600 hover:bg-orange-500 hover:border-orange-700 text-white"
+              >
+                <Shuffle className="w-4 h-4 stroke-[3]" />
+                {teams.length < teamsCount ? 'Genera Torneo con BYE 🏖️' : 'Genera Torneo Adesso 🏖️'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : (
+        <>
+          {/* Header Controls for Active Tournament */}
+          <div className="bg-white rounded-3xl border-4 border-sky-300 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="h-3.5 w-3.5 rounded-full bg-orange-500 animate-ping shrink-0"></span>
+                <h3 className="font-black text-sky-950 text-xl tracking-tight uppercase italic">{tournamentName}</h3>
+              </div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1.5 flex items-center gap-2">
+                <span>🏖️ {matches.some(m => m.phase === 'gironi') ? (matches.some(m => m.phase === 'eliminazione') ? 'Fasi Multiple (Gironi + Playoff)' : 'Fase a Gironi') : 'Eliminazione Diretta'}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                <span>{matches.length} Incontri Inseriti</span>
+              </p>
+              <div className="flex flex-wrap gap-2 mt-2.5">
+                <span className="inline-flex items-center text-[10px] font-black uppercase text-sky-800 bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-200">
+                  <Trophy className="w-3 h-3 text-orange-500 mr-1" />
+                  {activeStats.realMatchesCount} Match Reali
+                </span>
+                <span className="inline-flex items-center text-[10px] font-black uppercase text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                  <Clock className="w-3 h-3 text-amber-500 mr-1" />
+                  Durata Stima: {Math.floor(activeStats.totalElapsedMinutes / 60)}h {activeStats.totalElapsedMinutes % 60}m
+                </span>
+                <span className="inline-flex items-center text-[10px] font-black uppercase text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                  <Sparkles className="w-3 h-3 text-emerald-500 mr-1" />
+                  Volume Gioco: {Math.floor(activeStats.totalRawMinutes / 60)}h {activeStats.totalRawMinutes % 60}m
+                </span>
+              </div>
+            </div>
+            {/* View selectors (Eliminazione Phase only) */}
+            <div className="flex flex-wrap items-center gap-3">
+              {activePhaseTab === 'eliminazione' && (
+                <div className="flex bg-slate-100 p-1.5 rounded-full border-2 border-slate-200 gap-1">
+                  <button
+                    id="toggle-view-visual"
+                    onClick={() => setViewMode('visual')}
+                    className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
+                      viewMode === 'visual' ? 'bg-orange-400 border-orange-600 text-white shadow-md' : 'text-slate-500'
+                    }`}
+                  >
+                    Tabellone Visivo
+                  </button>
+                  <button
+                    id="toggle-view-cards"
+                    onClick={() => setViewMode('cards')}
+                    className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
+                      viewMode === 'cards' ? 'bg-orange-400 border-orange-600 text-white shadow-md' : 'text-slate-500'
+                    }`}
+                  >
+                    Elenco Gare
+                  </button>
+                </div>
+              )}
+              <button
+                id="reset-tournament-btn"
+                onClick={() => setShowResetConfirmModal(true)}
+                className="text-xs bg-rose-50 border-2 border-rose-300 text-rose-700 font-extrabold tracking-wider uppercase py-2 px-4 rounded-full hover:bg-rose-100 transition-all shadow-sm"
+              >
+                Azzera Torneo
+              </button>
+            </div>
+          </div>
+
+          {/* Phase selector tabs for multi-phase tournaments */}
+          {matches.some(m => m.phase === 'gironi') && (
+            <div className="flex bg-sky-900/10 p-1 rounded-2xl border border-sky-950/20 max-w-md mx-auto">
+              <button
+                onClick={() => setActivePhaseTab('gironi')}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                  activePhaseTab === 'gironi'
+                    ? 'bg-amber-400 text-white shadow-md'
+                    : 'text-sky-950 hover:bg-sky-900/5'
+                }`}
+              >
+                <ListFilter className="w-4 h-4" />
+                Fase 1: Gironi (Pool Stage)
+              </button>
+              <button
+                onClick={() => {
+                  const hasPlayoffs = matches.some(m => m.phase === 'eliminazione');
+                  if (!hasPlayoffs) {
+                    setAlertMessage('Completa la Fase a Gironi e clicca su "Genera Playoff" per sbloccare la Fase ad Eliminazione Diretta!');
+                    return;
+                  }
+                  setActivePhaseTab('eliminazione');
+                }}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                  activePhaseTab === 'eliminazione'
+                    ? 'bg-orange-500 text-white shadow-md'
+                    : 'text-sky-950 hover:bg-sky-900/5'
+                }`}
+              >
+                <Trophy className="w-4 h-4" />
+                Fase 2: Playoff (Tabellone)
+              </button>
+            </div>
+          )}
+
+          {/* Simulated point tracker ticker box if a simulation is active */}
+          <AnimatePresence>
+            {liveSimulatingMatchId && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                id="live-ticker-box"
+                className="bg-orange-100 border-4 border-orange-400 rounded-3xl p-6 text-center flex flex-col items-center gap-3 shadow-xl relative overflow-hidden"
+              >
+                <div className="absolute top-0 right-0 p-2 bg-orange-400 text-white text-[10px] font-bold rounded-bl-xl uppercase tracking-widest animate-pulse">
+                  SIMULAZIONE LIVE IN CORSO
+                </div>
+                <div className="flex items-center gap-2 px-3 py-1 bg-white border border-orange-300 rounded-full text-orange-850 text-[10px] font-black tracking-widest uppercase shadow-sm mt-3">
+                  <Zap className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
+                  COMMENTATORE AUTOMATICO
+                </div>
+                <p id="live-ticker-text" className="text-base font-black text-slate-800 uppercase italic mt-1">
+                  "{liveTicker}"
+                </p>
+                <div className="w-full max-w-md bg-white border-2 border-orange-200 h-3 rounded-full overflow-hidden mt-2 p-0.5 shadow-inner">
+                  <div className="h-full bg-orange-500 rounded-full animate-pulse transition-all duration-300 w-2/3 mx-auto"></div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* RENDERING DEPENDING ON ACTIVE PHASE TAB */}
+          {activePhaseTab === 'gironi' ? (
+            /* PHASE 1: GIRONI (POOL PLAYSTAGE) VIEW */
+            <div id="gironi-phase-view" className="space-y-6">
+              {/* Group pills selection */}
+              <div className="flex justify-center flex-wrap gap-2 pt-2">
+                {groupNames.map((gName) => (
+                  <button
+                    key={gName}
+                    onClick={() => setSelectedGroupTab(gName)}
+                    className={`px-5 py-2 rounded-full text-xs font-black uppercase tracking-wider border-2 transition-all ${
+                      selectedGroupTab === gName
+                        ? 'bg-sky-950 border-sky-950 text-white shadow-md scale-105'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    🏖️ {gName}
+                  </button>
+                ))}
+              </div>
+
+              {/* Group View dual-content grids */}
+              {selectedGroupTab && (
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+                  
+                  {/* Left Column: Group Standings */}
+                  <div className="xl:col-span-5 bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl space-y-4">
+                    <div className="flex items-center gap-2 border-b border-sky-100 pb-3">
+                      <Trophy className="w-5 h-5 text-orange-400" />
+                      <h4 className="font-sans font-black text-sky-950 text-sm uppercase tracking-tight">Classifica Parziale {selectedGroupTab}</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b-2 border-slate-100 text-slate-400 font-extrabold uppercase tracking-wider text-[9px]">
+                            <th className="pb-2">Pos</th>
+                            <th className="pb-2">Coppia</th>
+                            <th className="pb-2 text-center text-[8px]">Gare</th>
+                            <th className="pb-2 text-center">V-P</th>
+                            <th className="pb-2 text-center font-mono">Set Ratio</th>
+                            <th className="pb-2 text-center font-mono">Pti Ratio</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                          {(() => {
+                            const activeGroupMatches = groupMatches.filter(m => m.groupName === selectedGroupTab);
+                            const groupTeamsInScope = teams.filter(t => t.group === selectedGroupTab);
+                            const sortedGroupTeams = [...computeTeamStats(groupTeamsInScope, activeGroupMatches)].sort((a, b) => {
+                              if (b.wins !== a.wins) return b.wins - a.wins;
+                              const aSetRatio = a.setsWon / (a.setsLost || 1);
+                              const bSetRatio = b.setsWon / (b.setsLost || 1);
+                              if (bSetRatio !== aSetRatio) return bSetRatio - aSetRatio;
+                              const aPointRatio = a.pointsWon / (a.pointsLost || 1);
+                              const bPointRatio = b.pointsWon / (b.pointsLost || 1);
+                              return bPointRatio - aPointRatio;
+                            });
+
+                            return sortedGroupTeams.map((team, idx) => {
+                              const isQualified = idx < 2; // top 2 qualify inside 4-group system
+                              const playedCount = team.wins + team.losses;
+                              return (
+                                <tr key={team.id} className="hover:bg-slate-50/50">
+                                  <td className="py-2.5">
+                                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black ${
+                                      isQualified ? 'bg-orange-400 text-white' : 'bg-slate-100 text-slate-400'
+                                    }`}>
+                                      {idx + 1}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 truncate max-w-[130px] uppercase tracking-wide font-black text-slate-800">
+                                    {team.name}
+                                  </td>
+                                  <td className="py-2.5 text-center text-slate-500 font-extrabold">
+                                    {playedCount}
+                                  </td>
+                                  <td className="py-2.5 text-center font-bold text-slate-600">
+                                    {team.wins} - {team.losses}
+                                  </td>
+                                  <td className="py-2.5 text-center font-mono text-xs font-bold text-indigo-700">
+                                    {team.setsWon}:{team.setsLost}
+                                  </td>
+                                  <td className="py-2.5 text-center font-mono text-xs font-normal text-slate-500">
+                                    {team.pointsWon}:{team.pointsLost}
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed tracking-wider pt-2 border-t border-slate-100">
+                      🏝️ * I primi 2 qualificati accedono al Tabellone Playoff al termine del girone.
+                    </p>
+                  </div>
+
+                  {/* Right Column: Mini-Calendar/Matches of this Group */}
+                  <div className="xl:col-span-7 space-y-4">
+                    {/* Playoffs seeding prompt banner if group matches completed */}
+                    {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-gradient-to-r from-orange-400 to-amber-400 border-4 border-orange-500 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 text-white text-left"
+                      >
+                        <div>
+                          <h4 className="font-extrabold text-md uppercase tracking-wider flex items-center gap-2 italic">
+                            <Sparkles className="w-5 h-5 animate-spin" />
+                            Gironi Completati! Sblocca i Playoff
+                          </h4>
+                          <p className="text-xs font-bold text-orange-55 uppercase tracking-wider mt-1.5">
+                            Tutti gli incontri sono finiti. Clicca per seedare e lanciare la fase finale!
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleUnlockPlayoffs}
+                          className="bg-white hover:bg-amber-50 text-orange-700 font-black py-2.5 px-5 rounded-full text-xs uppercase tracking-wider shrink-0 transition-all shadow-md active:translate-y-0.5 border-b-4 border-orange-205"
+                        >
+                          Genera Playoff 🏆
+                        </button>
+                      </motion.div>
+                    )}
+
+                    <h4 className="font-black text-slate-700 uppercase italic tracking-wider text-xs flex items-center gap-1.5 pt-1 bg-slate-100/30 px-3 py-1.5 rounded-xl border border-dashed border-slate-200">
+                      <Calendar className="w-4 h-4 text-orange-500 font-bold" />
+                      Partite del {selectedGroupTab}
+                    </h4>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {groupMatches.filter(m => m.groupName === selectedGroupTab).map((match) => {
+                        const isLive = match.status === 'live';
+                        const isCompleted = match.status === 'completed';
+                        const t1Winner = isCompleted && match.winnerId === match.team1?.id;
+                        const t2Winner = isCompleted && match.winnerId === match.team2?.id;
+
+                        return (
+                          <div
+                            key={match.id}
+                            className={`bg-white p-5 rounded-3xl border-4 shadow-xl transition-all flex flex-col justify-between ${
+                              isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-200 hover:border-sky-305'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex justify-between items-center pb-2 border-b-2 border-slate-100 mb-3 text-[10px]">
+                                <span className={`font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                                  isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
+                                }`}>
+                                  {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
+                                </span>
+                                <div className="flex gap-2">
+                                  <span className="flex items-center gap-1 text-slate-400 font-bold">
+                                    <Clock className="w-3.5 h-3.5 text-orange-500" />
+                                    {match.time}
+                                  </span>
+                                  <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
+                                </div>
+                              </div>
+
+                              {/* Competitors showdown */}
+                              <div className="space-y-2 pb-3.5">
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
+                                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block shrink-0"></span>
+                                    {match.team1 ? match.team1.name : 'TBD'}
+                                  </span>
+                                  <span className="font-mono text-xs font-black">{isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0"></span>
+                                    {match.team2 ? match.team2.name : 'TBD'}
+                                  </span>
+                                  <span className="font-mono text-xs font-black">{isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}</span>
+                                </div>
+                              </div>
+
+                              {/* Sets sub-scores */}
+                              {isCompleted && match.sets.length > 0 && (
+                                <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
+                                  <span>Set:</span>
+                                  <div className="flex gap-1.5 font-mono text-xs">
+                                    {match.sets.map((s, idx) => (
+                                      <span key={idx} className="bg-white py-0.5 px-1.5 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
+                                        {s.team1}-{s.team2}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Live & Edit Match triggers */}
+                            {match.team1 && match.team2 && !isCompleted && !isLive && (
+                              <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
+                                <button
+                                  disabled={!!liveSimulatingMatchId}
+                                  onClick={() => startLiveSimulation(match)}
+                                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700"
+                                >
+                                  Live
+                                </button>
+                                <button
+                                  onClick={() => openEditModal(match)}
+                                  className="bg-sky-500 hover:bg-sky-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700"
+                                >
+                                  Score
+                                </button>
+                                <button
+                                  onClick={() => handleQuickPlayAllMatch(match)}
+                                  className="bg-orange-400 hover:bg-orange-500 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600"
+                                >
+                                  Simula
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* PHASE 2: ELIMINAZIONE DIRETTA (PLAYOFF BRACKET) VIEW */
+            <>
+              {/* VIEW: VISUAL BRACKET FLOW */}
+              {viewMode === 'visual' && (
+                <div id="visual-bracket-container" className="space-y-2">
+                  <div className="flex items-center gap-1.5 justify-center md:hidden bg-sky-50 border border-sky-200 py-2 px-3 rounded-2xl text-[10.5px] font-black uppercase text-sky-800 tracking-wider">
+                    <span>👉 Scorri lateralmente per vedere tutti i turni del torneo</span>
+                  </div>
+                  <div className="overflow-x-auto pb-4 [-webkit-overflow-scrolling:touch]">
+                    <div className="min-w-[800px] flex gap-8 items-stretch pt-4 select-none">
+                    {Object.keys(roundsMap).map((roundKey) => {
+                      const rNum = Number(roundKey);
+                      const roundMatches = roundsMap[rNum] || [];
+                      const label = roundMatches[0]?.roundLabel || `Turno ${rNum}`;
+
+                      return (
+                        <div key={rNum} className="flex-1 flex flex-col justify-around space-y-6">
+                          <div className="text-center pb-2 border-b border-gray-100">
+                            <span className="text-xs font-semibold uppercase text-gray-400 tracking-wider">
+                              {label}
+                            </span>
+                          </div>
+
+                          <div className="flex-1 flex flex-col justify-around py-4">
+                            {roundMatches.map((match) => {
+                              const isLive = match.status === 'live';
+                              const isCompleted = match.status === 'completed';
+                              const t1Winner = isCompleted && match.winnerId === match.team1?.id;
+                              const t2Winner = isCompleted && match.winnerId === match.team2?.id;
+
+                              return (
+                                <div
+                                  key={match.id}
+                                  id={`visual-match-${match.id}`}
+                                  className="relative my-4"
+                                >
+                                  <div
+                                    className={`rounded-2xl border-4 p-3 bg-white w-full max-w-[240px] mx-auto transition-all shadow-md ${
+                                      isLive
+                                        ? 'border-orange-400 bg-orange-55/50 scale-105'
+                                        : isCompleted
+                                          ? 'border-emerald-300 bg-emerald-50/10'
+                                          : 'border-sky-200 hover:border-sky-400 hover:shadow-lg'
+                                    }`}
+                                  >
+                                    {/* Round label indicator badge */}
+                                    <div className="mb-2 flex justify-between items-center text-[10px] font-bold">
+                                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                        match.roundLabel.includes('Vincenti')
+                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-250'
+                                          : match.roundLabel.includes('Perdenti')
+                                            ? 'bg-rose-100 text-rose-800 border border-rose-250'
+                                            : 'bg-indigo-100 text-indigo-800 border border-indigo-250'
+                                      }`}>
+                                        {match.roundLabel}
+                                      </span>
+                                      <span className="text-[10px] font-mono text-slate-400 font-black">
+                                        #DE-{match.id.replace('m-de-', '')}
+                                      </span>
+                                    </div>
+
+                                    {/* Match time & court */}
+                                    <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-400 mb-2 border-b-2 border-slate-100 pb-1.5">
+                                      <span className="flex items-center gap-1 text-slate-500">
+                                        <Clock className="w-3 h-3 text-orange-500" />
+                                        {match.time}
+                                      </span>
+                                      <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
+                                    </div>
+
+                                    {/* Team 1 */}
+                                    <div className={`flex items-center justify-between py-1 px-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                      t1Winner ? 'bg-orange-100 text-slate-900 border border-orange-200' : 'text-slate-800'
+                                    }`}>
+                                      <div className="truncate flex-1 pr-2 flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+                                        <span id={`bracket-t1-${match.id}`} className={match.team1 ? '' : 'text-slate-400 italic font-medium'}>
+                                          {match.team1 ? match.team1.name : 'Da definire'}
+                                        </span>
+                                      </div>
+                                      <span id={`bracket-t1-score-${match.id}`} className={`font-mono text-xs px-1 ${t1Winner ? 'text-orange-600 font-black' : 'text-slate-500'}`}>
+                                        {isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}
+                                      </span>
+                                    </div>
+
+                                    {/* Team 2 */}
+                                    <div className={`flex items-center justify-between py-1 px-1.5 rounded-lg text-xs font-bold mt-1.5 transition-colors ${
+                                      t2Winner ? 'bg-orange-100 text-slate-900 border border-orange-200' : 'text-slate-800'
+                                    }`}>
+                                      <div className="truncate flex-1 pr-2 flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                                        <span id={`bracket-t2-${match.id}`} className={match.team2 ? '' : 'text-slate-400 italic font-medium'}>
+                                          {match.team2 ? match.team2.name : 'Da definire'}
+                                        </span>
+                                      </div>
+                                      <span id={`bracket-t2-score-${match.id}`} className={`font-mono text-xs px-1 ${t2Winner ? 'text-orange-600 font-black' : 'text-slate-500'}`}>
+                                        {isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}
+                                      </span>
+                                    </div>
+
+                                    {/* Scoring sets inline indicators */}
+                                    {isCompleted && match.sets.length > 0 && (
+                                      <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center gap-1 text-[9px] text-slate-405 font-black uppercase">
+                                        <span>Sets:</span>
+                                        {match.sets.map((s, idx) => (
+                                          <span key={idx} className="bg-emerald-50 text-emerald-800 border border-emerald-100 px-1 rounded font-bold">
+                                            {s.team1}-{s.team2}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Quick actions on hover */}
+                                    {match.team1 && match.team2 && !isCompleted && !isLive && (
+                                      <div className="mt-3 pt-2 border-t border-slate-100 flex gap-1 justify-end">
+                                        <button
+                                          id={`action-live-${match.id}`}
+                                          disabled={!!liveSimulatingMatchId}
+                                          onClick={() => startLiveSimulation(match)}
+                                          className="p-1 px-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-[9px] font-black uppercase tracking-wider border-b-2 border-emerald-700 disabled:opacity-50"
+                                          title="Simula Match Live"
+                                        >
+                                          LIVE
+                                        </button>
+                                        <button
+                                          id={`action-score-${match.id}`}
+                                          onClick={() => openEditModal(match)}
+                                          className="p-1 px-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded text-[9px] font-black uppercase tracking-wider border-b-2 border-sky-700"
+                                          title="Punteggio Manuale"
+                                        >
+                                          SCORE
+                                        </button>
+                                        <button
+                                          id={`action-fast-${match.id}`}
+                                          onClick={() => handleQuickPlayAllMatch(match)}
+                                          className="p-1 px-1.5 bg-orange-400 hover:bg-orange-500 text-white rounded text-[9px] font-black uppercase tracking-wider border-b-2 border-orange-600"
+                                          title="Automatica Istantanea"
+                                        >
+                                          FAST
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              )}
+
+              {/* VIEW: LIST/CARDS OF ALL MATCHES */}
+              {viewMode === 'cards' && (
+                <div id="cards-bracket-layout" className="space-y-6">
+                  {/* Round Selector Tabs */}
+                  <div className="flex gap-2 overflow-x-auto pb-1.5 pt-1">
+                    {Object.keys(roundsMap).map((roundKey) => {
+                      const rNum = Number(roundKey);
+                      let roundLabel = roundsMap[rNum]?.[0]?.roundLabel || `Turno ${rNum}`;
+                      if (rNum === 2 && matches.some(m => m.id.startsWith('m-de-'))) {
+                        roundLabel = "Vincenti / Perdenti";
+                      }
+                      return (
+                        <button
+                          key={rNum}
+                          id={`tab-select-round-${rNum}`}
+                          onClick={() => setSelectedRoundTab(rNum)}
+                          className={`px-5 py-2 text-xs font-black uppercase tracking-wider rounded-full whitespace-nowrap transition-all border-2 ${
+                            selectedRoundTab === rNum
+                              ? 'bg-orange-400 border-orange-600 text-white shadow-md'
+                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                          }`}
+                        >
+                          {roundLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Roster of select round matches */}
+                  <div id="selected-round-matches-grid" className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {(roundsMap[selectedRoundTab] || []).map((match) => {
+                      const isLive = match.status === 'live';
+                      const isCompleted = match.status === 'completed';
+                      const t1Winner = isCompleted && match.winnerId === match.team1?.id;
+                      const t2Winner = isCompleted && match.winnerId === match.team2?.id;
+
+                      return (
+                        <div
+                          key={match.id}
+                          id={`detailed-card-${match.id}`}
+                          className={`bg-white p-6 rounded-3xl border-4 shadow-xl transition-all ${
+                            isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-200 hover:border-sky-350'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center pb-3 border-b-2 border-slate-100 mb-4">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              <span className={`text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-widest ${
+                                isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
+                              }`}>
+                                {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
+                              </span>
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Incontro {match.id.replace('m-', '')}</span>
+                              <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] font-black px-2 rounded-full uppercase">
+                                {match.roundLabel}
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-bold uppercase text-slate-500 flex items-center gap-3">
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 text-orange-500" />
+                                {match.time}
+                              </span>
+                              <span className="flex items-center gap-1 bg-sky-50 px-2 py-0.5 rounded text-sky-700">
+                                <Calendar className="w-3.5 h-3.5 text-sky-500" />
+                                {match.court}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Opponents showdown */}
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-4 h-4 rounded-full bg-orange-400 border-2 border-white shadow-sm"></div>
+                                <div>
+                                  <h4 id={`detailed-t1-${match.id}`} className={`text-base font-black ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
+                                    {match.team1 ? match.team1.name : 'Squadra da definire'}
+                                  </h4>
+                                  {match.team1 && (
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{match.team1.player1} / {match.team1.player2}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <span id={`detailed-t1-sets-${match.id}`} className="text-sm font-black font-mono px-3.5 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 shadow-inner">
+                                {isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-4 h-4 rounded-full bg-amber-400 border-2 border-white shadow-sm"></div>
+                                <div>
+                                  <h4 id={`detailed-t2-${match.id}`} className={`text-base font-black ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
+                                    {match.team2 ? match.team2.name : 'Squadra da definire'}
+                                  </h4>
+                                  {match.team2 && (
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{match.team2.player1} / {match.team2.player2}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <span id={`detailed-t2-sets-${match.id}`} className="text-sm font-black font-mono px-3.5 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 shadow-inner">
+                                {isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Line of points per set */}
+                          {isCompleted && match.sets.length > 0 && (
+                            <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-3 mt-4 flex justify-between items-center text-xs font-black text-slate-500 uppercase tracking-wide font-sans">
+                              <span>Set parziali:</span>
+                              <div className="flex gap-2">
+                                {match.sets.map((s, idx) => (
+                                  <span key={idx} className="bg-white py-1 px-2.5 rounded-lg border-2 border-slate-200 shadow-sm font-mono text-slate-800 font-bold">
+                                    {s.team1} - {s.team2}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Simulation comments */}
+                          {isLive && match.livePointTicker && (
+                            <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-3.5 mt-4 text-xs font-bold italic text-orange-950">
+                              {match.livePointTicker}
+                            </div>
+                          )}
+
+                          {/* Actions */}
+                          {match.team1 && match.team2 && !isCompleted && !isLive && (
+                            <div className="grid grid-cols-3 gap-2.5 mt-5 pt-4 border-t-2 border-slate-100">
+                              <button
+                                id={`details-action-live-${match.id}`}
+                                disabled={!!liveSimulatingMatchId}
+                                onClick={() => startLiveSimulation(match)}
+                                className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-2.5 px-3 rounded-full text-xs flex items-center justify-center gap-1 border-b-4 border-emerald-700 active:translate-y-0.5 shadow-md disabled:opacity-40"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-white" />
+                                Live
+                              </button>
+                              <button
+                                id={`details-action-score-${match.id}`}
+                                onClick={() => openEditModal(match)}
+                                className="bg-sky-500 hover:bg-sky-600 text-white font-black py-2.5 px-3 rounded-full text-xs flex items-center justify-center gap-1 border-b-4 border-sky-700 active:translate-y-0.5 shadow-md"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                Modifica
+                              </button>
+                              <button
+                                id={`details-action-fast-${match.id}`}
+                                onClick={() => handleQuickPlayAllMatch(match)}
+                                className="bg-orange-400 hover:bg-orange-500 text-white font-black py-2.5 px-3 rounded-full text-xs flex items-center justify-center gap-1 border-b-4 border-orange-600 active:translate-y-0.5 shadow-md"
+                              >
+                                <Zap className="w-3.5 h-3.5 text-white" />
+                                Simula
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Manual Score Dialog popup */}
+      {editingMatch && (
+        <div id="manual-score-modal" className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden border-4 border-orange-300 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[95vh]">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-amber-400 p-5 text-white border-b-4 border-orange-600 flex justify-between items-center shrink-0">
+              <div>
+                <h4 className="font-black text-xl italic uppercase tracking-tight flex items-center gap-1.5">
+                  <Trophy className="w-5 h-5 text-yellow-250 animate-bounce" />
+                  Risultati ed Orari Gara
+                </h4>
+                <p className="text-[10px] font-black uppercase tracking-widest text-orange-100 mt-0.5">Gestione ed Allineamento Punteggi</p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setEditingMatch(null)}
+                className="text-white hover:text-orange-100 font-extrabold text-2xl p-1 px-2.5 rounded-lg border border-white/20 hover:bg-white/10 transition-colors"
+                title="Chiudi"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Scrollable Content Box */}
+            <div className="p-6 space-y-5 overflow-y-auto max-h-[75vh]">
+              {/* Informative Help Banner */}
+              <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-r-xl text-slate-700 text-xs font-semibold leading-relaxed flex gap-2.5 items-start">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-amber-900 text-[11px] uppercase tracking-wider">Regola di Inserimento</p>
+                  Inserisci i punti parziali per ciascuno dei set giocati. Per effettuare la validazione, controlla e conferma il <span className="underline font-bold">Risultato Finale Set</span> in fondo prima di salvare.
+                </div>
+              </div>
+
+              {/* Match Calendar/Court scheduling */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="edit-court-input" className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Campo di Gioco</label>
+                  <input
+                    id="edit-court-input"
+                    type="text"
+                    className="w-full px-3 py-2 border-2 border-slate-250 bg-white font-extrabold text-slate-800 rounded-xl text-xs focus:outline-none focus:border-orange-400"
+                    value={editCourt}
+                    onChange={(e) => setEditCourt(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-time-input" className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Orario Incontro</label>
+                  <input
+                    id="edit-time-input"
+                    type="text"
+                    className="w-full px-3 py-2 border-2 border-slate-250 bg-white font-extrabold text-slate-800 rounded-xl text-xs focus:outline-none focus:border-orange-400"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Set Scores inputs Section */}
+              {(() => {
+                const matchPointsPerSet = editingMatch.pointsPerSet || 21;
+                const matchMaxSets = editingMatch.maxSets || 3;
+                
+                // Live stats computed directly
+                let computedT1 = 0;
+                let computedT2 = 0;
+                if (t1Set1 > 0 || t2Set1 > 0) {
+                  if (t1Set1 > t2Set1) computedT1++;
+                  else if (t2Set1 > t1Set1) computedT2++;
+                }
+                if (matchMaxSets === 3 && (t1Set2 > 0 || t2Set2 > 0)) {
+                  if (t1Set2 > t2Set2) computedT1++;
+                  else if (t2Set2 > t1Set2) computedT2++;
+                }
+                if (matchMaxSets === 3 && (t1Set3 > 0 || t2Set3 > 0)) {
+                  if (t1Set3 > t2Set3) computedT1++;
+                  else if (t2Set3 > t1Set3) computedT2++;
+                }
+                
+                const isSync = (manualT1Sets === computedT1) && (manualT2Sets === computedT2);
+
+                return (
+                  <>
+                    <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Punteggi Parziali Set</h5>
+                    
+                    <div className="space-y-4">
+                      {/* SET 1 CARD */}
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 shadow-xs relative overflow-hidden">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Set 1 ({matchPointsPerSet} Pt)</span>
+                          {(t1Set1 > 0 || t2Set1 > 0) && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-orange-100 text-orange-700">
+                              {t1Set1 > t2Set1 ? editingMatch.team1?.name : editingMatch.team2?.name} vince set
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 items-center">
+                          {/* TEAM 1 INPUT */}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-600 block truncate">{editingMatch.team1?.name}</span>
+                            <input
+                              id="t1-set1-input"
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              className="w-full text-center px-3 py-2 border-2 border-slate-250 rounded-xl font-bold font-mono text-base focus:outline-none focus:border-orange-400 focus:bg-orange-50/10"
+                              value={t1Set1 === 0 ? '' : t1Set1}
+                              onChange={(e) => setT1Set1(e.target.value === '' ? 0 : Number(e.target.value))}
+                            />
+                          </div>
+                          {/* TEAM 2 INPUT */}
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-600 block truncate text-right">{editingMatch.team2?.name}</span>
+                            <input
+                              id="t2-set1-input"
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              className="w-full text-center px-3 py-2 border-2 border-slate-250 rounded-xl font-bold font-mono text-base focus:outline-none focus:border-orange-400 focus:bg-orange-50/10"
+                              value={t2Set1 === 0 ? '' : t2Set1}
+                              onChange={(e) => setT2Set1(e.target.value === '' ? 0 : Number(e.target.value))}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SET 2 CARD */}
+                      {matchMaxSets === 3 && (
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 shadow-xs relative overflow-hidden">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Set 2 ({matchPointsPerSet} Pt)</span>
+                            {(t1Set2 > 0 || t2Set2 > 0) && (
+                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-orange-100 text-orange-700">
+                                {t1Set2 > t2Set2 ? editingMatch.team1?.name : editingMatch.team2?.name} vince set
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 items-center">
+                            {/* TEAM 1 INPUT */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold text-slate-600 block truncate">{editingMatch.team1?.name}</span>
+                              <input
+                                id="t1-set2-input"
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                className="w-full text-center px-3 py-2 border-2 border-slate-250 rounded-xl font-bold font-mono text-base focus:outline-none focus:border-orange-400 focus:bg-orange-50/10"
+                                value={t1Set2 === 0 ? '' : t1Set2}
+                                onChange={(e) => setT1Set2(e.target.value === '' ? 0 : Number(e.target.value))}
+                              />
+                            </div>
+                            {/* TEAM 2 INPUT */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold text-slate-600 block truncate text-right">{editingMatch.team2?.name}</span>
+                              <input
+                                id="t2-set2-input"
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                className="w-full text-center px-3 py-2 border-2 border-slate-250 rounded-xl font-bold font-mono text-base focus:outline-none focus:border-orange-400 focus:bg-orange-50/10"
+                                value={t2Set2 === 0 ? '' : t2Set2}
+                                onChange={(e) => setT2Set2(e.target.value === '' ? 0 : Number(e.target.value))}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* TIEBREAK SET 3 CARD */}
+                      {matchMaxSets === 3 && (
+                        <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/60 shadow-xs relative overflow-hidden">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 block text-center">Set 3 - Eventuale Tie-Break (15 Pt)</span>
+                            {(t1Set3 > 0 || t2Set3 > 0) && (
+                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                                {t1Set3 > t2Set3 ? editingMatch.team1?.name : editingMatch.team2?.name} vince set
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 items-center">
+                            {/* TEAM 1 INPUT */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold text-amber-950 block truncate">{editingMatch.team1?.name}</span>
+                              <input
+                                id="t1-set3-input"
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                className="w-full text-center px-3 py-2 border-2 border-amber-200 rounded-xl font-bold font-mono text-base focus:outline-none focus:border-orange-400 bg-white"
+                                value={t1Set3 === 0 ? '' : t1Set3}
+                                onChange={(e) => setT1Set3(e.target.value === '' ? 0 : Number(e.target.value))}
+                              />
+                            </div>
+                            {/* TEAM 2 INPUT */}
+                            <div className="space-y-1">
+                              <span className="text-[10px] font-bold text-amber-950 block truncate text-right">{editingMatch.team2?.name}</span>
+                              <input
+                                id="t2-set3-input"
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                className="w-full text-center px-3 py-2 border-2 border-amber-200 rounded-xl font-bold font-mono text-base focus:outline-none focus:border-orange-400 bg-white"
+                                value={t2Set3 === 0 ? '' : t2Set3}
+                                onChange={(e) => setT2Set3(e.target.value === '' ? 0 : Number(e.target.value))}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* VERIFICATION AND MANUAL INTERACTIVE SET CONTROLLER */}
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3.5">
+                        <div className="flex items-center gap-1.5 border-b border-slate-200/50 pb-2">
+                          <Info className="w-4 h-4 text-sky-500 shrink-0" />
+                          <span className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                            Risultato Finale SET (per Verifica)
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* TEAM 1 MANUAL SETS */}
+                          <div className="space-y-1.5 text-center">
+                            <span className="text-[10px] font-extrabold text-slate-500 truncate block uppercase">
+                              Set Vinti {editingMatch.team1?.name}
+                            </span>
+                            <div className="flex justify-center gap-1 bg-white p-1 rounded-xl border-2 border-slate-200">
+                              {[0, 1, 2].filter(num => matchMaxSets === 3 ? true : num <= 1).map((num) => (
+                                <button
+                                  key={`t1-sets-${num}`}
+                                  type="button"
+                                  onClick={() => setManualT1Sets(num)}
+                                  className={`px-3 py-1.5 text-xs font-black rounded-lg transition-all ${
+                                    manualT1Sets === num
+                                      ? 'bg-orange-500 text-white shadow-sm scale-105'
+                                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {num}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* TEAM 2 MANUAL SETS */}
+                          <div className="space-y-1.5 text-center">
+                            <span className="text-[10px] font-extrabold text-slate-500 truncate block uppercase">
+                              Set Vinti {editingMatch.team2?.name}
+                            </span>
+                            <div className="flex justify-center gap-1 bg-white p-1 rounded-xl border-2 border-slate-200">
+                              {[0, 1, 2].filter(num => matchMaxSets === 3 ? true : num <= 1).map((num) => (
+                                <button
+                                  key={`t2-sets-${num}`}
+                                  type="button"
+                                  onClick={() => setManualT2Sets(num)}
+                                  className={`px-3 py-1.5 text-xs font-black rounded-lg transition-all ${
+                                    manualT2Sets === num
+                                      ? 'bg-orange-500 text-white shadow-sm scale-105'
+                                      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {num}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Live Verification Indicator Banner */}
+                        <div className={`p-3 rounded-xl text-center text-[11px] font-extrabold transition-all duration-150 ${
+                          isSync 
+                            ? 'bg-emerald-50 border border-emerald-250 text-emerald-700' 
+                            : 'bg-amber-100/70 border border-amber-250 text-amber-800'
+                        }`}>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="flex items-center gap-1.5">
+                              {isSync ? (
+                                <>
+                                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                  <span>Verifica OK: I parziali coincidono con il risultato dei set ({computedT1} - {computedT2})</span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
+                                  <span>
+                                    Discrepanza: Parziali ({computedT1}-{computedT2}) ≠ Risultato SET ({manualT1Sets}-{manualT2Sets})
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                            {!isSync && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setManualT1Sets(computedT1);
+                                  setManualT2Sets(computedT2);
+                                }}
+                                className="text-[10px] font-black uppercase text-amber-800 bg-white hover:bg-amber-50 border border-amber-250 px-2 py-1 rounded-lg transition-all shadow-xs flex items-center gap-1"
+                              >
+                                <RefreshCw className="w-3 h-3 text-amber-700 animate-spin-slow" />
+                                Allinea ai parziali
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="p-4 bg-slate-50 border-t-2 border-slate-100 flex gap-3 shrink-0">
+              <button
+                type="button"
+                id="cancel-score-btn"
+                onClick={() => setEditingMatch(null)}
+                className="flex-1 bg-slate-100 border-2 border-slate-200 text-slate-500 hover:bg-slate-200 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-colors"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                id="save-score-btn"
+                onClick={handleSaveScoreManual}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 border-b-4 border-orange-700 active:translate-y-0.5 shadow-md transition-all font-sans"
+              >
+                <Save className="w-4 h-4 text-white stroke-[2.5]" />
+                Salva Risultati
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Custom Confirmation Dialog for Resetting Tournament */}
+      {showResetConfirmModal && (
+        <div id="reset-confirm-modal" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border-4 border-rose-300 animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-gradient-to-r from-rose-500 to-red-500 p-5 text-white border-b-4 border-rose-600 text-center">
+              <h4 className="font-black text-lg italic uppercase tracking-tight">Attenzione! Azzera Gara</h4>
+              <p className="text-xs font-bold text-white/90 uppercase tracking-widest mt-1">Questa azione è irreversibile</p>
+            </div>
+            <div className="p-6 text-center space-y-4">
+              <p className="text-sm font-bold text-slate-600 leading-relaxed">
+                Vuoi davvero svuotare il tabellone delle partite, azzerare tutti i risultati salvati e riconfigurare la formula del torneo?
+              </p>
+              <div className="flex gap-3 pt-2">
+                <button
+                  id="cancel-reset-btn"
+                  onClick={() => setShowResetConfirmModal(false)}
+                  className="flex-1 bg-slate-100 border-2 border-slate-200 text-slate-500 hover:bg-slate-200 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all"
+                >
+                  Annulla
+                </button>
+                <button
+                  id="confirm-reset-btn"
+                  onClick={() => {
+                    onUpdateMatches([]);
+                    setShowResetConfirmModal(false);
+                  }}
+                  className="flex-1 bg-rose-500 hover:bg-rose-600 text-white py-2.5 rounded-full text-xs font-black uppercase tracking-wider border-b-4 border-rose-700 active:translate-y-0.5 transition-all shadow-md"
+                >
+                  Sì, Azzera
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Custom Alert Message Dialog */}
+      {alertMessage && (
+        <div id="alert-message-modal" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border-4 border-amber-300 animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-gradient-to-r from-amber-400 to-orange-400 p-5 text-white border-b-4 border-amber-500 text-center">
+              <h4 className="font-black text-lg italic uppercase tracking-tight">Attenzione</h4>
+              <p className="text-xs font-bold text-white/90 uppercase tracking-widest mt-1">Avviso Torneo</p>
+            </div>
+            <div className="p-6 text-center space-y-4">
+              <p className="text-sm font-bold text-slate-600 leading-relaxed">
+                {alertMessage}
+              </p>
+              <div className="pt-2">
+                <button
+                  id="close-alert-btn"
+                  onClick={() => setAlertMessage(null)}
+                  className="w-full bg-amber-400 hover:bg-amber-500 text-white py-2.5 rounded-full text-xs font-black uppercase tracking-wider border-b-4 border-amber-600 active:translate-y-0.5 transition-all shadow-md"
+                >
+                  OK, Ho Capito
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

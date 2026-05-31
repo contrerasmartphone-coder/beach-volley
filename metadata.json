@@ -1,0 +1,6 @@
+{
+  "name": "Beach Volley Tournament Manager",
+  "description": "Gestisci registrazioni di squadre, tabelloni a eliminazione diretta, punteggi, classifiche e notifiche in tempo reale per i tuoi tornei di beach volley.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
