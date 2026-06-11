@@ -1058,52 +1058,91 @@ export function generatePlayoffsFromGroups(
   pointsPerSet?: 15 | 21,
   maxSets?: 1 | 3,
   sfPointsPerSet?: 15 | 21,
-  sfMaxSets?: 1 | 3
+  sfMaxSets?: 1 | 3,
+  qualifiedCount?: number,
+  allTeams?: Team[],
+  groupMatches?: Match[]
 ): Match[] {
   const groupNames = Object.keys(groupsStandings).sort();
-  const qualifiers: Team[] = [];
+  let qualifiers: Team[] = [];
 
-  // Determine stage layout based on group count
-  let mode: 'final_only' | 'semis' | 'quorters' = 'final_only';
+  // Determine stage layout based on group count or specified qualifiedCount
+  let mode: 'final_only' | 'semis' | 'quorters' | 'ottavi' = 'final_only';
   
-  if (groupNames.length === 2) {
-    // 2 groups -> Semifinals (top 2 from each group)
-    mode = 'semis';
-    const gA = groupsStandings[groupNames[0]] || [];
-    const gB = groupsStandings[groupNames[1]] || [];
-    
-    // Seed standard matchups:
-    // Semifinal 1: 1st A vs 2nd B
-    // Semifinal 2: 1st B vs 2nd A
-    const firstA = gA[0] || null;
-    const secondB = gB[1] || gB[0] || null; // fallback if group is small
-    const firstB = gB[0] || null;
-    const secondA = gA[1] || gA[0] || null;
+  if (qualifiedCount && allTeams && groupMatches) {
+    const sortedAvulsa = computeFipavStandings(allTeams, groupMatches);
+    const topTeams = sortedAvulsa.slice(0, qualifiedCount);
 
-    qualifiers.push(firstA, secondB, firstB, secondA);
-  } else if (groupNames.length >= 4) {
-    // 4 groups -> Quarters (top 2 from each group)
-    mode = 'quorters';
-    const gA = groupsStandings[groupNames[0]] || [];
-    const gB = groupsStandings[groupNames[1]] || [];
-    const gC = groupsStandings[groupNames[2]] || [];
-    const gD = groupsStandings[groupNames[3]] || [];
-
-    qualifiers.push(
-      gA[0] || null, gB[1] || null, // Q1
-      gC[0] || null, gD[1] || null, // Q2
-      gB[0] || null, gA[1] || null, // Q3
-      gD[0] || null, gC[1] || null  // Q4
-    );
+    if (qualifiedCount === 2) {
+      mode = 'final_only';
+      qualifiers = [topTeams[0] || null, topTeams[1] || null];
+    } else if (qualifiedCount === 4) {
+      mode = 'semis';
+      qualifiers = [
+        topTeams[0] || null, topTeams[3] || null,
+        topTeams[1] || null, topTeams[2] || null
+      ];
+    } else if (qualifiedCount === 8) {
+      mode = 'quorters';
+      qualifiers = [
+        topTeams[0] || null, topTeams[7] || null,
+        topTeams[3] || null, topTeams[4] || null,
+        topTeams[1] || null, topTeams[6] || null,
+        topTeams[2] || null, topTeams[5] || null
+      ];
+    } else if (qualifiedCount === 16) {
+      mode = 'ottavi';
+      qualifiers = [
+        topTeams[0] || null, topTeams[15] || null,
+        topTeams[7] || null, topTeams[8] || null,
+        topTeams[4] || null, topTeams[11] || null,
+        topTeams[3] || null, topTeams[12] || null,
+        topTeams[2] || null, topTeams[13] || null,
+        topTeams[5] || null, topTeams[10] || null,
+        topTeams[6] || null, topTeams[9] || null,
+        topTeams[1] || null, topTeams[14] || null
+      ];
+    }
   } else {
-    // 1 group -> Grand Finale (1st vs 2nd)
-    mode = 'final_only';
-    const gA = groupsStandings[groupNames[0]] || [];
-    qualifiers.push(gA[0] || null, gA[1] || null);
+    if (groupNames.length === 2) {
+      // 2 groups -> Semifinals (top 2 from each group)
+      mode = 'semis';
+      const gA = groupsStandings[groupNames[0]] || [];
+      const gB = groupsStandings[groupNames[1]] || [];
+      
+      // Seed standard matchups:
+      // Semifinal 1: 1st A vs 2nd B
+      // Semifinal 2: 1st B vs 2nd A
+      const firstA = gA[0] || null;
+      const secondB = gB[1] || gB[0] || null; // fallback if group is small
+      const firstB = gB[0] || null;
+      const secondA = gA[1] || gA[0] || null;
+
+      qualifiers.push(firstA, secondB, firstB, secondA);
+    } else if (groupNames.length >= 4) {
+      // 4 groups -> Quarters (top 2 from each group)
+      mode = 'quorters';
+      const gA = groupsStandings[groupNames[0]] || [];
+      const gB = groupsStandings[groupNames[1]] || [];
+      const gC = groupsStandings[groupNames[2]] || [];
+      const gD = groupsStandings[groupNames[3]] || [];
+
+      qualifiers.push(
+        gA[0] || null, gB[1] || null, // Q1
+        gC[0] || null, gD[1] || null, // Q2
+        gB[0] || null, gA[1] || null, // Q3
+        gD[0] || null, gC[1] || null  // Q4
+      );
+    } else {
+      // 1 group -> Grand Finale (1st vs 2nd)
+      mode = 'final_only';
+      const gA = groupsStandings[groupNames[0]] || [];
+      qualifiers.push(gA[0] || null, gA[1] || null);
+    }
   }
 
   // Generate elimination bracket matches
-  const playoffTeamsCount = mode === 'quorters' ? 8 : (mode === 'semis' ? 4 : 2);
+  const playoffTeamsCount = mode === 'ottavi' ? 16 : (mode === 'quorters' ? 8 : (mode === 'semis' ? 4 : 2));
   const totalRounds = Math.log2(playoffTeamsCount);
   const matches: Match[] = [];
   
@@ -1118,7 +1157,8 @@ export function generatePlayoffsFromGroups(
     const maxPositions = currentRoundUnits;
     
     let roundLabel = '';
-    if (currentRoundUnits === 4) roundLabel = 'Quarti di finale';
+    if (currentRoundUnits === 8) roundLabel = 'Ottavi di finale';
+    else if (currentRoundUnits === 4) roundLabel = 'Quarti di finale';
     else if (currentRoundUnits === 2) roundLabel = 'Semifinali';
     else if (currentRoundUnits === 1) roundLabel = 'Finale';
 
@@ -1403,38 +1443,66 @@ export function recalculateTournamentStages(allMatches: Match[], teamsList: Team
 
   if (hasGironi && hasPlayoffs) {
     const groupMatches = updated.filter(m => m.phase === 'gironi');
-    const standings = computeGroupStandings(teamsList, groupMatches);
-    const groupNames = Object.keys(standings).sort();
-
-    const qualifiers: Team[] = [];
-    if (groupNames.length === 2) {
-      const gA = standings[groupNames[0]] || [];
-      const gB = standings[groupNames[1]] || [];
-      const firstA = gA[0] || null;
-      const secondB = gB[1] || gB[0] || null;
-      const firstB = gB[0] || null;
-      const secondA = gA[1] || gA[0] || null;
-      qualifiers.push(firstA, secondB, firstB, secondA);
-    } else if (groupNames.length >= 4) {
-      const gA = standings[groupNames[0]] || [];
-      const gB = standings[groupNames[1]] || [];
-      const gC = standings[groupNames[2]] || [];
-      const gD = standings[groupNames[3]] || [];
-      qualifiers.push(
-        gA[0] || null, gB[1] || null,
-        gC[0] || null, gD[1] || null,
-        gB[0] || null, gA[1] || null,
-        gD[0] || null, gC[1] || null
-      );
-    } else if (groupNames.length === 1) {
-      const gA = standings[groupNames[0]] || [];
-      qualifiers.push(gA[0] || null, gA[1] || null);
-    }
-
+    
     // Update Round 1 playoff matches
     const round1Playoffs = updated
       .filter(m => (m.phase === 'eliminazione' || m.id.startsWith('m-p-')) && m.round === 1)
       .sort((a, b) => a.position - b.position);
+
+    const qualifiedCount = round1Playoffs.length * 2;
+    const sortedAvulsa = computeFipavStandings(teamsList, groupMatches);
+    const topTeams = sortedAvulsa.slice(0, qualifiedCount);
+
+    let qualifiers: Team[] = [];
+    if (qualifiedCount === 2) {
+      qualifiers = [topTeams[0] || null, topTeams[1] || null];
+    } else if (qualifiedCount === 4) {
+      qualifiers = [
+        topTeams[0] || null, topTeams[3] || null,
+        topTeams[1] || null, topTeams[2] || null
+      ];
+    } else if (qualifiedCount === 8) {
+      qualifiers = [
+        topTeams[0] || null, topTeams[7] || null,
+        topTeams[3] || null, topTeams[4] || null,
+        topTeams[1] || null, topTeams[6] || null,
+        topTeams[2] || null, topTeams[5] || null
+      ];
+    } else if (qualifiedCount === 16) {
+      qualifiers = [
+        topTeams[0] || null, topTeams[15] || null,
+        topTeams[7] || null, topTeams[8] || null,
+        topTeams[4] || null, topTeams[11] || null,
+        topTeams[3] || null, topTeams[12] || null,
+        topTeams[2] || null, topTeams[13] || null,
+        topTeams[5] || null, topTeams[10] || null,
+        topTeams[6] || null, topTeams[9] || null,
+        topTeams[1] || null, topTeams[14] || null
+      ];
+    } else {
+      // Fallback to group standings if none matches
+      const standings = computeGroupStandings(teamsList, groupMatches);
+      const groupNames = Object.keys(standings).sort();
+      if (groupNames.length === 2) {
+        const gA = standings[groupNames[0]] || [];
+        const gB = standings[groupNames[1]] || [];
+        qualifiers.push(gA[0] || null, gB[1] || gB[0] || null, gB[0] || null, gA[1] || gA[0] || null);
+      } else if (groupNames.length >= 4) {
+        const gA = standings[groupNames[0]] || [];
+        const gB = standings[groupNames[1]] || [];
+        const gC = standings[groupNames[2]] || [];
+        const gD = standings[groupNames[3]] || [];
+        qualifiers.push(
+          gA[0] || null, gB[1] || null,
+          gC[0] || null, gD[1] || null,
+          gB[0] || null, gA[1] || null,
+          gD[0] || null, gC[1] || null
+        );
+      } else if (groupNames.length === 1) {
+        const gA = standings[groupNames[0]] || [];
+        qualifiers.push(gA[0] || null, gA[1] || null);
+      }
+    }
 
     for (let i = 0; i < round1Playoffs.length; i++) {
       const matchInUpdatedIdx = updated.findIndex(m => m.id === round1Playoffs[i].id);

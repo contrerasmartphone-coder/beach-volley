@@ -1,26 +1,110 @@
 import React, { useState } from 'react';
 import { Team, Match } from '../types';
-import { computeFipavStandings } from '../utils';
+import { computeFipavStandings, computeTeamStats, sortGroupStandings } from '../utils';
 import { Trophy, Award, BarChart3, Medal, ListOrdered, Percent, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface StandingsTabProps {
   teams: Team[];
   matches: Match[];
+  activeTournamentConfig?: any;
 }
 
-export default function StandingsTab({ teams, matches }: StandingsTabProps) {
+export default function StandingsTab({ teams, matches, activeTournamentConfig }: StandingsTabProps) {
   const [filterLevel, setFilterLevel] = useState<string>('all');
 
+  const isCombined = activeTournamentConfig?.formula === 'combined';
+  const standingsMatches = isCombined ? matches.filter(m => m.phase === 'gironi') : matches;
+
   // Compute stats on-the-fly from historical match results sorted under FIPAV Classifica Avulsa
-  const sortedTeams = computeFipavStandings(teams, matches);
+  const sortedTeams = computeFipavStandings(teams, standingsMatches);
+
+  // Compute group standings on the fly to get pool round ranking positions
+  const groupMatches = matches.filter(m => m.phase === 'gironi' || m.groupName);
+  const groupsStandings = React.useMemo(() => {
+    const computed = computeTeamStats(teams, groupMatches);
+    const gr: Record<string, Team[]> = {};
+    computed.forEach(t => {
+      if (t.group) {
+        if (!gr[t.group]) gr[t.group] = [];
+        gr[t.group].push(t);
+      }
+    });
+    Object.keys(gr).forEach(gName => {
+      const filteredM = groupMatches.filter(m => m.groupName === gName);
+      gr[gName] = sortGroupStandings(gr[gName], filteredM);
+    });
+    return gr;
+  }, [teams, groupMatches]);
+
+  const getGroupPlacement = (team: Team) => {
+    if (!team.group || !groupsStandings[team.group]) return '-';
+    const index = groupsStandings[team.group].findIndex(t => t.id === team.id);
+    return index !== -1 ? `${index + 1}° (${team.group.replace('Girone ', '')})` : '-';
+  };
 
   const filteredTeams = filterLevel === 'all' 
     ? sortedTeams 
     : sortedTeams.filter(t => t.level === filterLevel);
 
-  // Top 3 for visual podium
-  const topThree = sortedTeams.slice(0, 3);
+  // Determine top 3 for the podium based on actual finals results if it's a playoff/bracket tournament
+  const grandFinal = matches.find(m => m.roundLabel === 'Finale' && (m.phase === 'eliminazione' || m.id.includes('de') || m.id.startsWith('m-p-')));
+  const final3rd = matches.find(m => m.roundLabel === 'Finale 3°/4° Posto');
+
+  const formula = activeTournamentConfig?.formula;
+  const isPlayoffTourney = formula && formula !== 'pools';
+
+  const podiumTeams = React.useMemo(() => {
+    if (isPlayoffTourney) {
+      let first: Team | null = null;
+      let second: Team | null = null;
+      let third: Team | null = null;
+
+      if (grandFinal && grandFinal.status === 'completed' && grandFinal.winnerId) {
+        const winnerId = grandFinal.winnerId;
+        const loserId = winnerId === grandFinal.team1?.id ? grandFinal.team2?.id : grandFinal.team1?.id;
+        first = teams.find(t => t.id === winnerId) || null;
+        second = loserId ? (teams.find(t => t.id === loserId) || null) : null;
+      }
+
+      if (final3rd && final3rd.status === 'completed' && final3rd.winnerId) {
+        third = teams.find(t => t.id === final3rd.winnerId) || null;
+      } else if (formula === 'double_elim') {
+        const match10 = matches.find(m => m.id === 'm-de-10');
+        if (match10 && match10.status === 'completed') {
+          const loserId = match10.winnerId === match10.team1?.id ? match10.team2?.id : match10.team1?.id;
+          third = loserId ? (teams.find(t => t.id === loserId) || null) : null;
+        }
+      }
+
+      // If we have at least 1st or 2nd (meaning the grand final is complete/active), we form the podium
+      if (first || second || third) {
+        const list: Team[] = [];
+        if (first) list.push(first);
+        if (second) list.push(second);
+        if (third) list.push(third);
+
+        // Fill other slots from sortedTeams that aren't already included
+        const remaining = sortedTeams.filter(t => !list.some(lt => lt.id === t.id));
+        
+        const finalFirst = first || remaining.shift() || sortedTeams[0];
+        const finalSecond = second || remaining.shift() || sortedTeams[1];
+        const finalThird = third || remaining.shift() || sortedTeams[2];
+
+        return [finalFirst, finalSecond, finalThird].filter(Boolean) as Team[];
+      }
+    }
+    return sortedTeams.slice(0, 3);
+  }, [isPlayoffTourney, grandFinal, final3rd, formula, matches, teams, sortedTeams]);
+
+  const topThree = podiumTeams;
+
+  const isTournamentFinished = React.useMemo(() => {
+    if (isPlayoffTourney) {
+      return !!(grandFinal && grandFinal.status === 'completed');
+    }
+    return matches.length > 0 && matches.every(m => m.status === 'completed');
+  }, [isPlayoffTourney, grandFinal, matches]);
 
   const getLevelBadgeStyles = (level: Team['level']) => {
     switch (level) {
@@ -34,14 +118,14 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
   return (
     <div id="standings-tab-container" className="space-y-8">
       {/* Visual Podium Header (if we have teams and some wins registered) */}
-      {sortedTeams.length > 0 && sortedTeams.some(t => t.wins > 0) && (
+      {sortedTeams.length > 0 && (sortedTeams.some(t => t.wins > 0) || matches.some(m => m.status === 'completed')) && (
         <div id="podium-section" className="bg-white rounded-3xl border-4 border-orange-300 p-6 shadow-xl relative overflow-hidden">
           <div className="absolute top-0 right-0 p-2 bg-orange-400 text-white text-[10px] font-black rounded-bl-xl uppercase tracking-widest animate-pulse">
             LIVE LEADERBOARD
           </div>
           <h4 className="text-center font-black text-slate-800 text-base tracking-wider uppercase mb-6 flex items-center justify-center gap-1.5 italic">
             <Sparkles className="w-5 h-5 text-orange-500 animate-spin" />
-            Podio Provvisorio del Torneo
+            {isTournamentFinished ? '🏆 Podio Ufficiale del Torneo 🏆' : 'Podio Provvisorio del Torneo'}
           </h4>
           
           <div className="flex justify-center items-end gap-2.5 xs:gap-4 md:gap-10 max-w-lg mx-auto pt-4">
@@ -60,7 +144,6 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                   <span className="absolute -bottom-1 -right-1 bg-slate-500 text-white rounded-full text-[9px] w-4 h-4 flex items-center justify-center font-black shadow-sm">2</span>
                 </div>
                 <div id="podium-2nd-name" className="text-[10px] xs:text-xs font-black text-slate-800 text-center truncate w-16 xs:w-24 uppercase tracking-wide">{topThree[1].name}</div>
-                <div id="podium-2nd-stats" className="text-[9px] xs:text-[10px] text-slate-400 font-bold uppercase">{topThree[1].wins} V - {topThree[1].losses} P</div>
                 <div className="w-16 xs:w-24 bg-slate-200 border-t-4 border-slate-300 rounded-t-2xl h-12 xs:h-16 mt-2 flex items-center justify-center text-slate-500 font-black font-mono text-xs xs:text-sm shadow-inner">
                   II
                 </div>
@@ -82,7 +165,6 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                   <span className="absolute -bottom-1 -right-1 bg-orange-500 text-white rounded-full text-xs w-5 h-5 flex items-center justify-center font-black shadow-md">1</span>
                 </div>
                 <div id="podium-1st-name" className="text-xs xs:text-sm font-black text-orange-850 text-center truncate w-20 xs:w-28 uppercase tracking-wide">{topThree[0].name}</div>
-                <div id="podium-1st-stats" className="text-[10px] xs:text-[11px] text-orange-650 font-black uppercase">{topThree[0].wins} V - {topThree[0].losses} P</div>
                 <div className="w-20 xs:w-28 bg-orange-400 border-t-4 border-orange-600 rounded-t-2xl h-18 xs:h-24 mt-2 flex items-center justify-center text-white font-black font-mono text-base xs:text-xl shadow-md">
                   I
                 </div>
@@ -104,7 +186,6 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                   <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white rounded-full text-[9px] w-4 h-4 flex items-center justify-center font-black shadow-sm">3</span>
                 </div>
                 <div id="podium-3rd-name" className="text-[10px] xs:text-xs font-black text-slate-800 text-center truncate w-16 xs:w-24 uppercase tracking-wide">{topThree[2].name}</div>
-                <div id="podium-3rd-stats" className="text-[9px] xs:text-[10px] text-slate-400 font-bold uppercase">{topThree[2].wins} V - {topThree[2].losses} P</div>
                 <div className="w-16 xs:w-24 bg-amber-100 border-t-4 border-amber-250 rounded-t-2xl h-10 xs:h-12 mt-2 flex items-center justify-center text-amber-700 font-black font-mono text-xs xs:text-sm shadow-inner">
                   III
                 </div>
@@ -118,8 +199,15 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
       <div id="standings-table-container" className="bg-white rounded-3xl shadow-xl border-4 border-sky-200 p-6">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6">
           <div>
-            <h3 className="text-lg font-black text-sky-950 uppercase italic tracking-wide">Classifica Generale</h3>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">I punteggi teorici si calcolano in base ai set conquistati sul campo sabbioso</p>
+            <h3 className="text-lg font-black text-sky-950 uppercase italic tracking-wide">
+              {isCombined ? 'Classifica Avulsa Gironi' : 'Classifica Avulsa'}
+            </h3>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">
+              {isCombined 
+                ? 'I punteggi si riferiscono esclusivamente alla fase a gironi e non includono i playoffs' 
+                : 'I punteggi teorici si calcolano in base ai set conquistati sul campo sabbioso'
+              }
+            </p>
           </div>
           {/* Level Filter */}
           <div className="flex flex-wrap gap-2 self-start">
@@ -186,6 +274,7 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                   <tr className="border-b-2 border-slate-150 text-[11px] font-black text-slate-400 uppercase tracking-widest bg-slate-50/50">
                     <th className="py-4 px-4 w-16 text-center">Posiz</th>
                     <th className="py-4 px-4">Squadra / Atleti</th>
+                    <th className="py-4 px-4 text-center text-rose-600">Piazz. Girone</th>
                     <th className="py-4 px-4 text-center">Livello di Gioco</th>
                     <th className="py-4 px-4 text-center">Gare</th>
                     <th className="py-4 px-4 text-center text-blue-600">Punti Gara</th>
@@ -238,6 +327,11 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                         <td className="py-4.5 px-4">
                           <div id={`standing-name-${team.id}`} className="font-extrabold text-slate-800 text-sm uppercase tracking-wide">{team.name}</div>
                           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{team.player1} • {team.player2}</div>
+                        </td>
+
+                        {/* Piazzamento Girone */}
+                        <td className="py-4.5 px-4 text-center font-extrabold text-rose-650 text-sm">
+                          {getGroupPlacement(team)}
                         </td>
 
                         {/* Level Tag */}
@@ -334,6 +428,11 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                         <div className="truncate min-w-0">
                           <div className="font-black text-slate-800 text-xs sm:text-sm uppercase tracking-wide truncate">{team.name}</div>
                           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 truncate">{team.player1} • {team.player2}</div>
+                          {team.group && (
+                            <div className="text-[9px] font-extrabold text-rose-650 uppercase tracking-wider mt-0.5">
+                              Piazzamento Girone: {getGroupPlacement(team)}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <span className={`${getLevelBadgeStyles(team.level)} shrink-0`}>

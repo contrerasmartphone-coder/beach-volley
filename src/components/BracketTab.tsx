@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
-import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings } from '../utils';
+import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings } from '../utils';
 import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -18,9 +18,11 @@ interface BracketTabProps {
     maxSets?: 1 | 3;
     sfPointsPerSet?: 15 | 21;
     sfMaxSets?: 1 | 3;
+    qualifiedCount?: number;
   }) => void;
   onAddNotification: (notification: NotificationLog) => void;
   currentUser?: AppUser | null;
+  activeTournamentConfig?: any;
 }
 
 export default function BracketTab({
@@ -30,6 +32,7 @@ export default function BracketTab({
   onGenerateTournament,
   onAddNotification,
   currentUser = null,
+  activeTournamentConfig = null,
 }: BracketTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
@@ -39,11 +42,79 @@ export default function BracketTab({
   const [formula, setFormula] = useState<'direct' | 'pools' | 'combined' | 'double_elim'>('combined');
   const [teamsCount, setTeamsCount] = useState<number>(8);
   const [groupCount, setGroupCount] = useState<number>(2);
+  const [combinedGroups, setCombinedGroups] = useState<number>(2);
+  const [combinedTeamsPerGroup, setCombinedTeamsPerGroup] = useState<number>(4);
+  const [combinedQualifiedTeams, setCombinedQualifiedTeams] = useState<number>(4);
   const [courtCount, setCourtCount] = useState<number>(2);
   const [pointsPerSet, setPointsPerSet] = useState<15 | 21>(21);
   const [maxSets, setMaxSets] = useState<1 | 3>(3);
   const [sfPointsPerSet, setSfPointsPerSet] = useState<15 | 21>(21);
   const [sfMaxSets, setSfMaxSets] = useState<1 | 3>(3);
+
+  // Synchronize teamsCount and groupCount automatically for the 'combined' formula
+  useEffect(() => {
+    if (formula === 'combined') {
+      const calculatedTotal = combinedGroups * combinedTeamsPerGroup;
+      setTeamsCount(calculatedTotal);
+      setGroupCount(combinedGroups);
+    }
+  }, [combinedGroups, combinedTeamsPerGroup, formula]);
+
+  const getRoundName = (q: number) => {
+    if (q === 16) return 'Ottavi di finale 🎯';
+    if (q === 8) return 'Quarti di finale 🥇';
+    if (q === 4) return 'Semifinali 🥈';
+    if (q === 2) return 'Finale 🏆';
+    return `${q} squadre`;
+  };
+
+  const getCombinedQualificationExplanation = (groups: number, teamsPerGroup: number, qualified: number) => {
+    const total = groups * teamsPerGroup;
+    if (qualified > total) {
+      return `⚠️ Attenzione: Il numero di squadre qualificate (${qualified}) non può essere maggiore del totale delle squadre partecipanti (${total}). Riduci le qualificate o aumenta il numero di squadre per girone/gironi.`;
+    }
+    
+    const roundName = getRoundName(qualified);
+    
+    // Custom smart cases
+    if (groups === 3 && qualified === 8) {
+      return `🏆 Soluzione ottimale: Le prime 2 di ogni girone (6 squadre in totale) e le 2 migliori terze classificate del torneo (in base alla classifica avulsa) si qualificheranno per i ${roundName}.`;
+    }
+    if (groups === 3 && qualified === 4) {
+      return `🏆 Soluzione ottimale: Le prime classificate di ciascuno dei 3 gironi (3 squadre) e la migliore seconda classificata si qualificheranno per le ${roundName}.`;
+    }
+    if (groups === 2 && qualified === 4) {
+      return `🏆 Soluzione ottimale: Le prime 2 classificate di ciascun girone si qualificheranno direttamente per le ${roundName}.`;
+    }
+    if (groups === 2 && qualified === 8) {
+      return `🏆 Soluzione ottimale: Le prime 4 classificate di ciascun girone si qualificheranno direttamente per i ${roundName}.`;
+    }
+    if (groups === 4 && qualified === 8) {
+      return `🏆 Soluzione ottimale: Le prime 2 classificate di ciascun girone si qualificheranno direttamente per i ${roundName}.`;
+    }
+    if (groups === 4 && qualified === 4) {
+      return `🏆 Soluzione ottimale: Le sole prime classificate di ciascun girone accederanno direttamente alle ${roundName}.`;
+    }
+    if (groups === 1 && qualified === 2) {
+      return `🏆 Soluzione ottimale: Le prime 2 classificate del girone unico si qualificheranno direttamente per la ${roundName}.`;
+    }
+    if (groups === 1 && qualified === 4) {
+      return `🏆 Soluzione ottimale: Le prime 4 classificate del girone unico si qualificheranno per le ${roundName}.`;
+    }
+
+    // Fallback programmatic explanation
+    const baseQualifiers = Math.floor(qualified / groups);
+    const extraQualifiers = qualified % groups;
+    if (baseQualifiers > 0) {
+      if (extraQualifiers > 0) {
+        return `📊 Soluzione: Si qualificheranno le prime ${baseQualifiers} di ciascun girone, più le migliori ${extraQualifiers} ${extraQualifiers === 1 ? 'squadra' : 'squadre'} tra le successive classificate (in base alla classifica avulsa), per un totale di ${qualified} squadre che accederanno ai ${roundName}.`;
+      } else {
+        return `📊 Soluzione: Si qualificheranno esattamente le prime ${baseQualifiers} di ciascun girone per un totale di ${qualified} squadre che accederanno ai ${roundName}.`;
+      }
+    } else {
+      return `📊 Soluzione: Si qualificheranno le migliori ${qualified} squadre assolute della classifica avulsa per farle accedere ai ${roundName}.`;
+    }
+  };
 
   // Active Phase View States
   const [activePhaseTab, setActivePhaseTab] = useState<'gironi' | 'eliminazione'>('gironi');
@@ -852,6 +923,12 @@ export default function BracketTab({
   const groupMatches = matches.filter(m => m.phase === 'gironi');
   const groupNames = Array.from(new Set(groupMatches.map(m => m.groupName).filter(Boolean))) as string[];
 
+  const qualifiedTeamIds = React.useMemo(() => {
+    const sortedAvulsa = computeFipavStandings(teams, groupMatches);
+    const qualifiedCount = activeTournamentConfig?.qualifiedCount || 4;
+    return new Set(sortedAvulsa.slice(0, qualifiedCount).map(t => t.id));
+  }, [teams, groupMatches, activeTournamentConfig?.qualifiedCount]);
+
   useEffect(() => {
     const hasGironi = matches.some(m => m.phase === 'gironi');
     if (hasGironi) {
@@ -880,6 +957,7 @@ export default function BracketTab({
     const firstMatch = matches[0];
     const ptsSet = firstMatch?.pointsPerSet || 21;
     const mSets = firstMatch?.maxSets || 3;
+    const resolvedQualifiedCount = activeTournamentConfig?.qualifiedCount || 4;
     const playoffMatches = generatePlayoffsFromGroups(
       groupsStandings,
       '15:30',
@@ -888,7 +966,10 @@ export default function BracketTab({
       ptsSet,
       mSets,
       sfPointsPerSet,
-      sfMaxSets
+      sfMaxSets,
+      resolvedQualifiedCount,
+      teams,
+      groupMatches
     );
 
     onUpdateMatches([...matches, ...playoffMatches]);
@@ -908,13 +989,8 @@ export default function BracketTab({
   const handleCreateTournament = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Auto adjust groupCount logically if pools/combined config chosen
+    // Auto adjust groupCount logically if pools config chosen
     let resolvedGroupCount = groupCount;
-    if (formula === 'combined') {
-      if (teamsCount === 4) resolvedGroupCount = 1;
-      else if (teamsCount === 8) resolvedGroupCount = 2;
-      else if (teamsCount === 16) resolvedGroupCount = 4;
-    }
 
     onGenerateTournament({
       name: tournamentName,
@@ -925,7 +1001,8 @@ export default function BracketTab({
       pointsPerSet,
       maxSets,
       sfPointsPerSet,
-      sfMaxSets
+      sfMaxSets,
+      qualifiedCount: formula === 'combined' ? combinedQualifiedTeams : undefined
     });
   };
 
@@ -1004,23 +1081,99 @@ export default function BracketTab({
               </select>
             </div>
 
-            {/* Numero Squadre */}
-            <div className="space-y-1">
-              <label htmlFor="setup-teams-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Numero Squadre</label>
-              <select
-                id="setup-teams-count"
-                className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
-                value={teamsCount}
-                onChange={(e) => setTeamsCount(Number(e.target.value))}
-                disabled={formula === 'double_elim'}
-              >
-                {getTeamsCountOptions().map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Numero Squadre / Gironi + Playoff Selector */}
+            {formula === 'combined' ? (
+              <>
+                <div className="space-y-1">
+                  <label htmlFor="combined-groups-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Numero di Gironi</label>
+                  <select
+                    id="combined-groups-count"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                    value={combinedGroups}
+                    onChange={(e) => setCombinedGroups(Number(e.target.value))}
+                  >
+                    <option value={1}>1 Girone</option>
+                    <option value={2}>2 Gironi</option>
+                    <option value={3}>3 Gironi 🏐</option>
+                    <option value={4}>4 Gironi</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="combined-teams-per-group" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Squadre per Girone</label>
+                  <select
+                    id="combined-teams-per-group"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                    value={combinedTeamsPerGroup}
+                    onChange={(e) => setCombinedTeamsPerGroup(Number(e.target.value))}
+                  >
+                    <option value={1}>1 Squadra</option>
+                    <option value={2}>2 Squadre</option>
+                    <option value={3}>3 Squadre</option>
+                    <option value={4}>4 Squadre (Standard)</option>
+                    <option value={5}>5 Squadre</option>
+                    <option value={6}>6 Squadre</option>
+                    <option value={7}>7 Squadre</option>
+                    <option value={8}>8 Squadre</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="combined-qualified-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Squadre Ammesse ai Playoff</label>
+                  <select
+                    id="combined-qualified-count"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                    value={combinedQualifiedTeams}
+                    onChange={(e) => setCombinedQualifiedTeams(Number(e.target.value))}
+                  >
+                    <option value={2}>2 Squadre (Finale) 🏆</option>
+                    <option value={4}>4 Squadre (Semifinali) 🥈</option>
+                    <option value={8}>8 Squadre (Quarti) 🥇</option>
+                    <option value={16}>16 Squadre (Ottavi) 🎯</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Posti Totali Disponibili</label>
+                  <div className="px-3 py-2 rounded-xl border-2 border-orange-200 bg-orange-50 font-black text-orange-700 text-sm flex items-center h-[38px]">
+                    🥇 {teamsCount} Squadre totali
+                  </div>
+                </div>
+
+                {/* Proposed Dynamic Solutions info box */}
+                <div className="md:col-span-2 bg-blue-50 border-2 border-blue-200 p-4 rounded-2xl space-y-2 shadow-xs">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-5 h-5 text-blue-600 shrink-0" />
+                    <span className="text-xs font-black text-blue-950 uppercase tracking-widest">
+                      CONFIGURAZIONE QUALIFICAZIONE PLAYOFF
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold text-blue-800 leading-relaxed">
+                    {getCombinedQualificationExplanation(combinedGroups, combinedTeamsPerGroup, combinedQualifiedTeams)}
+                  </p>
+                  <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">
+                    🏝️ Le squadre qualificate verranno stabilite dinamicamente in base alla classifica avulsa generale.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1">
+                <label htmlFor="setup-teams-count" className="text-xs font-bold text-slate-600 uppercase tracking-wider">Numero Squadre</label>
+                <select
+                  id="setup-teams-count"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                  value={teamsCount}
+                  onChange={(e) => setTeamsCount(Number(e.target.value))}
+                  disabled={formula === 'double_elim'}
+                >
+                  {getTeamsCountOptions().map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Numero Gironi (Only visible for pools formula) */}
             {formula === 'pools' && (
@@ -1459,7 +1612,7 @@ export default function BracketTab({
                                 const sortedGroupTeams = sortGroupStandings(computeTeamStats(groupTeamsInScope, activeGroupMatches), activeGroupMatches);
 
                                 return sortedGroupTeams.map((team, idx) => {
-                                  const isQualified = idx < 2; // top 2 qualify inside 4-group system
+                                  const isQualified = qualifiedTeamIds.has(team.id);
                                   const playedCount = team.wins + team.losses;
                                   return (
                                     <tr key={team.id} className="hover:bg-slate-50/50">
@@ -1496,7 +1649,7 @@ export default function BracketTab({
                           </table>
                         </div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed tracking-wider pt-2 border-t border-slate-100">
-                          🏝️ * I primi 2 qualificati accedono al Tabellone Playoff al termine del girone.
+                          🏝️ * Le squadre contrassegnate in arancione si qualificano per i playoff in base alla Classifica Avulsa (totale {activeTournamentConfig?.qualifiedCount || 4} qualificate).
                         </p>
                       </div>
 

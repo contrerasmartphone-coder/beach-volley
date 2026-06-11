@@ -996,6 +996,7 @@ export default function App() {
                 onGenerateTournament={handleGenerateTournament}
                 onAddNotification={handleAddNotification}
                 currentUser={currentUser}
+                activeTournamentConfig={activeTournamentConfig}
               />
             </motion.div>
           )}
@@ -1008,7 +1009,7 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.15 }}
             >
-              <StandingsTab teams={teams} matches={matches} />
+              <StandingsTab teams={teams} matches={matches} activeTournamentConfig={activeTournamentConfig} />
             </motion.div>
           )}
 
