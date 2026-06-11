@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Team } from '../types';
+import { Team, AppUser } from '../types';
 import { DEMO_TEAMS, getInitialTeamStats, sortTeamsByEntryList } from '../utils';
 import { Plus, Users, Search, Trash2, Award, Sparkles, Check, Phone, Mail, Edit2, Lock, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -15,6 +15,7 @@ interface TeamsTabProps {
   admittedTeamsCount?: number | null;
   isTournamentStarted?: boolean;
   onSubstituteTeam?: (withdrawnId: string, promotedId: string) => void;
+  currentUser?: AppUser | null;
 }
 
 const getWhatsAppUrl = (phone: string) => {
@@ -36,7 +37,11 @@ export default function TeamsTab({
   admittedTeamsCount = null,
   isTournamentStarted = false,
   onSubstituteTeam,
+  currentUser = null,
 }: TeamsTabProps) {
+  const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
+  const isAdmin = currentUser && currentUser.role === 'admin';
+
   const [name, setName] = useState('');
   const [player1, setPlayer1] = useState('');
   const [player2, setPlayer2] = useState('');
@@ -48,6 +53,8 @@ export default function TeamsTab({
   const [customCount, setCustomCount] = useState<number | ''>(24);
   
   const [copiedIdField, setCopiedIdField] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState<number | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
   const handleCopy = (text: string, idField: string) => {
     navigator.clipboard.writeText(text);
     setCopiedIdField(idField);
@@ -60,7 +67,6 @@ export default function TeamsTab({
   const [successMsg, setSuccessMsg] = useState('');
 
   // SQUADRE EDITING STATE
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [editName, setEditName] = useState('');
   const [editPlayer1, setEditPlayer1] = useState('');
   const [editPlayer2, setEditPlayer2] = useState('');
@@ -70,12 +76,11 @@ export default function TeamsTab({
   const [editPhone2, setEditPhone2] = useState('');
   const [editEmail2, setEditEmail2] = useState('');
 
-  // SQUADRE DETAILS STATE
+  // SQUADRE DETAILS & EDITING UNIFIED STATE
   const [selectedDetailsTeam, setSelectedDetailsTeam] = useState<Team | null>(null);
 
-  const startEditing = (team: Team) => {
-    if (isLocked) return;
-    setEditingTeam(team);
+  const openDetailsAndEdit = (team: Team) => {
+    setSelectedDetailsTeam(team);
     setEditName(team.name);
     setEditPlayer1(team.player1);
     setEditPlayer2(team.player2);
@@ -89,10 +94,10 @@ export default function TeamsTab({
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isLocked) return;
-    if (!editingTeam || !editName || !editPlayer1 || !editPlayer2) return;
+    if (!selectedDetailsTeam || !editName || !editPlayer1 || !editPlayer2) return;
 
     const updatedTeam: Team = {
-      ...editingTeam,
+      ...selectedDetailsTeam,
       name: editName.trim(),
       player1: editPlayer1.trim(),
       player2: editPlayer2.trim(),
@@ -104,7 +109,7 @@ export default function TeamsTab({
     };
 
     onEditTeam(updatedTeam);
-    setEditingTeam(null);
+    setSelectedDetailsTeam(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -232,7 +237,7 @@ export default function TeamsTab({
                 </span>
               ) : (
                 <span className="bg-sky-500 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 border-sky-700">
-                  Ammesso #{globalRank}
+                  Rank #{globalRank}
                 </span>
               )}
               <span id={`team-level-badge-${team.id}`} className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 ${getLevelColor(team.level)}`}>
@@ -241,35 +246,39 @@ export default function TeamsTab({
             </div>
             <h4 id={`team-name-title-${team.id}`} className="font-extrabold text-slate-800 text-sm mt-2 uppercase">{team.name}</h4>
           </div>
-          {!isLocked ? (
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                id={`edit-team-btn-${team.id}`}
-                onClick={() => startEditing(team)}
-                className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors border border-transparent hover:border-sky-200"
-                title="Modifica squadra"
-              >
-                <Edit2 className="w-4 h-4 text-sky-500" />
-              </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              id={`edit-team-btn-${team.id}`}
+              onClick={() => openDetailsAndEdit(team)}
+              className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors border border-transparent hover:border-sky-200 cursor-pointer"
+              title={canWrite && (!isLocked || !isTournamentStarted) ? "Dettagli / Modifica squadra" : "Dettagli squadra"}
+            >
+              <Eye className="w-4 h-4 text-sky-500" />
+            </button>
+            {canWrite && (!isLocked || !isTournamentStarted) ? (
               <button
                 id={`delete-team-btn-${team.id}`}
-                onClick={() => onDeleteTeam(team.id)}
-                className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200"
-                title="Elimina squadra"
+                onClick={() => {
+                  if (window.confirm(`Sei sicuro di voler effettuare il ritiro o cancellazione della squadra "${team.name}"?` + (isLocked ? " Questo ricalcolerà immediatamente il tabellone." : ""))) {
+                    onDeleteTeam(team.id);
+                  }
+                }}
+                className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+                title={isLocked ? "Ritira questa squadra dal torneo" : "Elimina squadra"}
               >
                 <Trash2 className="w-4 h-4 text-rose-500" />
               </button>
-            </div>
-          ) : (
-            <div className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-xl border select-none cursor-not-allowed ${
-              isReserve 
-                ? 'bg-orange-50 border-orange-250 text-orange-600' 
-                : 'bg-slate-100 border-slate-200 text-slate-500'
-            }`} title={isReserve ? "Riserva nel torneo attivo" : "Iscritta nel torneo attivo"}>
-              <Lock className="w-3 h-3 text-current" />
-              <span className="text-[9px] font-black uppercase tracking-wider">{isReserve ? 'Riserva' : 'Ammesso'}</span>
-            </div>
-          )}
+            ) : (
+              <div className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-xl border select-none cursor-not-allowed ${
+                isReserve 
+                  ? 'bg-orange-50 border-orange-250 text-orange-600' 
+                  : 'bg-slate-100 border-slate-200 text-slate-500'
+              }`} title={isReserve ? "Riserva nel torneo attivo" : "Iscritta nel torneo attivo"}>
+                <Lock className="w-3 h-3 text-current" />
+                <span className="text-[9px] font-black uppercase tracking-wider">{isReserve ? 'Riserva' : 'Rank'}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-1.5 mt-3 bg-white p-2.5 rounded-xl border border-slate-200">
@@ -283,30 +292,20 @@ export default function TeamsTab({
           </div>
         </div>
 
-        <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            id={`view-details-btn-${team.id}`}
-            onClick={() => setSelectedDetailsTeam(team)}
-            className="flex-grow flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black uppercase tracking-wider text-sky-600 hover:text-white bg-sky-50 hover:bg-sky-500 rounded-xl border border-sky-200 transition-all shadow-xs"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            Vedi Dettagli
-          </button>
-
-          {hasExclusions && !isReserve && !isTournamentStarted && sortedReserves.length > 0 && (
+        {isLocked && !isReserve && !isTournamentStarted && (
+          <div className="mt-3 flex gap-2">
             <button
               type="button"
               id={`substitute-withdraw-btn-${team.id}`}
               onClick={() => setSubstituteConfirmTeam(team)}
-              className="flex-grow flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-orange-400 to-amber-400 hover:from-orange-500 hover:to-amber-500 rounded-xl border border-orange-300 shadow-sm hover:shadow-md transition-all active:translate-y-0.5 border-b-2 border-orange-600 bg-orange-500"
-              title="Ritira la squadra e inserisci in automatico la prima riserva"
+              className="flex-grow flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-orange-400 to-amber-400 hover:from-orange-500 hover:to-amber-500 rounded-xl border border-orange-300 shadow-sm hover:shadow-md transition-all active:translate-y-0.5 border-b-2 border-orange-600 bg-orange-500 cursor-pointer"
+              title={sortedReserves.length > 0 ? "Ritira la squadra e inserisci in automatico la prima riserva" : "Ritira questa squadra dal torneo"}
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Ritiro 🔄
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="border-t border-slate-200 flex items-center justify-between mt-3.5 pt-2 text-[10px] font-bold text-slate-400">
           <span>
@@ -337,9 +336,24 @@ export default function TeamsTab({
   return (
     <div id="teams-tab-container" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Registration Column */}
-      <div id="registration-panel" className="lg:col-span-1 space-y-6">
+      {canWrite && (
+        <div id="registration-panel" className="lg:col-span-1 space-y-6">
         <div className="bg-white rounded-3xl shadow-xl border-4 border-orange-300 p-6 relative overflow-hidden">
-          {isLocked && (
+          {!canWrite ? (
+            <div className="absolute inset-0 bg-slate-50/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-25 animate-in fade-in duration-200">
+              <div className="p-4 bg-sky-50 rounded-full border-4 border-sky-300 text-sky-500 mb-4">
+                <Lock className="w-8 h-8 stroke-[2.5]" />
+              </div>
+              <h4 className="font-extrabold text-slate-800 text-base uppercase italic">Sola Lettura 👁️</h4>
+              <p className="text-xs font-bold text-slate-500 uppercase mt-1 tracking-wider">Accesso Limitato</p>
+              <p className="text-xs font-medium text-slate-600 mt-3 leading-relaxed max-w-xs">
+                Sei connesso come <strong>Spettatore / Lettore</strong>. Non sei autorizzato ad aggiungere, modificare o cancellare le formazioni.
+              </p>
+              <p className="text-[10px] font-bold text-sky-600 mt-4 leading-relaxed bg-sky-50 px-3 py-1.5 rounded-lg border border-sky-100">
+                🔒 Effettua l'accesso in alto come amministratore o collaboratore per sbloccare.
+              </p>
+            </div>
+          ) : isLocked ? (
             <div className="absolute inset-0 bg-slate-50/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-25 animate-in fade-in duration-200">
               <div className="p-4 bg-amber-50 rounded-full border-4 border-amber-300 text-amber-500 mb-4 animate-bounce">
                 <Lock className="w-8 h-8 stroke-[2.5]" />
@@ -353,8 +367,8 @@ export default function TeamsTab({
                 💡 Per fare modifiche, cancella o resetta il torneo dalla scheda "Gare"
               </p>
             </div>
-          )}
-          <div className="flex items-center gap-3 mb-6">
+          ) : null}
+          <div className="flex items-center gap-3 mb-6 font-sans">
             <div className="p-3 bg-orange-100 border-2 border-orange-300 rounded-full text-orange-600">
               <Plus className="w-6 h-6 stroke-[3]" />
             </div>
@@ -532,34 +546,49 @@ export default function TeamsTab({
 
         {/* Demo Generators panel */}
         <div className="bg-white rounded-3xl p-6 border-4 border-emerald-400 shadow-xl space-y-4 relative overflow-hidden">
-          {isLocked && (
+          {!canWrite && (
             <div className="absolute inset-0 bg-slate-50/90 backdrop-blur-xs flex flex-col items-center justify-center p-4 text-center z-25 animate-in fade-in duration-200">
               <Lock className="w-6 h-6 text-slate-400 mb-2" />
-              <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Generatore Disattivato</p>
-              <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">Sblocca resettando il torneo</p>
+              <p className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Accesso Limitato</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-1 leading-relaxed">Solo caricamento in lettura</p>
             </div>
           )}
+          
           <div className="flex items-center gap-2 text-emerald-700">
             <Sparkles className="w-5 h-5 text-emerald-600 animate-bounce" />
             <h4 className="font-black uppercase italic text-sm">Generatore rapido</h4>
           </div>
+          
+          {isLocked && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-3 flex gap-2.5 items-start">
+              <Lock className="w-4 h-4 text-amber-655 mt-0.5 shrink-0" />
+              <div className="space-y-0.5">
+                <p className="text-[10px] font-black text-amber-850 uppercase tracking-wide">Torneo configurato</p>
+                <p className="text-[9px] font-bold text-amber-700 leading-normal">
+                  Il caricamento della demo azzererà tutte le gare correnti e i record in tempo reale del torneo.
+                </p>
+              </div>
+            </div>
+          )}
+
           <p className="text-xs font-semibold text-slate-600">
             Non hai squadre a disposizione? Genera all'istante coppie e atleti pre-configurati per far partire subito il torneo.
           </p>
+          
           <div className="grid grid-cols-2 gap-2 pb-1">
             <button
               id="load-demo-8-btn"
               type="button"
-              onClick={() => onLoadDemoTeams(8)}
-              className="bg-emerald-50 border-2 border-emerald-200 hover:bg-emerald-100 text-xs text-emerald-800 font-black tracking-wider uppercase italic py-2.5 px-3 rounded-xl transition-all shadow-sm"
+              onClick={() => isLocked ? setShowResetConfirm(8) : onLoadDemoTeams(8)}
+              className="bg-emerald-50 border-2 border-emerald-200 hover:bg-emerald-100 text-xs text-emerald-800 font-black tracking-wider uppercase italic py-2.5 px-3 rounded-xl transition-all shadow-sm cursor-pointer"
             >
               8 Squadre
             </button>
             <button
               id="load-demo-16-btn"
               type="button"
-              onClick={() => onLoadDemoTeams(16)}
-              className="bg-emerald-50 border-2 border-emerald-200 hover:bg-emerald-100 text-xs text-emerald-800 font-black tracking-wider uppercase italic py-2.5 px-3 rounded-xl transition-all shadow-sm"
+              onClick={() => isLocked ? setShowResetConfirm(16) : onLoadDemoTeams(16)}
+              className="bg-emerald-50 border-2 border-emerald-200 hover:bg-emerald-100 text-xs text-emerald-800 font-black tracking-wider uppercase italic py-2.5 px-3 rounded-xl transition-all shadow-sm cursor-pointer"
             >
               16 Squadre
             </button>
@@ -593,9 +622,13 @@ export default function TeamsTab({
                 type="button"
                 onClick={() => {
                   const finalVal = customCount === '' || customCount < 2 ? 12 : customCount;
-                  onLoadDemoTeams(finalVal);
+                  if (isLocked) {
+                    setShowResetConfirm(finalVal);
+                  } else {
+                    onLoadDemoTeams(finalVal);
+                  }
                 }}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-black tracking-wider uppercase italic py-2 px-4 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-black tracking-wider uppercase italic py-2 px-4 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 Genera {customCount || 'Custom'} 🏐
@@ -605,17 +638,19 @@ export default function TeamsTab({
           {teams.length > 0 && (
             <button
               id="clear-all-teams-btn"
-              onClick={onClearAllTeams}
-              className="w-full bg-rose-50 border-2 border-dashed border-rose-300 text-xs text-rose-700 font-black tracking-wider uppercase py-2 px-3 rounded-xl hover:bg-rose-100 transition-all"
+              type="button"
+              onClick={() => setShowClearConfirm(true)}
+              className="w-full bg-rose-50 border-2 border-dashed border-rose-300 text-xs text-rose-700 font-black tracking-wider uppercase py-2 px-3 rounded-xl hover:bg-rose-100 transition-all cursor-pointer"
             >
               Rimuovi tutte le squadre ({teams.length})
             </button>
           )}
         </div>
       </div>
+      )}
 
       {/* Roster / Directory Column */}
-      <div id="roster-panel" className="lg:col-span-2 space-y-6">
+      <div id="roster-panel" className={`${canWrite ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6`}>
         {/* Statistics headers */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="col-span-2 lg:col-span-1 bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-orange-400 shadow-md flex items-center gap-3">
@@ -775,420 +810,438 @@ export default function TeamsTab({
         </div>
       </div>
 
-      {/* Edit Team Dialog modal */}
-      {editingTeam && (
-        <div id="edit-team-modal" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border-4 border-sky-300 animate-in fade-in zoom-in-95 duration-150">
-            <div className="bg-gradient-to-r from-sky-500 to-indigo-500 p-5 text-white border-b-4 border-sky-600">
-              <h4 className="font-black text-xl italic uppercase tracking-tight flex items-center gap-2">
-                <Edit2 className="w-5 h-5" />
-                Modifica Dati Squadra
-              </h4>
-              <p className="text-xs font-bold text-white/90 uppercase tracking-widest mt-1">Aggiorna le informazioni degli iscritti</p>
-            </div>
-
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
-              <div>
-                <label htmlFor="edit-team-name-input" className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                  Nome Squadra *
-                </label>
-                <input
-                  id="edit-team-name-input"
-                  type="text"
-                  required
-                  className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-300 text-sm font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="edit-player-1-input" className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                    Giocatore 1 *
-                  </label>
-                  <input
-                    id="edit-player-1-input"
-                    type="text"
-                    required
-                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                    value={editPlayer1}
-                    onChange={(e) => setEditPlayer1(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="edit-player-2-input" className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                    Giocatore 2 *
-                  </label>
-                  <input
-                    id="edit-player-2-input"
-                    type="text"
-                    required
-                    className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                    value={editPlayer2}
-                    onChange={(e) => setEditPlayer2(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">
-                  Livello di Gioco
-                </label>
-                <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1 border border-slate-200">
-                  {(['Beginner', 'Bronze', 'Silver', 'Gold'] as const).map((lvl) => (
-                    <button
-                      key={lvl}
-                      id={`edit-level-opt-${lvl}`}
-                      type="button"
-                      onClick={() => setEditLevel(lvl)}
-                      className={`py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${
-                        editLevel === lvl
-                          ? 'bg-sky-500 text-white shadow-sm'
-                          : 'text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      {lvl}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-slate-100 pt-4 space-y-4 max-h-[220px] overflow-y-auto pr-1">
-                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 space-y-2.5">
-                  <span className="text-[10px] font-black uppercase text-sky-600 tracking-wider">Contatti Giocatore 1 ({editPlayer1 || 'Giocatore 1'})</span>
-                  <div>
-                    <label htmlFor="edit-phone-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                      Telefono
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        id="edit-phone-input"
-                        type="tel"
-                        className="w-full pl-9 pr-4 py-1.5 rounded-lg border-2 border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                        placeholder="es. +39 333 1234567"
-                        value={editPhone}
-                        onChange={(e) => setEditPhone(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="edit-email-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                      Email
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        id="edit-email-input"
-                        type="email"
-                        className="w-full pl-9 pr-4 py-1.5 rounded-lg border-2 border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                        placeholder="es. giocatore1@email.com"
-                        value={editEmail}
-                        onChange={(e) => setEditEmail(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 space-y-2.5">
-                  <span className="text-[10px] font-black uppercase text-sky-600 tracking-wider">Contatti Giocatore 2 ({editPlayer2 || 'Giocatore 2'})</span>
-                  <div>
-                    <label htmlFor="edit-phone2-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                      Telefono
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        id="edit-phone2-input"
-                        type="tel"
-                        className="w-full pl-9 pr-4 py-1.5 rounded-lg border-2 border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                        placeholder="es. +39 339 9876543"
-                        value={editPhone2}
-                        onChange={(e) => setEditPhone2(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="edit-email2-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                      Email
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        id="edit-email2-input"
-                        type="email"
-                        className="w-full pl-9 pr-4 py-1.5 rounded-lg border-2 border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 transition-all text-slate-800"
-                        placeholder="es. giocatore2@email.com"
-                        value={editEmail2}
-                        onChange={(e) => setEditEmail2(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3 justify-end pt-2 border-t border-slate-100">
-                <button
-                  id="cancel-edit-team-btn"
-                  type="button"
-                  onClick={() => setEditingTeam(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border-2 border-slate-200 text-slate-500 hover:bg-slate-50 transition-all"
-                >
-                  Annulla
-                </button>
-                <button
-                  id="save-edit-team-btn"
-                  type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-sky-500 hover:bg-sky-600 text-white border-b-4 border-sky-700 transition-all shadow-md active:translate-y-0.5"
-                >
-                  Salva Modifiche
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Team Details Modal */}
+      {/* Unified Team Details & Edit Modal */}
       {selectedDetailsTeam && (
-        <div id="team-details-modal" className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div id="team-details-modal" className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-3xl shadow-2xl border-4 border-sky-300 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
           >
-            {/* Modal Header */}
-            <div className="bg-sky-50 p-6 border-b-2 border-slate-100 flex justify-between items-start shrink-0">
-              <div>
-                <span className="bg-sky-500 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 border-sky-700">
-                  {selectedDetailsTeam.level}
-                </span>
-                <h3 className="font-black text-slate-800 text-2xl mt-1 uppercase leading-none">
-                  {selectedDetailsTeam.name}
-                </h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                  Iscrizione: {(() => {
-                    if (selectedDetailsTeam.registeredAt.includes(' ')) {
-                      const [d, t] = selectedDetailsTeam.registeredAt.split(' ');
-                      const parts = d.split('-');
-                      if (parts.length === 3) {
-                        const [y, m, dayVal] = parts;
-                        return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
-                      }
-                    }
-                    return selectedDetailsTeam.registeredAt;
-                  })()}
-                </p>
-              </div>
-              <button
-                type="button"
-                id="close-details-top-btn"
-                onClick={() => setSelectedDetailsTeam(null)}
-                className="text-slate-400 hover:text-slate-600 font-extrabold text-xl p-1 bg-white hover:bg-slate-100 rounded-lg border border-slate-200"
-              >
-                &times;
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-4 overflow-y-auto">
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider">
-                Informazioni di Contatto Componenti
-              </h4>
-
-              {/* Player 1 Details */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="bg-orange-500 text-white w-5 h-5 flex items-center justify-center rounded-full text-xs font-black font-mono">1</span>
-                  <span className="font-extrabold text-slate-800 text-sm uppercase">{selectedDetailsTeam.player1}</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {/* Phone P1 */}
-                  <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
-                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Telefono</span>
-                    <div className="flex flex-col gap-1.5">
-                      {selectedDetailsTeam.phone && selectedDetailsTeam.phone !== 'Non specificato' ? (
-                        <>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-black text-slate-700 font-mono tracking-wide truncate">{selectedDetailsTeam.phone}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(selectedDetailsTeam.phone, 'det-phone1')}
-                              className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0"
-                            >
-                              {copiedIdField === 'det-phone1' ? 'Copiato!' : 'Copia'}
-                            </button>
+            {(() => {
+              const editable = canWrite && (!isLocked || !isTournamentStarted);
+              const ModalContent = (
+                <>
+                  {/* Modal Header */}
+                  <div className="bg-sky-50 p-6 border-b-2 border-slate-100 flex justify-between items-start shrink-0">
+                    <div className="flex-grow">
+                      {editable ? (
+                        <div className="space-y-3">
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-black uppercase text-sky-700 tracking-wider">Nome Squadra *</label>
+                            <input
+                              type="text"
+                              required
+                              className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-extrabold uppercase focus:outline-none focus:border-sky-500 bg-white text-slate-800"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                            />
                           </div>
-                          
-                          {/* Quick Actions */}
-                          <div className="grid grid-cols-2 gap-1.5 pt-1">
-                            <a
-                              href={`tel:${selectedDetailsTeam.phone}`}
-                              className="flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
-                              title="Chiama al cellulare"
-                            >
-                              <Phone className="w-3 h-3 shrink-0" />
-                              Chiama
-                            </a>
-                            <a
-                              href={getWhatsAppUrl(selectedDetailsTeam.phone)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-green-500 hover:bg-green-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
-                              title="Invia messaggio WhatsApp"
-                            >
-                              <MessageSquare className="w-3 h-3 shrink-0" />
-                              WhatsApp
-                            </a>
+                          <div>
+                            <label className="block text-[10px] font-black uppercase text-sky-700 tracking-wider mb-1.5">Livello di Gioco</label>
+                            <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-200/60 p-1 border border-slate-200">
+                              {(['Beginner', 'Bronze', 'Silver', 'Gold'] as const).map((lvl) => (
+                                <button
+                                  key={lvl}
+                                  id={`details-edit-lvl-${lvl}`}
+                                  type="button"
+                                  onClick={() => setEditLevel(lvl)}
+                                  className={`py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${
+                                    editLevel === lvl
+                                      ? 'bg-sky-500 text-white shadow-sm'
+                                      : 'text-slate-600 hover:bg-slate-300/40'
+                                  }`}
+                                >
+                                  {lvl}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        </>
+                        </div>
                       ) : (
-                        <span className="text-xs text-slate-400 italic">Non specificato</span>
+                        <>
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            <span className="bg-sky-500 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 border-sky-700">
+                              {selectedDetailsTeam.level}
+                            </span>
+                          </div>
+                          <h3 className="font-black text-slate-800 text-2xl mt-1.5 uppercase leading-none">
+                            {selectedDetailsTeam.name}
+                          </h3>
+                        </>
                       )}
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
+                        Iscrizione: {(() => {
+                          if (selectedDetailsTeam.registeredAt.includes(' ')) {
+                            const [d, t] = selectedDetailsTeam.registeredAt.split(' ');
+                            const parts = d.split('-');
+                            if (parts.length === 3) {
+                              const [y, m, dayVal] = parts;
+                              return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                            }
+                          }
+                          return selectedDetailsTeam.registeredAt;
+                        })()}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      id="close-details-top-btn"
+                      onClick={() => setSelectedDetailsTeam(null)}
+                      className="text-slate-400 hover:text-slate-600 font-extrabold text-xl p-1 px-2.5 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 shrink-0 ml-4 cursor-pointer"
+                    >
+                      &times;
+                    </button>
+                  </div>
+
+                  {/* Modal Body */}
+                  <div className="p-6 space-y-4 overflow-y-auto">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                      {editable ? 'Informazioni e Modifica Componenti' : 'Informazioni di Contatto Componenti'}
+                    </h4>
+
+                    {/* Player 1 Details / Edit */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <span className="bg-orange-500 text-white w-5 h-5 flex items-center justify-center rounded-full text-xs font-black font-mono shrink-0">1</span>
+                        {editable ? (
+                          <div className="flex-grow">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nome Giocatore 1 *</label>
+                            <input
+                              type="text"
+                              required
+                              className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-200 text-xs text-slate-800 font-bold focus:outline-none focus:border-sky-500 bg-white"
+                              value={editPlayer1}
+                              onChange={(e) => setEditPlayer1(e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          <span className="font-extrabold text-slate-800 text-sm uppercase">{selectedDetailsTeam.player1}</span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        {/* Phone P1 */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Telefono</span>
+                          {editable ? (
+                            <div className="space-y-1.5">
+                              <input
+                                type="tel"
+                                placeholder="Inserisci cellulare"
+                                className="w-full px-2 py-1.5 rounded border border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 bg-white"
+                                value={editPhone}
+                                onChange={(e) => setEditPhone(e.target.value)}
+                              />
+                              {editPhone ? (
+                                <div className="grid grid-cols-2 gap-1">
+                                  <a
+                                    href={`tel:${editPhone}`}
+                                    className="flex items-center justify-center gap-1 py-1 px-15 text-[9px] font-black uppercase bg-emerald-500 hover:bg-emerald-600 text-white rounded transition-all"
+                                  >
+                                    <Phone className="w-2.5 h-2.5" />
+                                    Chiama
+                                  </a>
+                                  <a
+                                    href={getWhatsAppUrl(editPhone)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center justify-center gap-1 py-1 px-15 text-[9px] font-black uppercase bg-green-500 hover:bg-green-600 text-white rounded transition-all"
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5" />
+                                    WhatsApp
+                                  </a>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {selectedDetailsTeam.phone && selectedDetailsTeam.phone !== 'Non specificato' ? (
+                                <>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs font-black text-slate-700 font-mono tracking-wide truncate">{selectedDetailsTeam.phone}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopy(selectedDetailsTeam.phone, 'det-phone1')}
+                                      className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0 cursor-pointer"
+                                    >
+                                      {copiedIdField === 'det-phone1' ? 'Copiato!' : 'Copia'}
+                                    </button>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1 pt-1">
+                                    <a
+                                      href={`tel:${selectedDetailsTeam.phone}`}
+                                      className="flex items-center justify-center gap-1 py-1 px-1.5 text-[10px] font-black uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
+                                    >
+                                      <Phone className="w-2.5 h-2.5 shrink-0" />
+                                      Chiama
+                                    </a>
+                                    <a
+                                      href={getWhatsAppUrl(selectedDetailsTeam.phone)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center justify-center gap-1 py-1 px-1.5 text-[10px] font-black uppercase tracking-wider bg-green-500 hover:bg-green-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
+                                    >
+                                      <MessageSquare className="w-2.5 h-2.5 shrink-0" />
+                                      WhatsApp
+                                    </a>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">Non specificato</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Email P1 */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Email</span>
+                          {editable ? (
+                            <div className="space-y-1.5">
+                              <input
+                                type="email"
+                                placeholder="Inserisci email"
+                                className="w-full px-2 py-1 rounded border border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 bg-white"
+                                value={editEmail}
+                                onChange={(e) => setEditEmail(e.target.value)}
+                              />
+                              {editEmail ? (
+                                <a
+                                  href={`mailto:${editEmail}`}
+                                  className="w-full flex items-center justify-center gap-1 py-1 px-1 text-[9px] font-black uppercase bg-sky-500 hover:bg-sky-600 text-white rounded transition-all"
+                                >
+                                  <Mail className="w-2.5 h-2.5" />
+                                  Email
+                                </a>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {selectedDetailsTeam.email && selectedDetailsTeam.email !== 'Non specificata' ? (
+                                <>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs font-bold text-slate-700 truncate pr-1" title={selectedDetailsTeam.email}>{selectedDetailsTeam.email}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopy(selectedDetailsTeam.email, 'det-email1')}
+                                      className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0 cursor-pointer"
+                                    >
+                                      {copiedIdField === 'det-email1' ? 'Copiato!' : 'Copia'}
+                                    </button>
+                                  </div>
+                                  <div className="pt-1">
+                                    <a
+                                      href={`mailto:${selectedDetailsTeam.email}`}
+                                      className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-sky-500 hover:bg-sky-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
+                                    >
+                                      <Mail className="w-2.5 h-2.5 shrink-0" />
+                                      Invia Email
+                                    </a>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">Non specificata</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Player 2 Details / Edit */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <span className="bg-orange-500 text-white w-5 h-5 flex items-center justify-center rounded-full text-xs font-black font-mono shrink-0">2</span>
+                        {editable ? (
+                          <div className="flex-grow">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nome Giocatore 2 *</label>
+                            <input
+                              type="text"
+                              required
+                              className="w-full px-3 py-1.5 rounded-lg border-2 border-slate-200 text-xs text-slate-800 font-bold focus:outline-none focus:border-sky-500 bg-white"
+                              value={editPlayer2}
+                              onChange={(e) => setEditPlayer2(e.target.value)}
+                            />
+                          </div>
+                        ) : (
+                          <span className="font-extrabold text-slate-800 text-sm uppercase">{selectedDetailsTeam.player2}</span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        {/* Phone P2 */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Telefono</span>
+                          {editable ? (
+                            <div className="space-y-1.5">
+                              <input
+                                type="tel"
+                                placeholder="Inserisci cellulare"
+                                className="w-full px-2 py-1 rounded border border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 bg-white"
+                                value={editPhone2}
+                                onChange={(e) => setEditPhone2(e.target.value)}
+                              />
+                              {editPhone2 ? (
+                                <div className="grid grid-cols-2 gap-1">
+                                  <a
+                                    href={`tel:${editPhone2}`}
+                                    className="flex items-center justify-center gap-1 py-1 px-15 text-[9px] font-black uppercase bg-emerald-500 hover:bg-emerald-600 text-white rounded transition-all"
+                                  >
+                                    <Phone className="w-2.5 h-2.5" />
+                                    Chiama
+                                  </a>
+                                  <a
+                                    href={getWhatsAppUrl(editPhone2)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center justify-center gap-1 py-1 px-15 text-[9px] font-black uppercase bg-green-500 hover:bg-green-600 text-white rounded transition-all"
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5" />
+                                    WhatsApp
+                                  </a>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {selectedDetailsTeam.phone2 && selectedDetailsTeam.phone2 !== 'Non specificato' ? (
+                                <>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs font-black text-slate-700 font-mono tracking-wide truncate">{selectedDetailsTeam.phone2}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopy(selectedDetailsTeam.phone2!, 'det-phone2')}
+                                      className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0 cursor-pointer"
+                                    >
+                                      {copiedIdField === 'det-phone2' ? 'Copiato!' : 'Copia'}
+                                    </button>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1 pt-1">
+                                    <a
+                                      href={`tel:${selectedDetailsTeam.phone2}`}
+                                      className="flex items-center justify-center gap-1 py-1 px-1.5 text-[10px] font-black uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
+                                    >
+                                      <Phone className="w-2.5 h-2.5 shrink-0" />
+                                      Chiama
+                                    </a>
+                                    <a
+                                      href={getWhatsAppUrl(selectedDetailsTeam.phone2)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center justify-center gap-1 py-1 px-1.5 text-[10px] font-black uppercase tracking-wider bg-green-500 hover:bg-green-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
+                                    >
+                                      <MessageSquare className="w-2.5 h-2.5 shrink-0" />
+                                      WhatsApp
+                                    </a>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">Non specificato</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Email P2 */}
+                        <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Email</span>
+                          {editable ? (
+                            <div className="space-y-1.5">
+                              <input
+                                type="email"
+                                placeholder="Inserisci email"
+                                className="w-full px-2 py-1 rounded border border-slate-300 text-xs font-semibold focus:outline-none focus:border-sky-500 bg-white"
+                                value={editEmail2}
+                                onChange={(e) => setEditEmail2(e.target.value)}
+                              />
+                              {editEmail2 ? (
+                                <a
+                                  href={`mailto:${editEmail2}`}
+                                  className="w-full flex items-center justify-center gap-1 py-1 px-1 text-[9px] font-black uppercase bg-sky-500 hover:bg-sky-600 text-white rounded transition-all"
+                                >
+                                  <Mail className="w-2.5 h-2.5" />
+                                  Email
+                                </a>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1.5">
+                              {selectedDetailsTeam.email2 && selectedDetailsTeam.email2 !== 'Non specificata' ? (
+                                <>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs font-bold text-slate-700 truncate pr-1" title={selectedDetailsTeam.email2}>{selectedDetailsTeam.email2}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopy(selectedDetailsTeam.email2!, 'det-email2')}
+                                      className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0 cursor-pointer"
+                                    >
+                                      {copiedIdField === 'det-email2' ? 'Copiato!' : 'Copia'}
+                                    </button>
+                                  </div>
+                                  <div className="pt-1">
+                                    <a
+                                      href={`mailto:${selectedDetailsTeam.email2}`}
+                                      className="w-full flex items-center justify-center gap-1 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-sky-500 hover:bg-sky-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
+                                    >
+                                      <Mail className="w-2.5 h-2.5 shrink-0" />
+                                      Invia Email
+                                    </a>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">Non specificata</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Mail P1 */}
-                  <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
-                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Email</span>
-                    <div className="flex flex-col gap-1.5">
-                      {selectedDetailsTeam.email && selectedDetailsTeam.email !== 'Non specificata' ? (
-                        <>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-bold text-slate-700 truncate pr-1" title={selectedDetailsTeam.email}>{selectedDetailsTeam.email}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(selectedDetailsTeam.email, 'det-email1')}
-                              className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0"
-                            >
-                              {copiedIdField === 'det-email1' ? 'Copiato!' : 'Copia'}
-                            </button>
-                          </div>
-                          
-                          {/* Quick Action */}
-                          <div className="pt-1">
-                            <a
-                              href={`mailto:${selectedDetailsTeam.email}`}
-                              className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-sky-500 hover:bg-sky-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
-                              title="Invia Email"
-                            >
-                              <Mail className="w-3 h-3 shrink-0" />
-                              Invia Email
-                            </a>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-xs text-slate-400 italic">Non specificata</span>
-                      )}
-                    </div>
+                  {/* Modal Footer */}
+                  <div className="p-4 bg-slate-50 border-t-2 border-slate-100 flex justify-end gap-3 shrink-0 col-span-2">
+                    {editable ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDetailsTeam(null)}
+                          className="px-5 py-2.5 border-2 border-slate-205 text-slate-650 hover:bg-slate-100 text-xs font-black uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
+                        >
+                          Annulla
+                        </button>
+                        <button
+                          type="submit"
+                          id="save-unified-details-btn"
+                          className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-black uppercase tracking-wider rounded-xl border-b-4 border-sky-700 transition-all shadow-md active:translate-y-0.5 cursor-pointer"
+                        >
+                          Salva Modifiche 💾
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        id="close-details-bottom-btn"
+                        onClick={() => setSelectedDetailsTeam(null)}
+                        className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-colors shadow-md cursor-pointer"
+                      >
+                        Chiudi
+                      </button>
+                    )}
                   </div>
+                </>
+              );
+
+              return editable ? (
+                <form onSubmit={handleEditSubmit} className="flex flex-col overflow-hidden max-h-[90vh]">
+                  {ModalContent}
+                </form>
+              ) : (
+                <div className="flex flex-col overflow-hidden max-h-[90vh]">
+                  {ModalContent}
                 </div>
-              </div>
-
-              {/* Player 2 Details */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="bg-orange-500 text-white w-5 h-5 flex items-center justify-center rounded-full text-xs font-black font-mono">2</span>
-                  <span className="font-extrabold text-slate-800 text-sm uppercase">{selectedDetailsTeam.player2}</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  {/* Phone P2 */}
-                  <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
-                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Telefono</span>
-                    <div className="flex flex-col gap-1.5">
-                      {selectedDetailsTeam.phone2 && selectedDetailsTeam.phone2 !== 'Non specificato' ? (
-                        <>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-black text-slate-700 font-mono tracking-wide truncate">{selectedDetailsTeam.phone2}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(selectedDetailsTeam.phone2!, 'det-phone2')}
-                              className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0"
-                            >
-                              {copiedIdField === 'det-phone2' ? 'Copiato!' : 'Copia'}
-                            </button>
-                          </div>
-                          
-                          {/* Quick Actions */}
-                          <div className="grid grid-cols-2 gap-1.5 pt-1">
-                            <a
-                              href={`tel:${selectedDetailsTeam.phone2}`}
-                              className="flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
-                              title="Chiama al cellulare"
-                            >
-                              <Phone className="w-3 h-3 shrink-0" />
-                              Chiama
-                            </a>
-                            <a
-                              href={getWhatsAppUrl(selectedDetailsTeam.phone2)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-green-500 hover:bg-green-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
-                              title="Invia messaggio WhatsApp"
-                            >
-                              <MessageSquare className="w-3 h-3 shrink-0" />
-                              WhatsApp
-                            </a>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-xs text-slate-400 italic">Non specificato</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Mail P2 */}
-                  <div className="bg-white p-3 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-2">
-                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Email</span>
-                    <div className="flex flex-col gap-1.5">
-                      {selectedDetailsTeam.email2 && selectedDetailsTeam.email2 !== 'Non specificata' ? (
-                        <>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-bold text-slate-700 truncate pr-1" title={selectedDetailsTeam.email2}>{selectedDetailsTeam.email2}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(selectedDetailsTeam.email2!, 'det-email2')}
-                              className="text-[9px] font-black uppercase tracking-wider text-sky-600 hover:text-sky-850 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 transition-all shrink-0"
-                            >
-                              {copiedIdField === 'det-email2' ? 'Copiato!' : 'Copia'}
-                            </button>
-                          </div>
-                          
-                          {/* Quick Action */}
-                          <div className="pt-1">
-                            <a
-                              href={`mailto:${selectedDetailsTeam.email2}`}
-                              className="w-full flex items-center justify-center gap-1.5 py-1 px-2 text-[10px] font-black uppercase tracking-wider bg-sky-500 hover:bg-sky-600 active:scale-95 text-white rounded-lg transition-all shadow-xs"
-                              title="Invia Email"
-                            >
-                              <Mail className="w-3 h-3 shrink-0" />
-                              Invia Email
-                            </a>
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-xs text-slate-400 italic">Non specificata</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t-2 border-slate-100 flex justify-end shrink-0">
-              <button
-                type="button"
-                id="close-details-bottom-btn"
-                onClick={() => setSelectedDetailsTeam(null)}
-                className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-colors shadow-md"
-              >
-                Chiudi
-              </button>
-            </div>
+              );
+            })()}
           </motion.div>
         </div>
       )}
@@ -1233,7 +1286,7 @@ export default function TeamsTab({
               >
                 Annulla
               </button>
-              {sortedReserves.length > 0 && (
+              {sortedReserves.length > 0 ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -1246,7 +1299,94 @@ export default function TeamsTab({
                 >
                   Conferma e Sostituisci
                 </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteTeam(substituteConfirmTeam.id);
+                    setSubstituteConfirmTeam(null);
+                  }}
+                  className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white font-black rounded-full text-xs uppercase tracking-wider transition-all shadow-md active:translate-y-0.5"
+                >
+                  Conferma Ritiro
+                </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Overlay Dialogs for Reset/Clear confirmations */}
+      {showResetConfirm !== null && (
+        <div id="reset-confirm-modal" className="fixed inset-0 bg-sky-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl border-4 border-rose-450 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-200 text-slate-800">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-rose-50 border-2 border-rose-300 rounded-full flex items-center justify-center mx-auto text-rose-500 shadow-xs mb-1">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="font-black text-slate-850 uppercase italic text-lg leading-tight">Azzera & Rigenera?</h3>
+              <p className="text-xs text-slate-550 font-semibold leading-relaxed">
+                Il torneo è già in corso o configurato. Se procedi, **tutte le gare correnti e i record dei punti verranno cancellati in modo definitivo** per caricare le squadre demo selezionate.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                id="reset-modal-cancel"
+                type="button"
+                onClick={() => setShowResetConfirm(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black uppercase tracking-wider py-2.5 rounded-xl border border-slate-350 transition-all font-sans cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                id="reset-modal-ok"
+                type="button"
+                onClick={() => {
+                  const count = showResetConfirm;
+                  setShowResetConfirm(null);
+                  onLoadDemoTeams(count);
+                }}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm font-sans cursor-pointer"
+              >
+                Sì, Carica Demo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClearConfirm && (
+        <div id="clear-confirm-modal" className="fixed inset-0 bg-sky-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl border-4 border-rose-450 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-200 text-slate-800">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-rose-50 border-2 border-rose-300 rounded-full flex items-center justify-center mx-auto text-rose-500 shadow-xs mb-1">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="font-black text-rose-750 uppercase italic text-lg leading-tight">Rimuovi Roster?</h3>
+              <p className="text-xs text-slate-550 font-semibold leading-relaxed">
+                Stai eliminando **tutte le {teams.length} squadre iscritte**. Se procedi, anche tutte le eventuali gare collegate verranno totalmente rimosse. Questa operazione non può essere annullata.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                id="clear-modal-cancel"
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black uppercase tracking-wider py-2.5 rounded-xl border border-slate-350 transition-all font-sans cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                id="clear-modal-ok"
+                type="button"
+                onClick={() => {
+                  setShowClearConfirm(false);
+                  onClearAllTeams();
+                }}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm font-sans cursor-pointer"
+              >
+                Sì, Elimina tutto
+              </button>
             </div>
           </div>
         </div>

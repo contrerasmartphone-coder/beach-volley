@@ -49,6 +49,8 @@ export interface Match {
   groupName?: string; // Name of group, e.g. "Girone A" for pool stage
   pointsPerSet?: 15 | 21; // Point threshold for a set
   maxSets?: 1 | 3; // Number of sets (e.g., best of 3 or 1 set)
+  outcomeType?: 'normal' | 'injury_during' | 'injury_before' | 'forfeit';
+  retiredTeamId?: string; // ID of the team that retired/injured/absent
 }
 
 export interface NotificationLog {
@@ -66,4 +68,23 @@ export interface TournamentConfig {
   courtCount: number;
   startTime: string; // e.g. "09:00"
   matchDurationMinutes: number;
+}
+
+export interface AppUser {
+  id: string;
+  username: string;
+  password?: string;
+  role: 'admin' | 'collaborator' | 'reader';
+  createdAt: string;
+}
+
+export interface ArchivedTournament {
+  id: string;
+  name: string;
+  date: string;
+  formula: string;
+  teamsCount: number;
+  teams: Team[];
+  matches: Match[];
+  winnerTeamName?: string;
 }

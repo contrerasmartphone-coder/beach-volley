@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { NotificationLog, Team } from '../types';
+import { NotificationLog, Team, AppUser } from '../types';
 import { Bell, Send, Check, AlertCircle, Sparkles, Smartphone, Mail, CloudSun, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface NotificationCenterProps {
+  currentUser?: AppUser | null;
   notifications: NotificationLog[];
   teams: Team[];
   onAddNotification: (notification: NotificationLog) => void;
@@ -11,11 +12,13 @@ interface NotificationCenterProps {
 }
 
 export default function NotificationCenter({
+  currentUser = null,
   notifications,
   teams,
   onAddNotification,
   onClearNotifications,
 }: NotificationCenterProps) {
+  const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const [pushTitle, setPushTitle] = useState('Modifica Orario Match ⏰');
   const [pushMessage, setPushMessage] = useState('Attenzione: la partita del girone è stata anticipata di 10 minuti per evitare ritardi.');
   const [pushType, setPushType] = useState<NotificationLog['type']>('schedule_change');
@@ -91,165 +94,167 @@ export default function NotificationCenter({
   return (
     <div id="notification-tab-root" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Control Console / Dispatcher Column */}
-      <div id="dispatcher-console" className="lg:col-span-1 space-y-6">
-        {/* Browser Permission Panel */}
-        <div className="bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl">
-          <div className="flex items-center gap-2.5 mb-3.5">
-            <div className="p-2.5 bg-sky-50 border-2 border-sky-100 rounded-xl text-sky-600">
-              <Bell className="w-5 h-5 stroke-[2.5]" />
-            </div>
-            <div>
-              <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wide">Notifiche di Sistema</h4>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Invia alert sui dispositivi dei giocatori</p>
-            </div>
-          </div>
-
-          {browserPermission === 'default' && (
-            <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 text-center space-y-3">
-              <p className="text-xs font-bold text-orange-950 uppercase tracking-wide">
-                Abilita le notifiche native del browser per ricevere alert sul desktop quando aggiorni il tabellone o finisce un set!
-              </p>
-              <button
-                id="enable-native-notifications-btn"
-                onClick={handleEnableBrowserNotifications}
-                className="w-full bg-orange-400 hover:bg-orange-500 text-white font-black py-2.5 px-3 rounded-full text-xs transition-all border-b-4 border-orange-600 active:translate-y-0.5 shadow-md uppercase tracking-wider"
-              >
-                Abilita Notifiche Desktop
-              </button>
-            </div>
-          )}
-
-          {browserPermission === 'granted' && (
-            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-3.5 flex items-center gap-2 text-emerald-800 text-xs font-bold uppercase tracking-wider">
-              <Check className="w-4 h-4 shrink-0 text-emerald-600 stroke-[3]" />
-              <span>Notifiche browser <strong className="text-emerald-950 underline">Abilitate</strong>! Ok.</span>
-            </div>
-          )}
-
-          {browserPermission === 'denied' && (
-            <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex items-center gap-2 text-slate-500 text-xs font-bold uppercase tracking-wider">
-              <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
-              <span>Notifiche disattivate nel browser. Feed attivo.</span>
-            </div>
-          )}
-
-          {browserPermission === 'unsupported' && (
-            <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex items-center gap-2 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>In-app simulation mode attiva.</span>
-            </div>
-          )}
-        </div>
-
-        {/* Sender Dispatcher Form */}
-        <div className="bg-white rounded-3xl border-4 border-orange-300 p-6 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1.5 bg-orange-400"></div>
-          <h4 className="font-black text-slate-800 text-sm uppercase tracking-wide mb-4">Invia Notifica Push (Simulatore)</h4>
-
-          <form onSubmit={handleSendCustomNotification} className="space-y-4">
-            <div>
-              <label htmlFor="push-title-input" className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1">Titolo Push *</label>
-              <input
-                id="push-title-input"
-                type="text"
-                required
-                className="w-full px-3 py-2 border-2 border-slate-200 rounded-xl font-semibold text-slate-850 text-xs focus:outline-none focus:border-orange-400"
-                value={pushTitle}
-                onChange={(e) => setPushTitle(e.target.value)}
-              />
+      {canWrite && (
+        <div id="dispatcher-console" className="lg:col-span-1 space-y-6">
+          {/* Browser Permission Panel */}
+          <div className="bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl">
+            <div className="flex items-center gap-2.5 mb-3.5">
+              <div className="p-2.5 bg-sky-50 border-2 border-sky-100 rounded-xl text-sky-600">
+                <Bell className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wide">Notifiche di Sistema</h4>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Invia alert sui dispositivi dei giocatori</p>
+              </div>
             </div>
 
-            <div>
-              <label htmlFor="push-type-select" className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1">Categoria</label>
-              <select
-                id="push-type-select"
-                className="w-full px-3 py-2 border-2 border-slate-250 rounded-xl font-bold text-slate-850 text-xs bg-white focus:outline-none focus:border-orange-400"
-                value={pushType}
-                onChange={(e) => setPushType(e.target.value as NotificationLog['type'])}
-              >
-                <option value="schedule_change">Cambio Orari / Campo ⏰</option>
-                <option value="live_update">Notizia Live 🎙️</option>
-                <option value="result">Aggiornamento Risultato 🏆</option>
-                <option value="system">Annuncio Organizzativo 🏝️</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="push-message-input" className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1">Testo del Messaggio *</label>
-              <textarea
-                id="push-message-input"
-                required
-                rows={3}
-                className="w-full px-3 py-2 border-2 border-slate-200 rounded-xl font-medium text-slate-850 text-xs focus:outline-none focus:border-orange-400"
-                placeholder="es. Si pregano tutti i capitani delle squadre..."
-                value={pushMessage}
-                onChange={(e) => setPushMessage(e.target.value)}
-              />
-            </div>
-
-            {successSent && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                id="push-sent-toast"
-                className="p-3 bg-emerald-50 border-2 border-emerald-250 rounded-2xl text-emerald-800 text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5"
-              >
-                <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
-                Inviato a {teams.length} smartphone via MMS!
-              </motion.div>
+            {browserPermission === 'default' && (
+              <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 text-center space-y-3">
+                <p className="text-xs font-bold text-orange-950 uppercase tracking-wide">
+                  Abilita le notifiche native del browser per ricevere alert sul desktop quando aggiorni il tabellone o finisce un set!
+                </p>
+                <button
+                  id="enable-native-notifications-btn"
+                  onClick={handleEnableBrowserNotifications}
+                  className="w-full bg-orange-400 hover:bg-orange-500 text-white font-black py-2.5 px-3 rounded-full text-xs transition-all border-b-4 border-orange-600 active:translate-y-0.5 shadow-md uppercase tracking-wider"
+                >
+                  Abilita Notifiche Desktop
+                </button>
+              </div>
             )}
 
-            <button
-              id="dispatch-push-btn"
-              type="submit"
-              className="w-full bg-orange-400 hover:bg-orange-500 font-extrabold py-3 px-4 rounded-full text-xs text-white flex items-center justify-center gap-2 border-b-4 border-orange-600 active:translate-y-0.5 shadow-md uppercase tracking-wider"
-            >
-              <Send className="w-3.5 h-3.5 fill-white" />
-              Invia Notifica Adesso
-            </button>
-          </form>
+            {browserPermission === 'granted' && (
+              <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-3.5 flex items-center gap-2 text-emerald-800 text-xs font-bold uppercase tracking-wider">
+                <Check className="w-4 h-4 shrink-0 text-emerald-600 stroke-[3]" />
+                <span>Notifiche browser <strong className="text-emerald-950 underline">Abilitate</strong>! Ok.</span>
+              </div>
+            )}
 
-          {/* Quick template triggers */}
-          <div className="mt-6 border-t-2 border-slate-100 pt-4">
-            <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Modelli Rapidi Selezionabili</h5>
-            <div id="notif-templates-grid" className="space-y-2">
+            {browserPermission === 'denied' && (
+              <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex items-center gap-2 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+                <span>Notifiche disattivate nel browser. Feed attivo.</span>
+              </div>
+            )}
+
+            {browserPermission === 'unsupported' && (
+              <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex items-center gap-2 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>In-app simulation mode attiva.</span>
+              </div>
+            )}
+          </div>
+
+          {/* Sender Dispatcher Form */}
+          <div className="bg-white rounded-3xl border-4 border-orange-300 p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-orange-400"></div>
+            <h4 className="font-black text-slate-800 text-sm uppercase tracking-wide mb-4">Invia Notifica Push (Simulatore)</h4>
+
+            <form onSubmit={handleSendCustomNotification} className="space-y-4">
+              <div>
+                <label htmlFor="push-title-input" className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1">Titolo Push *</label>
+                <input
+                  id="push-title-input"
+                  type="text"
+                  required
+                  className="w-full px-3 py-2 border-2 border-slate-200 rounded-xl font-semibold text-slate-850 text-xs focus:outline-none focus:border-orange-400"
+                  value={pushTitle}
+                  onChange={(e) => setPushTitle(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="push-type-select" className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1">Categoria</label>
+                <select
+                  id="push-type-select"
+                  className="w-full px-3 py-2 border-2 border-slate-250 rounded-xl font-bold text-slate-850 text-xs bg-white focus:outline-none focus:border-orange-400"
+                  value={pushType}
+                  onChange={(e) => setPushType(e.target.value as NotificationLog['type'])}
+                >
+                  <option value="schedule_change">Cambio Orari / Campo ⏰</option>
+                  <option value="live_update">Notizia Live 🎙️</option>
+                  <option value="result">Aggiornamento Risultato 🏆</option>
+                  <option value="system">Annuncio Organizzativo 🏝️</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="push-message-input" className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-1">Testo del Messaggio *</label>
+                <textarea
+                  id="push-message-input"
+                  required
+                  rows={3}
+                  className="w-full px-3 py-2 border-2 border-slate-200 rounded-xl font-medium text-slate-850 text-xs focus:outline-none focus:border-orange-400"
+                  placeholder="es. Si pregano tutti i capitani delle squadre..."
+                  value={pushMessage}
+                  onChange={(e) => setPushMessage(e.target.value)}
+                />
+              </div>
+
+              {successSent && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  id="push-sent-toast"
+                  className="p-3 bg-emerald-50 border-2 border-emerald-250 rounded-2xl text-emerald-800 text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                  Inviato a {teams.length} smartphone via MMS!
+                </motion.div>
+              )}
+
               <button
-                id="template-meteo"
-                onClick={() => loadTemplate('Condizioni Meteo 🌦️', 'Forte sole sulla riviera: raccomandiamo di bagnarsi la testa e idratarsi con i sali minerali al bar del lido.', 'system')}
-                className="w-full text-left p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border-2 border-slate-200 text-[10px] text-slate-600 flex items-center gap-2 transition-all font-bold uppercase tracking-wider"
+                id="dispatch-push-btn"
+                type="submit"
+                className="w-full bg-orange-400 hover:bg-orange-500 font-extrabold py-3 px-4 rounded-full text-xs text-white flex items-center justify-center gap-2 border-b-4 border-orange-600 active:translate-y-0.5 shadow-md uppercase tracking-wider"
               >
-                <CloudSun className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>Meteo ed idratazione</span>
+                <Send className="w-3.5 h-3.5 fill-white" />
+                Invia Notifica Adesso
               </button>
-              <button
-                id="template-court"
-                onClick={() => loadTemplate('Spostamento Campo 🏟️', 'Il prossimo incontro si disputerà sul Campo Central 1 anziché sul Campo 2.', 'schedule_change')}
-                className="w-full text-left p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border-2 border-slate-200 text-[10px] text-slate-600 flex items-center gap-2 transition-all font-bold uppercase tracking-wider"
-              >
-                <Calendar className="w-4 h-4 text-orange-500 shrink-0" />
-                <span>Variazione del Campo</span>
-              </button>
-              <button
-                id="template-award"
-                onClick={() => loadTemplate('Premiazioni Finali 🏆', 'Tutte le coppie partecipanti sono invitate alle ore 18:30 nell\'area beach per la consegna dei gadget e la coppa d\'oro.', 'system')}
-                className="w-full text-left p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border-2 border-slate-200 text-[10px] text-slate-600 flex items-center gap-2 transition-all font-bold uppercase tracking-wider"
-              >
-                <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>Cerimonia di Premiazione</span>
-              </button>
+            </form>
+
+            {/* Quick template triggers */}
+            <div className="mt-6 border-t-2 border-slate-100 pt-4">
+              <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Modelli Rapidi Selezionabili</h5>
+              <div id="notif-templates-grid" className="space-y-2">
+                <button
+                  id="template-meteo"
+                  onClick={() => loadTemplate('Condizioni Meteo 🌦️', 'Forte sole sulla riviera: raccomandiamo di bagnarsi la testa e idratarsi con i sali minerali al bar del lido.', 'system')}
+                  className="w-full text-left p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border-2 border-slate-200 text-[10px] text-slate-600 flex items-center gap-2 transition-all font-bold uppercase tracking-wider"
+                >
+                  <CloudSun className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>Meteo ed idratazione</span>
+                </button>
+                <button
+                  id="template-court"
+                  onClick={() => loadTemplate('Spostamento Campo 🏟️', 'Il prossimo incontro si disputerà sul Campo Central 1 anziché sul Campo 2.', 'schedule_change')}
+                  className="w-full text-left p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border-2 border-slate-200 text-[10px] text-slate-600 flex items-center gap-2 transition-all font-bold uppercase tracking-wider"
+                >
+                  <Calendar className="w-4 h-4 text-orange-500 shrink-0" />
+                  <span>Variazione del Campo</span>
+                </button>
+                <button
+                  id="template-award"
+                  onClick={() => loadTemplate('Premiazioni Finali 🏆', 'Tutte le coppie partecipanti sono invitate alle ore 18:30 nell\'area beach per la consegna dei gadget e la coppa d\'oro.', 'system')}
+                  className="w-full text-left p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border-2 border-slate-200 text-[10px] text-slate-600 flex items-center gap-2 transition-all font-bold uppercase tracking-wider"
+                >
+                  <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>Cerimonia di Premiazione</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Ticker Logs Feed Column */}
-      <div id="notifications-logs" className="lg:col-span-2 bg-white rounded-3xl shadow-xl border-4 border-sky-200 p-6 flex flex-col h-[650px]">
+      <div id="notifications-logs" className={`bg-white rounded-3xl shadow-xl border-4 border-sky-200 p-6 flex flex-col h-[650px] ${canWrite ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
         <div className="flex justify-between items-center pb-4 border-b-2 border-slate-100 mb-4">
           <div>
             <h3 className="text-lg font-black text-sky-950 uppercase italic tracking-wide">Storico Update in Tempo Reale</h3>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Feed delle notifiche push inviate e dei risultati registrati</p>
           </div>
-          {notifications.length > 0 && (
+          {canWrite && notifications.length > 0 && (
             <button
               id="clear-notifications-history-btn"
               onClick={onClearNotifications}

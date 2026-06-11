@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Team, Match, SetScore, NotificationLog } from '../types';
-import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList } from '../utils';
-import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw } from 'lucide-react';
+import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
+import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings } from '../utils';
+import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface BracketTabProps {
@@ -20,6 +20,7 @@ interface BracketTabProps {
     sfMaxSets?: 1 | 3;
   }) => void;
   onAddNotification: (notification: NotificationLog) => void;
+  currentUser?: AppUser | null;
 }
 
 export default function BracketTab({
@@ -28,7 +29,11 @@ export default function BracketTab({
   onUpdateMatches,
   onGenerateTournament,
   onAddNotification,
+  currentUser = null,
 }: BracketTabProps) {
+  const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
+  const isAdmin = currentUser && currentUser.role === 'admin';
+
   // New Tournament States
   const [tournamentName, setTournamentName] = useState('Classic Beach Cup');
   const [formula, setFormula] = useState<'direct' | 'pools' | 'combined' | 'double_elim'>('combined');
@@ -43,6 +48,7 @@ export default function BracketTab({
   // Active Phase View States
   const [activePhaseTab, setActivePhaseTab] = useState<'gironi' | 'eliminazione'>('gironi');
   const [selectedGroupTab, setSelectedGroupTab] = useState<string>('');
+  const [groupViewMode, setGroupViewMode] = useState<'by-group' | 'all-list'>('by-group');
   
   // Scoring Dialog Mode
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -56,11 +62,29 @@ export default function BracketTab({
   const [editTime, setEditTime] = useState('');
   const [manualT1Sets, setManualT1Sets] = useState(0);
   const [manualT2Sets, setManualT2Sets] = useState(0);
+  const [outcomeType, setOutcomeType] = useState<'normal' | 'injury_during' | 'injury_before' | 'forfeit'>('normal');
+  const [retiredTeamId, setRetiredTeamId] = useState<string>('');
 
-  // Synchronize manual set results with calculated partial scores when they change
+  // Synchronize manual set results with calculated partial scores when they change under FIPAV
   useEffect(() => {
     if (!editingMatch) return;
     const mMaxSets = editingMatch.maxSets || 3;
+    const requiredWins = mMaxSets === 1 ? 1 : 2;
+
+    if (outcomeType === 'injury_before' || outcomeType === 'forfeit') {
+      if (retiredTeamId === editingMatch.team1?.id) {
+        setManualT1Sets(0);
+        setManualT2Sets(requiredWins);
+      } else if (retiredTeamId === editingMatch.team2?.id) {
+        setManualT1Sets(requiredWins);
+        setManualT2Sets(0);
+      } else {
+        setManualT1Sets(0);
+        setManualT2Sets(0);
+      }
+      return;
+    }
+
     let calculatedT1 = 0;
     let calculatedT2 = 0;
     
@@ -76,10 +100,21 @@ export default function BracketTab({
       if (t1Set3 > t2Set3) calculatedT1++;
       else if (t2Set3 > t1Set3) calculatedT2++;
     }
-    
-    setManualT1Sets(calculatedT1);
-    setManualT2Sets(calculatedT2);
-  }, [t1Set1, t2Set1, t1Set2, t2Set2, t1Set3, t2Set3, editingMatch]);
+
+    if (outcomeType === 'injury_during' && retiredTeamId) {
+      // Infortunio in corso: retired team retains won sets, winner gets required sets
+      if (retiredTeamId === editingMatch.team1?.id) {
+        setManualT1Sets(calculatedT1);
+        setManualT2Sets(requiredWins);
+      } else {
+        setManualT1Sets(requiredWins);
+        setManualT2Sets(calculatedT2);
+      }
+    } else {
+      setManualT1Sets(calculatedT1);
+      setManualT2Sets(calculatedT2);
+    }
+  }, [t1Set1, t2Set1, t1Set2, t2Set2, t1Set3, t2Set3, editingMatch, outcomeType, retiredTeamId]);
 
   // Live Simulation state
   const [liveSimulatingMatchId, setLiveSimulatingMatchId] = useState<string | null>(null);
@@ -133,14 +168,12 @@ export default function BracketTab({
     }
     
     if (formula === 'direct') {
-      const standardSizes = [2, 4, 8, 16, 32];
-      let currentMax = 32;
-      while (registeredCount > currentMax) {
-        currentMax *= 2;
-        standardSizes.push(currentMax);
-      }
+      const standardSizes = [2, 4, 8, 16, 32, 64, 128];
+      const maxAllowed = Math.pow(2, Math.ceil(Math.log2(Math.max(2, registeredCount))));
+      const sizes = standardSizes.filter(size => size <= maxAllowed);
+      if (sizes.length === 0) sizes.push(2);
       
-      return standardSizes.map(S => {
+      return sizes.map(S => {
         const diff = S - registeredCount;
         let label = `${S} Squadre`;
         if (diff === 0) {
@@ -493,11 +526,17 @@ export default function BracketTab({
 
   // Handle setting up a Match Score manually
   const openEditModal = (match: Match) => {
+    if (!canWrite) {
+      alert("⚠️ Azione non consentita: effettua l'accesso come collaboratore o amministratore per aggiornare i punteggi.");
+      return;
+    }
     setEditingMatch(match);
     setEditCourt(match.court);
     setEditTime(match.time);
     setManualT1Sets(match.team1Score || 0);
     setManualT2Sets(match.team2Score || 0);
+    setOutcomeType(match.outcomeType || 'normal');
+    setRetiredTeamId(match.retiredTeamId || '');
     
     // Set 1
     if (match.sets[0]) {
@@ -525,31 +564,37 @@ export default function BracketTab({
   const handleSaveScoreManual = () => {
     if (!editingMatch || !editingMatch.team1 || !editingMatch.team2) return;
 
-    const sets: SetScore[] = [];
+    let sets: SetScore[] = [];
     const mMaxSets = editingMatch.maxSets || 3;
     const requiredWins = mMaxSets === 1 ? 1 : 2;
 
-    // Validate Set 1
-    if (t1Set1 > 0 || t2Set1 > 0) {
-      sets.push({ team1: t1Set1, team2: t2Set1 });
-    }
-    // Validate Set 2 (only for maxSets === 3)
-    if (mMaxSets === 3 && (t1Set2 > 0 || t2Set2 > 0)) {
-      sets.push({ team1: t1Set2, team2: t2Set2 });
-    }
-    // Validate Set 3 (only for maxSets === 3)
-    if (mMaxSets === 3 && (t1Set3 > 0 || t2Set3 > 0)) {
-      sets.push({ team1: t1Set3, team2: t2Set3 });
+    if (outcomeType !== 'injury_before' && outcomeType !== 'forfeit') {
+      // Validate Set 1
+      if (t1Set1 > 0 || t2Set1 > 0) {
+        sets.push({ team1: t1Set1, team2: t2Set1 });
+      }
+      // Validate Set 2 (only for maxSets === 3)
+      if (mMaxSets === 3 && (t1Set2 > 0 || t2Set2 > 0)) {
+        sets.push({ team1: t1Set2, team2: t2Set2 });
+      }
+      // Validate Set 3 (only for maxSets === 3)
+      if (mMaxSets === 3 && (t1Set3 > 0 || t2Set3 > 0)) {
+        sets.push({ team1: t1Set3, team2: t2Set3 });
+      }
     }
 
     // Determine target finished state based on verified manualT1Sets and manualT2Sets
-    const isFinished = manualT1Sets >= requiredWins || manualT2Sets >= requiredWins || (mMaxSets === 1 && (manualT1Sets > 0 || manualT2Sets > 0));
+    const isFinished = manualT1Sets >= requiredWins || manualT2Sets >= requiredWins || (mMaxSets === 1 && (manualT1Sets > 0 || manualT2Sets > 0)) || (outcomeType !== 'normal' && retiredTeamId !== '');
     let winnerId = undefined;
     if (isFinished) {
-      if (manualT1Sets > manualT2Sets) {
-        winnerId = editingMatch.team1.id;
-      } else if (manualT2Sets > manualT1Sets) {
-        winnerId = editingMatch.team2.id;
+      if (outcomeType !== 'normal' && retiredTeamId !== '') {
+        winnerId = retiredTeamId === editingMatch.team1.id ? editingMatch.team2.id : editingMatch.team1.id;
+      } else {
+        if (manualT1Sets > manualT2Sets) {
+          winnerId = editingMatch.team1.id;
+        } else if (manualT2Sets > manualT1Sets) {
+          winnerId = editingMatch.team2.id;
+        }
       }
     }
 
@@ -562,6 +607,8 @@ export default function BracketTab({
       team2Score: manualT2Sets,
       status: isFinished ? 'completed' : editingMatch.status,
       winnerId,
+      outcomeType,
+      retiredTeamId: outcomeType !== 'normal' ? retiredTeamId : undefined,
     };
 
     propagateWinner(updatedMatch);
@@ -642,6 +689,10 @@ export default function BracketTab({
 
   // Fully Automated Quick Seed
   const handleQuickPlayAllMatch = (match: Match) => {
+    if (!canWrite) {
+      alert("⚠️ Azione non consentita: effettua l'accesso come collaboratore o amministratore per simulare i match.");
+      return;
+    }
     if (!match.team1 || !match.team2) return;
     const resolved = simulateCompletedMatch(match);
     propagateWinner(resolved);
@@ -665,6 +716,10 @@ export default function BracketTab({
   };
 
   const startLiveSimulation = (match: Match) => {
+    if (!canWrite) {
+      alert("⚠️ Azione non consentita: effettua l'accesso come collaboratore o amministratore per avviare il live ticker.");
+      return;
+    }
     if (!match.team1 || !match.team2 || liveSimulatingMatchId) return;
 
     setLiveSimulatingMatchId(match.id);
@@ -889,7 +944,22 @@ export default function BracketTab({
     <div id="bracket-page-root" className="space-y-8">
       {/* Dynamic Tournament Configuration Panel (Visible if no matches generated yet) */}
       {matches.length === 0 ? (
-        <div id="tournament-setup-card" className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl border-4 border-orange-300 p-8 text-center space-y-6">
+        <div id="tournament-setup-card" className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl border-4 border-orange-300 p-8 text-center space-y-6 relative overflow-hidden">
+          {!isAdmin && (
+            <div className="absolute inset-0 bg-slate-50/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-25 rounded-3xl animate-in fade-in duration-200">
+              <div className="p-4 bg-sky-50 rounded-full border-4 border-sky-300 text-sky-500 mb-4 animate-bounce">
+                <Lock className="w-8 h-8 stroke-[2.5]" />
+              </div>
+              <h4 className="font-extrabold text-slate-800 text-base uppercase italic">Configurazione Forbita 🔒</h4>
+              <p className="text-xs font-bold text-slate-500 uppercase mt-1 tracking-wider">Accesso Limitato (Admin Only)</p>
+              <p className="text-xs font-medium text-slate-600 mt-3 leading-relaxed max-w-xs">
+                La pianificazione e la generazione delle griglie o tabelloni del torneo è una funzione riservata all'account dell'<strong>Amministratore</strong>.
+              </p>
+              <p className="text-[10px] font-bold text-sky-600 mt-4 leading-relaxed bg-sky-50 px-3 py-1.5 rounded-lg border border-sky-100 font-sans">
+                🔒 Effettua il login come amministratore per abilitare la generazione automatica.
+              </p>
+            </div>
+          )}
           <div className="w-16 h-16 bg-orange-100 border-2 border-orange-300 rounded-full flex items-center justify-center mx-auto text-orange-600">
             <Award className="w-8 h-8 stroke-[2.5]" />
           </div>
@@ -1232,13 +1302,15 @@ export default function BracketTab({
                   </button>
                 </div>
               )}
-              <button
-                id="reset-tournament-btn"
-                onClick={() => setShowResetConfirmModal(true)}
-                className="text-xs bg-rose-50 border-2 border-rose-300 text-rose-700 font-extrabold tracking-wider uppercase py-2 px-4 rounded-full hover:bg-rose-100 transition-all shadow-sm"
-              >
-                Azzera Torneo
-              </button>
+              {isAdmin && (
+                <button
+                  id="reset-tournament-btn"
+                  onClick={() => setShowResetConfirmModal(true)}
+                  className="text-xs bg-rose-50 border-2 border-rose-300 text-rose-700 font-extrabold tracking-wider uppercase py-2 px-4 rounded-full hover:bg-rose-100 transition-all shadow-sm"
+                >
+                  Azzera Torneo
+                </button>
+              )}
             </div>
           </div>
 
@@ -1308,220 +1380,432 @@ export default function BracketTab({
           {activePhaseTab === 'gironi' ? (
             /* PHASE 1: GIRONI (POOL PLAYSTAGE) VIEW */
             <div id="gironi-phase-view" className="space-y-6">
-              {/* Group pills selection */}
-              <div className="flex justify-center flex-wrap gap-2 pt-2">
-                {groupNames.map((gName) => (
-                  <button
-                    key={gName}
-                    onClick={() => setSelectedGroupTab(gName)}
-                    className={`px-5 py-2 rounded-full text-xs font-black uppercase tracking-wider border-2 transition-all ${
-                      selectedGroupTab === gName
-                        ? 'bg-sky-950 border-sky-950 text-white shadow-md scale-105'
-                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    🏖️ {gName}
-                  </button>
-                ))}
+              {/* Toggle Mode: View by Group / List of All Matches */}
+              <div className="flex justify-center items-center gap-4 bg-slate-100 p-1.5 rounded-3xl w-full max-w-md mx-auto border-2 border-slate-200 shadow-inner">
+                <button
+                  type="button"
+                  id="toggle-view-pools"
+                  onClick={() => setGroupViewMode('by-group')}
+                  className={`flex-1 py-2 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                    groupViewMode === 'by-group'
+                      ? 'bg-white text-slate-900 shadow-md border border-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4 text-orange-400" />
+                  Classifiche e Gironi
+                </button>
+                <button
+                  type="button"
+                  id="toggle-view-all-list"
+                  onClick={() => setGroupViewMode('all-list')}
+                  className={`flex-1 py-2 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                    groupViewMode === 'all-list'
+                      ? 'bg-white text-slate-900 shadow-md border border-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <ListFilter className="w-4 h-4 text-sky-500" />
+                  Lista Ordinata Gare
+                </button>
               </div>
 
-              {/* Group View dual-content grids */}
-              {selectedGroupTab && (
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-                  
-                  {/* Left Column: Group Standings */}
-                  <div className="xl:col-span-5 bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl space-y-4">
-                    <div className="flex items-center gap-2 border-b border-sky-100 pb-3">
-                      <Trophy className="w-5 h-5 text-orange-400" />
-                      <h4 className="font-sans font-black text-sky-950 text-sm uppercase tracking-tight">Classifica Parziale {selectedGroupTab}</h4>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b-2 border-slate-100 text-slate-400 font-extrabold uppercase tracking-wider text-[9px]">
-                            <th className="pb-2">Pos</th>
-                            <th className="pb-2">Coppia</th>
-                            <th className="pb-2 text-center text-[8px]">Gare</th>
-                            <th className="pb-2 text-center">V-P</th>
-                            <th className="pb-2 text-center font-mono">Set Ratio</th>
-                            <th className="pb-2 text-center font-mono">Pti Ratio</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                          {(() => {
-                            const activeGroupMatches = groupMatches.filter(m => m.groupName === selectedGroupTab);
-                            const groupTeamsInScope = teams.filter(t => t.group === selectedGroupTab);
-                            const sortedGroupTeams = [...computeTeamStats(groupTeamsInScope, activeGroupMatches)].sort((a, b) => {
-                              if (b.wins !== a.wins) return b.wins - a.wins;
-                              const aSetRatio = a.setsWon / (a.setsLost || 1);
-                              const bSetRatio = b.setsWon / (b.setsLost || 1);
-                              if (bSetRatio !== aSetRatio) return bSetRatio - aSetRatio;
-                              const aPointRatio = a.pointsWon / (a.pointsLost || 1);
-                              const bPointRatio = b.pointsWon / (b.pointsLost || 1);
-                              return bPointRatio - aPointRatio;
-                            });
-
-                            return sortedGroupTeams.map((team, idx) => {
-                              const isQualified = idx < 2; // top 2 qualify inside 4-group system
-                              const playedCount = team.wins + team.losses;
-                              return (
-                                <tr key={team.id} className="hover:bg-slate-50/50">
-                                  <td className="py-2.5">
-                                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black ${
-                                      isQualified ? 'bg-orange-400 text-white' : 'bg-slate-100 text-slate-400'
-                                    }`}>
-                                      {idx + 1}
-                                    </span>
-                                  </td>
-                                  <td className="py-2.5 truncate max-w-[130px] uppercase tracking-wide font-black text-slate-800">
-                                    {team.name}
-                                  </td>
-                                  <td className="py-2.5 text-center text-slate-500 font-extrabold">
-                                    {playedCount}
-                                  </td>
-                                  <td className="py-2.5 text-center font-bold text-slate-600">
-                                    {team.wins} - {team.losses}
-                                  </td>
-                                  <td className="py-2.5 text-center font-mono text-xs font-bold text-indigo-700">
-                                    {team.setsWon}:{team.setsLost}
-                                  </td>
-                                  <td className="py-2.5 text-center font-mono text-xs font-normal text-slate-500">
-                                    {team.pointsWon}:{team.pointsLost}
-                                  </td>
-                                </tr>
-                              );
-                            });
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed tracking-wider pt-2 border-t border-slate-100">
-                      🏝️ * I primi 2 qualificati accedono al Tabellone Playoff al termine del girone.
-                    </p>
+              {groupViewMode === 'by-group' ? (
+                <>
+                  {/* Group pills selection */}
+                  <div className="flex justify-center flex-wrap gap-2 pt-2">
+                    {groupNames.map((gName) => (
+                      <button
+                        key={gName}
+                        onClick={() => setSelectedGroupTab(gName)}
+                        className={`px-5 py-2 rounded-full text-xs font-black uppercase tracking-wider border-2 transition-all ${
+                          selectedGroupTab === gName
+                            ? 'bg-sky-950 border-sky-950 text-white shadow-md scale-105'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        🏖️ {gName}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Right Column: Mini-Calendar/Matches of this Group */}
-                  <div className="xl:col-span-7 space-y-4">
-                    {/* Playoffs seeding prompt banner if group matches completed */}
-                    {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="bg-gradient-to-r from-orange-400 to-amber-400 border-4 border-orange-500 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 text-white text-left"
-                      >
-                        <div>
-                          <h4 className="font-extrabold text-md uppercase tracking-wider flex items-center gap-2 italic">
-                            <Sparkles className="w-5 h-5 animate-spin" />
-                            Gironi Completati! Sblocca i Playoff
-                          </h4>
-                          <p className="text-xs font-bold text-orange-55 uppercase tracking-wider mt-1.5">
-                            Tutti gli incontri sono finiti. Clicca per seedare e lanciare la fase finale!
-                          </p>
+                  {/* Group View dual-content grids */}
+                  {selectedGroupTab && (
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+                      
+                      {/* Left Column: Group Standings */}
+                      <div className="xl:col-span-5 bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl space-y-4">
+                        <div className="flex items-center gap-2 border-b border-sky-100 pb-3">
+                          <Trophy className="w-5 h-5 text-orange-400" />
+                          <h4 className="font-sans font-black text-sky-950 text-sm uppercase tracking-tight">Classifica Parziale {selectedGroupTab}</h4>
                         </div>
-                        <button
-                          onClick={handleUnlockPlayoffs}
-                          className="bg-white hover:bg-amber-50 text-orange-700 font-black py-2.5 px-5 rounded-full text-xs uppercase tracking-wider shrink-0 transition-all shadow-md active:translate-y-0.5 border-b-4 border-orange-205"
-                        >
-                          Genera Playoff 🏆
-                        </button>
-                      </motion.div>
-                    )}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b-2 border-slate-100 text-slate-400 font-extrabold uppercase tracking-wider text-[9px]">
+                                <th className="pb-2">Pos</th>
+                                <th className="pb-2">Coppia</th>
+                                <th className="pb-2 text-center text-[8px]">Gare</th>
+                                <th className="pb-2 text-center text-blue-500 font-black">Pti Gara</th>
+                                <th className="pb-2 text-center">V-P</th>
+                                <th className="pb-2 text-center font-mono">Set Ratio</th>
+                                <th className="pb-2 text-center font-mono">Pti Ratio</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                              {(() => {
+                                const activeGroupMatches = groupMatches.filter(m => m.groupName === selectedGroupTab);
+                                const groupTeamsInScope = teams.filter(t => t.group === selectedGroupTab);
+                                const sortedGroupTeams = sortGroupStandings(computeTeamStats(groupTeamsInScope, activeGroupMatches), activeGroupMatches);
 
-                    <h4 className="font-black text-slate-700 uppercase italic tracking-wider text-xs flex items-center gap-1.5 pt-1 bg-slate-100/30 px-3 py-1.5 rounded-xl border border-dashed border-slate-200">
-                      <Calendar className="w-4 h-4 text-orange-500 font-bold" />
-                      Partite del {selectedGroupTab}
-                    </h4>
+                                return sortedGroupTeams.map((team, idx) => {
+                                  const isQualified = idx < 2; // top 2 qualify inside 4-group system
+                                  const playedCount = team.wins + team.losses;
+                                  return (
+                                    <tr key={team.id} className="hover:bg-slate-50/50">
+                                      <td className="py-2.5">
+                                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black ${
+                                          isQualified ? 'bg-orange-400 text-white' : 'bg-slate-100 text-slate-400'
+                                        }`}>
+                                          {idx + 1}
+                                        </span>
+                                      </td>
+                                      <td className="py-2.5 truncate max-w-[130px] uppercase tracking-wide font-black text-slate-800">
+                                        {team.name}
+                                      </td>
+                                      <td className="py-2.5 text-center text-slate-500 font-extrabold">
+                                        {playedCount}
+                                      </td>
+                                      <td className="py-2.5 text-center font-black text-blue-600 font-mono">
+                                        {team.points}
+                                      </td>
+                                      <td className="py-2.5 text-center font-bold text-slate-600">
+                                        {team.wins} - {team.losses}
+                                      </td>
+                                      <td className="py-2.5 text-center font-mono text-xs font-bold text-indigo-700">
+                                        {team.setsWon}:{team.setsLost}
+                                      </td>
+                                      <td className="py-2.5 text-center font-mono text-xs font-normal text-slate-500">
+                                        {team.pointsWon}:{team.pointsLost}
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed tracking-wider pt-2 border-t border-slate-100">
+                          🏝️ * I primi 2 qualificati accedono al Tabellone Playoff al termine del girone.
+                        </p>
+                      </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {groupMatches.filter(m => m.groupName === selectedGroupTab).map((match) => {
-                        const isLive = match.status === 'live';
-                        const isCompleted = match.status === 'completed';
-                        const t1Winner = isCompleted && match.winnerId === match.team1?.id;
-                        const t2Winner = isCompleted && match.winnerId === match.team2?.id;
-
-                        return (
-                          <div
-                            key={match.id}
-                            className={`bg-white p-5 rounded-3xl border-4 shadow-xl transition-all flex flex-col justify-between ${
-                              isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-200 hover:border-sky-305'
-                            }`}
+                      {/* Right Column: Mini-Calendar/Matches of this Group */}
+                      <div className="xl:col-span-7 space-y-4">
+                        {/* Playoffs seeding prompt banner if group matches completed */}
+                        {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="bg-gradient-to-r from-orange-400 to-amber-400 border-4 border-orange-500 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 text-white text-left"
                           >
                             <div>
-                              <div className="flex justify-between items-center pb-2 border-b-2 border-slate-100 mb-3 text-[10px]">
-                                <span className={`font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                                  isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
-                                }`}>
-                                  {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
-                                </span>
-                                <div className="flex gap-2">
-                                  <span className="flex items-center gap-1 text-slate-400 font-bold">
-                                    <Clock className="w-3.5 h-3.5 text-orange-500" />
-                                    {match.time}
-                                  </span>
-                                  <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
-                                </div>
-                              </div>
+                              <h4 className="font-extrabold text-md uppercase tracking-wider flex items-center gap-2 italic">
+                                <Sparkles className="w-5 h-5 animate-spin" />
+                                Gironi Completati! Sblocca i Playoff
+                              </h4>
+                              <p className="text-xs font-bold text-orange-55 uppercase tracking-wider mt-1.5">
+                                Tutti gli incontri sono finiti. Clicca per seedare e lanciare la fase finale!
+                              </p>
+                            </div>
+                            <button
+                              onClick={handleUnlockPlayoffs}
+                              className="bg-white hover:bg-amber-50 text-orange-700 font-black py-2.5 px-5 rounded-full text-xs uppercase tracking-wider shrink-0 transition-all shadow-md active:translate-y-0.5 border-b-4 border-orange-205"
+                            >
+                              Genera Playoff 🏆
+                            </button>
+                          </motion.div>
+                        )}
 
-                              {/* Competitors showdown */}
-                              <div className="space-y-2 pb-3.5">
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
-                                    <span className="w-2 h-2 rounded-full bg-orange-400 inline-block shrink-0"></span>
-                                    {match.team1 ? match.team1.name : 'TBD'}
-                                  </span>
-                                  <span className="font-mono text-xs font-black">{isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
-                                    <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0"></span>
-                                    {match.team2 ? match.team2.name : 'TBD'}
-                                  </span>
-                                  <span className="font-mono text-xs font-black">{isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}</span>
-                                </div>
-                              </div>
+                        <h4 className="font-black text-slate-700 uppercase italic tracking-wider text-xs flex items-center gap-1.5 pt-1 bg-slate-100/30 px-3 py-1.5 rounded-xl border border-dashed border-slate-200">
+                          <Calendar className="w-4 h-4 text-orange-500 font-bold" />
+                          Partite del {selectedGroupTab}
+                        </h4>
 
-                              {/* Sets sub-scores */}
-                              {isCompleted && match.sets.length > 0 && (
-                                <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
-                                  <span>Set:</span>
-                                  <div className="flex gap-1.5 font-mono text-xs">
-                                    {match.sets.map((s, idx) => (
-                                      <span key={idx} className="bg-white py-0.5 px-1.5 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
-                                        {s.team1}-{s.team2}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {groupMatches.filter(m => m.groupName === selectedGroupTab).map((match) => {
+                            const isLive = match.status === 'live';
+                            const isCompleted = match.status === 'completed';
+                            const t1Winner = isCompleted && match.winnerId === match.team1?.id;
+                            const t2Winner = isCompleted && match.winnerId === match.team2?.id;
+
+                            return (
+                              <div
+                                key={match.id}
+                                className={`bg-white p-5 rounded-3xl border-4 shadow-xl transition-all flex flex-col justify-between ${
+                                  isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-200 hover:border-sky-305'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex justify-between items-center pb-2 border-b-2 border-slate-100 mb-3 text-[10px]">
+                                    <span className={`font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                                      isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
+                                    }`}>
+                                      {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
+                                    </span>
+                                    <div className="flex gap-2">
+                                      <span className="flex items-center gap-1 text-slate-400 font-bold">
+                                        <Clock className="w-3.5 h-3.5 text-orange-500" />
+                                        {match.time}
                                       </span>
-                                    ))}
+                                      <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
+                                    </div>
                                   </div>
+
+                                  {/* Competitors showdown */}
+                                  <div className="space-y-2 pb-3.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
+                                        <span className="w-2 h-2 rounded-full bg-orange-400 inline-block shrink-0"></span>
+                                        {match.team1 ? match.team1.name : 'TBD'}
+                                      </span>
+                                      <span className="font-mono text-xs font-black">{isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                      <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
+                                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0"></span>
+                                        {match.team2 ? match.team2.name : 'TBD'}
+                                      </span>
+                                      <span className="font-mono text-xs font-black">{isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Sets sub-scores */}
+                                  {isCompleted && match.sets.length > 0 && (
+                                    <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
+                                      <span>Set:</span>
+                                      <div className="flex gap-1.5 font-mono text-xs">
+                                        {match.sets.map((s, idx) => (
+                                          <span key={idx} className="bg-white py-0.5 px-1.5 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
+                                            {s.team1}-{s.team2}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Live & Edit Match triggers */}
+                                {match.team1 && match.team2 && !isCompleted && !isLive && (
+                                  <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
+                                    <button
+                                      disabled={!!liveSimulatingMatchId}
+                                      onClick={() => startLiveSimulation(match)}
+                                      className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700"
+                                    >
+                                      Live
+                                    </button>
+                                    <button
+                                      onClick={() => openEditModal(match)}
+                                      className="bg-sky-500 hover:bg-sky-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700"
+                                    >
+                                      Score
+                                    </button>
+                                    <button
+                                      onClick={() => handleQuickPlayAllMatch(match)}
+                                      className="bg-orange-400 hover:bg-orange-500 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600"
+                                    >
+                                      Simula
+                                    </button>
+                                  </div>
+                                )}
+
+                                {/* Modificatore del risultato se completato */}
+                                {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
+                                  <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+                                    <button
+                                      onClick={() => openEditModal(match)}
+                                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-1.5 px-2.5 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1.5 shadow-sm border border-slate-250 transition-all active:translate-y-0.5"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                                      Modifica Score
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* ALL LIST VIEW (ORDINATA PER DATA E ORA) */
+                <div id="all-group-matches-list-view" className="space-y-6">
+                  {/* Playoffs seeding prompt banner if group matches completed */}
+                  {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="bg-gradient-to-r from-orange-400 to-amber-400 border-4 border-orange-500 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 text-white text-left"
+                    >
+                      <div>
+                        <h4 className="font-extrabold text-md uppercase tracking-wider flex items-center gap-2 italic">
+                          <Sparkles className="w-5 h-5 animate-spin" />
+                          Gironi Completati! Sblocca i Playoff
+                        </h4>
+                        <p className="text-xs font-bold text-orange-55 uppercase tracking-wider mt-1.5">
+                          Tutti gli incontri sono finiti. Clicca per seedare e lanciare la fase finale!
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleUnlockPlayoffs}
+                        className="bg-white hover:bg-amber-50 text-orange-700 font-black py-2.5 px-5 rounded-full text-xs uppercase tracking-wider shrink-0 transition-all shadow-md active:translate-y-0.5 border-b-4 border-orange-200"
+                      >
+                        Genera Playoff 🏆
+                      </button>
+                    </motion.div>
+                  )}
+
+                  <div className="bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl animate-in fade-in duration-200">
+                    <div className="flex items-center gap-3 border-b border-sky-100 pb-4 mb-6">
+                      <div className="p-2.5 bg-sky-50 border-2 border-sky-100 rounded-2xl text-sky-600">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-sky-950 text-base uppercase tracking-tight">Elenco Gare Fase a Gironi (Cronologico)</h4>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
+                          Incontri ordinati per data e ora di gioco, alternando i gironi per ottimizzare lo svolgimento
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                      {(() => {
+                        const sortedGroupMatches = [...groupMatches].sort((a, b) => {
+                          if (a.time !== b.time) {
+                            return a.time.localeCompare(b.time);
+                          }
+                          return a.court.localeCompare(b.court);
+                        });
+
+                        if (sortedGroupMatches.length === 0) {
+                          return (
+                            <div className="col-span-full py-12 text-center text-slate-400 font-bold uppercase tracking-wider">
+                              Nessuna partita da mostrare. Configura e genera il torneo.
+                            </div>
+                          );
+                        }
+
+                        return sortedGroupMatches.map((match) => {
+                          const isLive = match.status === 'live';
+                          const isCompleted = match.status === 'completed';
+                          const t1Winner = isCompleted && match.winnerId === match.team1?.id;
+                          const t2Winner = isCompleted && match.winnerId === match.team2?.id;
+
+                          return (
+                            <div
+                              key={match.id}
+                              className={`bg-white p-5 rounded-3xl border-4 shadow-md hover:shadow-lg transition-all flex flex-col justify-between ${
+                                isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-250/80 hover:border-sky-350'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex justify-between items-center pb-2 border-b-2 border-slate-100 mb-3 text-[10px]">
+                                  <div className="flex gap-1.5 items-center">
+                                    <span className={`font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                                      isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
+                                    }`}>
+                                      {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
+                                    </span>
+                                    <span className="bg-amber-100 border border-amber-250 text-amber-900 font-black px-2 py-0.5 rounded uppercase tracking-wider text-[8px]">
+                                      {match.groupName}
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <span className="flex items-center gap-1 text-slate-400 font-bold">
+                                      <Clock className="w-3.5 h-3.5 text-orange-500" />
+                                      {match.time}
+                                    </span>
+                                    <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
+                                  </div>
+                                </div>
+
+                                {/* Competitors showdown */}
+                                <div className="space-y-2 pb-3.5">
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className={`font-black uppercase truncate max-w-[150px] flex items-center gap-1.5 ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
+                                      <span className="w-2 h-2 rounded-full bg-orange-400 inline-block shrink-0"></span>
+                                      {match.team1 ? match.team1.name : 'TBD'}
+                                    </span>
+                                    <span className="font-mono text-xs font-black">{isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className={`font-black uppercase truncate max-w-[150px] flex items-center gap-1.5 ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
+                                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0"></span>
+                                      {match.team2 ? match.team2.name : 'TBD'}
+                                    </span>
+                                    <span className="font-mono text-xs font-black">{isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}</span>
+                                  </div>
+                                </div>
+
+                                {/* Sets sub-scores */}
+                                {isCompleted && match.sets.length > 0 && (
+                                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
+                                    <span>Set:</span>
+                                    <div className="flex gap-1.5 font-mono text-xs">
+                                      {match.sets.map((s, idx) => (
+                                        <span key={idx} className="bg-white py-0.5 px-1.5 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
+                                          {s.team1}-{s.team2}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Live & Edit Match triggers */}
+                              {match.team1 && match.team2 && !isCompleted && !isLive && (
+                                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
+                                  <button
+                                    disabled={!!liveSimulatingMatchId}
+                                    onClick={() => startLiveSimulation(match)}
+                                    className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700"
+                                  >
+                                    Live
+                                  </button>
+                                  <button
+                                    onClick={() => openEditModal(match)}
+                                    className="bg-sky-500 hover:bg-sky-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700"
+                                  >
+                                    Score
+                                  </button>
+                                  <button
+                                    onClick={() => handleQuickPlayAllMatch(match)}
+                                    className="bg-orange-400 hover:bg-orange-500 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600"
+                                  >
+                                    Simula
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Modificatore del risultato se completato */}
+                              {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
+                                <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+                                  <button
+                                    onClick={() => openEditModal(match)}
+                                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-1.5 px-2.5 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1.5 shadow-sm border border-slate-250 transition-all active:translate-y-0.5"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                                    Modifica Score
+                                  </button>
                                 </div>
                               )}
                             </div>
-
-                            {/* Live & Edit Match triggers */}
-                            {match.team1 && match.team2 && !isCompleted && !isLive && (
-                              <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
-                                <button
-                                  disabled={!!liveSimulatingMatchId}
-                                  onClick={() => startLiveSimulation(match)}
-                                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700"
-                                >
-                                  Live
-                                </button>
-                                <button
-                                  onClick={() => openEditModal(match)}
-                                  className="bg-sky-500 hover:bg-sky-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700"
-                                >
-                                  Score
-                                </button>
-                                <button
-                                  onClick={() => handleQuickPlayAllMatch(match)}
-                                  className="bg-orange-400 hover:bg-orange-500 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600"
-                                >
-                                  Simula
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1667,6 +1951,21 @@ export default function BracketTab({
                                           title="Automatica Istantanea"
                                         >
                                           FAST
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* Modifica score se completato */}
+                                    {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
+                                      <div className="mt-3 pt-2 border-t border-slate-100 flex justify-end">
+                                        <button
+                                          id={`action-score-completed-${match.id}`}
+                                          onClick={() => openEditModal(match)}
+                                          className="p-1 px-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded text-[9px] font-black uppercase tracking-wider border border-slate-250 flex items-center gap-1 shadow-xs transition-all active:translate-y-0.5"
+                                          title="Modifica Punteggio"
+                                        >
+                                          <Edit2 className="w-2.5 h-2.5 text-slate-600" />
+                                          SCORE
                                         </button>
                                       </div>
                                     )}
@@ -1839,6 +2138,19 @@ export default function BracketTab({
                               </button>
                             </div>
                           )}
+
+                          {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
+                            <div className="mt-5 pt-4 border-t-2 border-slate-100 flex justify-end">
+                              <button
+                                id={`details-action-edit-completed-${match.id}`}
+                                onClick={() => openEditModal(match)}
+                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-2.5 px-4 rounded-full text-xs flex items-center justify-center gap-1.5 border border-slate-250 transition-all shadow-md active:translate-y-0.5"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                                Modifica Risultato
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1908,6 +2220,60 @@ export default function BracketTab({
                 </div>
               </div>
 
+              {/* FIPAV Match Termination Type Selector */}
+              <div className="bg-orange-50/45 p-4 rounded-3xl border-2 border-orange-200 space-y-3">
+                <div>
+                  <label htmlFor="termination-type-select" className="block text-[10px] font-black text-orange-900 uppercase tracking-wider mb-1 font-sans">
+                    Modalità Conclusione Gara (FIPAV)
+                  </label>
+                  <select
+                    id="termination-type-select"
+                    className="w-full px-3 py-2 border-2 border-orange-200 bg-white font-black text-slate-800 rounded-xl text-xs focus:outline-none focus:border-orange-500"
+                    value={outcomeType}
+                    onChange={(e) => {
+                      const val = e.target.value as any;
+                      setOutcomeType(val);
+                      if (val === 'normal') {
+                        setRetiredTeamId('');
+                      } else if (!retiredTeamId) {
+                        setRetiredTeamId(editingMatch.team1?.id || '');
+                      }
+                    }}
+                  >
+                    <option value="normal">Incontro Regolare (Terminato sul campo)</option>
+                    <option value="injury_during">Infortunio in corso di gara (Regola "a")</option>
+                    <option value="injury_before">Infortunio prima d'iniziare (Regola "b")</option>
+                    <option value="forfeit">Rinuncia o Assenza (Regola "c" - Forfeit)</option>
+                  </select>
+                </div>
+
+                {outcomeType !== 'normal' && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="space-y-1.5 bg-white p-3.5 rounded-2xl border border-orange-200"
+                  >
+                    <label htmlFor="retired-team-select" className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1 font-sans">
+                      {outcomeType === 'forfeit' ? 'Squadra Assente / Rinunciataria' : 'Squadra Ritirata / Infortunata'}
+                    </label>
+                    <select
+                      id="retired-team-select"
+                      className="w-full px-2.5 py-2 border border-slate-200 bg-white font-bold text-xs rounded-xl text-slate-800 focus:outline-none"
+                      value={retiredTeamId}
+                      onChange={(e) => setRetiredTeamId(e.target.value)}
+                    >
+                      {editingMatch.team1 && <option value={editingMatch.team1.id}>{editingMatch.team1.name}</option>}
+                      {editingMatch.team2 && <option value={editingMatch.team2.id}>{editingMatch.team2.name}</option>}
+                    </select>
+                    <p className="text-[10px] text-slate-400 font-extrabold italic mt-1 leading-normal uppercase">
+                      {outcomeType === 'injury_during' && "Regola a): I parziali acquisiti rimangono validi. La gara viene completata assegnando alla squadra superstite i set mancanti per la vittoria."}
+                      {outcomeType === 'injury_before' && "Regola b): Vittoria a tavolino alla squadra superstite (2 set). Squadra ritirata ottiene 1 punto in classifica."}
+                      {outcomeType === 'forfeit' && "Regola c): Rinuncia. Vittoria a tavolino 2-0 (o 1-0). Squadra rinunciataria riceve 0 punti in classifica."}
+                    </p>
+                  </motion.div>
+                )}
+              </div>
+
               {/* Set Scores inputs Section */}
               {(() => {
                 const matchPointsPerSet = editingMatch.pointsPerSet || 21;
@@ -1935,8 +2301,16 @@ export default function BracketTab({
                   <>
                     <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Punteggi Parziali Set</h5>
                     
-                    <div className="space-y-4">
-                      {/* SET 1 CARD */}
+                    {outcomeType === 'injury_before' || outcomeType === 'forfeit' ? (
+                      <div className="bg-slate-50 p-6 rounded-3xl border-4 border-dashed border-slate-200 text-center text-slate-400 font-extrabold text-xs space-y-1 my-4">
+                        <p className="uppercase text-orange-500 font-black tracking-wider text-sm">Nessun Set Giocato</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase leading-relaxed">
+                          La vittoria viene assegnata d'ufficio per {matchMaxSets === 1 ? '1-0' : '2-0'} e non sono calcolati i singoli set points sul campo.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* SET 1 CARD */}
                       <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 shadow-xs relative overflow-hidden">
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Set 1 ({matchPointsPerSet} Pt)</span>
@@ -2059,9 +2433,11 @@ export default function BracketTab({
                           </div>
                         </div>
                       )}
+                    </div>
+                  )}
 
-                      {/* VERIFICATION AND MANUAL INTERACTIVE SET CONTROLLER */}
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3.5">
+                    {/* VERIFICATION AND MANUAL INTERACTIVE SET CONTROLLER */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 space-y-3.5">
                         <div className="flex items-center gap-1.5 border-b border-slate-200/50 pb-2">
                           <Info className="w-4 h-4 text-sky-500 shrink-0" />
                           <span className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
@@ -2155,9 +2531,8 @@ export default function BracketTab({
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </>
-                );
+                    </>
+                  );
               })()}
             </div>
 

@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-+%@.]+$');
+    }
+    
+    function isValidTeam(t) {
+      return t.id is string
+        && t.name is string && t.name.size() <= 200
+        && t.player1 is string && t.player1.size() <= 200
+        && t.player2 is string && t.player2.size() <= 200
+        && (t.level == 'Beginner' || t.level == 'Bronze' || t.level == 'Silver' || t.level == 'Gold')
+        && t.phone is string && t.phone.size() <= 50;
+    }
+
+    function isValidMatch(m) {
+      return m.id is string
+        && m.round is int
+        && m.roundLabel is string
+        && m.position is int
+        && m.team1Score is int
+        && m.team2Score is int
+        && (m.status == 'scheduled' || m.status == 'live' || m.status == 'completed')
+        && m.court is string
+        && m.time is string;
+    }
+
+    function isValidNotification(n) {
+      return n.id is string
+        && n.title is string && n.title.size() <= 300
+        && n.message is string && n.message.size() <= 2000
+        && n.time is string
+        && (n.type == 'live_update' || n.type == 'schedule_change' || n.type == 'system' || n.type == 'result');
+    }
+
+    function isValidUser(u) {
+      return u.id is string
+        && u.username is string && u.username.size() <= 200
+        && u.password is string && u.password.size() <= 200
+        && (u.role == 'admin' || u.role == 'collaborator' || u.role == 'reader')
+        && u.createdAt is string;
+    }
+
+    function isValidArchive(a) {
+      return a.id is string
+        && a.name is string && a.name.size() <= 300
+        && a.date is string
+        && a.formula is string
+        && a.teamsCount is int
+        && a.teams is list
+        && a.matches is list;
+    }
+
+    match /teams/{teamId} {
+      allow read: if true;
+      allow create, update: if isValidId(teamId) && isValidTeam(request.resource.data);
+      allow delete: if isValidId(teamId);
+    }
+
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create, update: if isValidId(matchId) && isValidMatch(request.resource.data);
+      allow delete: if isValidId(matchId);
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if true;
+      allow create, update: if isValidId(notificationId) && isValidNotification(request.resource.data);
+      allow delete: if isValidId(notificationId);
+    }
+
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidId(userId) && isValidUser(request.resource.data);
+      allow delete: if isValidId(userId);
+    }
+
+    match /archives/{archiveId} {
+      allow read: if true;
+      allow create, update: if isValidId(archiveId) && isValidArchive(request.resource.data);
+      allow delete: if isValidId(archiveId);
+    }
+
+    match /config/settings {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

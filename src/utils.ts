@@ -301,11 +301,42 @@ export function generateDirectEliminationBracket(
   }
 
   // Assign Round 1 teams - paired as "prima contro ultima" (1st vs Nth, 2nd vs N-1th...)
+  // But also ensuring odd seeds are in upper half, even seeds in lower half to prevent seed 1 and 2 meeting early.
   const round1Matches = roundMatchesByRound[0];
-  for (let i = 0; i < round1Matches.length; i++) {
-    const m = round1Matches[i];
-    m.team1 = finalTeams[i];
-    m.team2 = finalTeams[finalTeams.length - 1 - i];
+  if (teamsLimit > 2) {
+    const halfSize = teamsLimit / 2;
+    const quarterSize = halfSize / 2;
+    let upperCount = 0;
+    let lowerCount = 0;
+
+    for (let j = 0; j < halfSize; j++) {
+      const team1Val = finalTeams[j];
+      const team2Val = finalTeams[teamsLimit - 1 - j];
+
+      if ((j + 1) % 2 !== 0) {
+        // Odd rank -> upper half (indices 0 to quarterSize - 1)
+        if (upperCount < quarterSize) {
+          const m = round1Matches[upperCount];
+          m.team1 = team1Val;
+          m.team2 = team2Val;
+          upperCount++;
+        }
+      } else {
+        // Even rank -> lower half (indices quarterSize to halfSize - 1)
+        if (lowerCount < quarterSize) {
+          const m = round1Matches[quarterSize + lowerCount];
+          m.team1 = team1Val;
+          m.team2 = team2Val;
+          lowerCount++;
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < round1Matches.length; i++) {
+      const m = round1Matches[i];
+      m.team1 = finalTeams[i];
+      m.team2 = finalTeams[finalTeams.length - 1 - i];
+    }
   }
 
   // Connect matches to future rounds
@@ -466,7 +497,7 @@ export function computeTeamStats(teams: Team[], matches: Match[]): Team[] {
     if (isT1Bye) {
       if (t2) {
         t2.wins += 1;
-        t2.points += 3;
+        t2.points += 2; // Bye gives 2 classification points
         t2.setsWon += m.team2Score;
         t2.setsLost += m.team1Score;
         m.sets.forEach(s => {
@@ -480,7 +511,7 @@ export function computeTeamStats(teams: Team[], matches: Match[]): Team[] {
     if (isT2Bye) {
       if (t1) {
         t1.wins += 1;
-        t1.points += 3;
+        t1.points += 2; // Bye gives 2 classification points
         t1.setsWon += m.team1Score;
         t1.setsLost += m.team2Score;
         m.sets.forEach(s => {
@@ -493,73 +524,269 @@ export function computeTeamStats(teams: Team[], matches: Match[]): Team[] {
 
     if (!t1 || !t2) return;
 
-    // Set wins/losses
-    if (m.team1Score > m.team2Score) {
-      t1.wins += 1;
-      t1.points += 3; // 3 points for winning the match
-      t2.losses += 1;
-      t2.points += 1; // 1 point for losing (participation/ranking points in beach volley)
-    } else {
-      t2.wins += 1;
-      t2.points += 3;
-      t1.losses += 1;
-      t1.points += 1;
+    const isT1Winner = m.team1Score > m.team2Score;
+    const winner = isT1Winner ? t1 : t2;
+    const loser = isT1Winner ? t2 : t1;
+
+    winner.wins += 1;
+    loser.losses += 1;
+
+    // FIPAV point calculations within pools
+    let winnerMatchPoints = 2;
+    let loserMatchPoints = 1;
+
+    if (m.outcomeType === 'forfeit') {
+      loserMatchPoints = 0;
     }
 
-    // Set score tallying
-    t1.setsWon += m.team1Score;
-    t1.setsLost += m.team2Score;
-    t2.setsWon += m.team2Score;
-    t2.setsLost += m.team1Score;
+    winner.points += winnerMatchPoints;
+    loser.points += loserMatchPoints;
 
-    // Detailed points tallying
-    m.sets.forEach(s => {
-      t1.pointsWon += s.team1;
-      t1.pointsLost += s.team2;
-      t2.pointsWon += s.team2;
-      t2.pointsLost += s.team1;
-    });
+    // Handle sets and points based on termination type
+    if (m.outcomeType === 'injury_before' || m.outcomeType === 'forfeit') {
+      // Rule b and c: Winner gets sets won, 0 points recorded. Loser gets 0 sets.
+      const targetSets = m.maxSets === 1 ? 1 : 2;
+      winner.setsWon += targetSets;
+      loser.setsLost += targetSets;
+    } else {
+      // Normal or injury during match (Rule a)
+      t1.setsWon += m.team1Score;
+      t1.setsLost += m.team2Score;
+      t2.setsWon += m.team2Score;
+      t2.setsLost += m.team1Score;
+
+      // Detailed points tallying
+      m.sets.forEach(s => {
+        t1.pointsWon += s.team1;
+        t1.pointsLost += s.team2;
+        t2.pointsWon += s.team2;
+        t2.pointsLost += s.team1;
+      });
+    }
   });
 
   return Array.from(teamMap.values());
 }
 
-// Split teams into balanced groups using serpentine level-balancing
-export function splitTeamsIntoGroups(teams: Team[], groupCount: number): Record<string, Team[]> {
-  const sorted = sortTeamsByEntryList(teams);
+// FIPAV pool standings sorting with tiebreakers (Page 5)
+export function sortGroupStandings(teamsInGroup: Team[], groupMatches: Match[]): Team[] {
+  return [...teamsInGroup].sort((a, b) => {
+    // 1. Classification points descending
+    if (b.points !== a.points) {
+      return b.points - a.points;
+    }
 
-  const groups: Record<string, Team[]> = {};
-  for (let i = 0; i < groupCount; i++) {
-    const char = String.fromCharCode(65 + i); // 'A', 'B', 'C', etc.
-    groups[`Girone ${char}`] = [];
-  }
+    // Tie in points! Let's check tied group of teams
+    const tiedTeams = teamsInGroup.filter(t => t.points === a.points);
 
-  let forward = true;
-  let currentGroupIdx = 0;
-
-  sorted.forEach((team) => {
-    const groupName = `Girone ${String.fromCharCode(65 + currentGroupIdx)}`;
-    groups[groupName].push({ ...team, group: groupName });
-
-    if (forward) {
-      if (currentGroupIdx === groupCount - 1) {
-        forward = false;
-      } else {
-        currentGroupIdx++;
+    if (tiedTeams.length === 2) {
+      // Tie between exactly 2 teams: Head-to-Head (scontro diretto)
+      const h2hMatch = groupMatches.find(m =>
+        m.status === 'completed' &&
+        ((m.team1?.id === a.id && m.team2?.id === b.id) || (m.team1?.id === b.id && m.team2?.id === a.id))
+      );
+      if (h2hMatch && h2hMatch.winnerId) {
+        return h2hMatch.winnerId === a.id ? -1 : 1;
       }
-    } else {
-      if (currentGroupIdx === 0) {
-        forward = true;
-      } else {
-        currentGroupIdx--;
+    } else if (tiedTeams.length > 2) {
+      // Tie between 3, 4, or 5 teams: Point Quotient in matches played only among the tied teams
+      const tiedIds = new Set(tiedTeams.map(t => t.id));
+
+      const getTiedQuotient = (id: string) => {
+        let won = 0;
+        let lost = 0;
+        groupMatches.forEach(m => {
+          if (m.status !== 'completed' || !m.team1 || !m.team2) return;
+          if (tiedIds.has(m.team1.id) && tiedIds.has(m.team2.id)) {
+            if (m.team1.id === id) {
+              m.sets.forEach(s => {
+                won += s.team1;
+                lost += s.team2;
+              });
+            } else if (m.team2.id === id) {
+              m.sets.forEach(s => {
+                won += s.team2;
+                lost += s.team1;
+              });
+            }
+          }
+        });
+        return lost === 0 ? won : won / lost;
+      };
+
+      const qA = getTiedQuotient(a.id);
+      const qB = getTiedQuotient(b.id);
+      if (qB !== qA) {
+        return qB - qA; // Higher quotient ranked first
       }
     }
+
+    // 2. Best point quotient of the entire pool (pointsWon / pointsLost)
+    const ratioA = a.pointsWon / (a.pointsLost || 1);
+    const ratioB = b.pointsWon / (b.pointsLost || 1);
+    if (ratioB !== ratioA) {
+      return ratioB - ratioA;
+    }
+
+    // 3. Fallback: position in the initial entry list (better seed is earlier in the list)
+    const sortedOriginal = sortTeamsByEntryList(teamsInGroup);
+    const idxA = sortedOriginal.findIndex(t => t.id === a.id);
+    const idxB = sortedOriginal.findIndex(t => t.id === b.id);
+    return idxA - idxB;
   });
+}
+
+// Compute global FIPAV standings (Classifica Avulsa - Page 5)
+export function computeFipavStandings(teams: Team[], matches: Match[]): Team[] {
+  const computedTeams = computeTeamStats(teams, matches);
+
+  // Check if there are group stage matches
+  const groupMatches = matches.filter(m => m.phase === 'gironi' || m.groupName);
+  const hasGroups = groupMatches.length > 0;
+
+  if (!hasGroups) {
+    // If no groups, standard overall sorting
+    return [...computedTeams].sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+
+      const aSetRatio = a.setsWon / (a.setsLost || 1);
+      const bSetRatio = b.setsWon / (b.setsLost || 1);
+      if (bSetRatio !== aSetRatio) return bSetRatio - aSetRatio;
+
+      const aPointRatio = a.pointsWon / (a.pointsLost || 1);
+      const bPointRatio = b.pointsWon / (b.pointsLost || 1);
+      return bPointRatio - aPointRatio;
+    });
+  }
+
+  // Group teams by their designated group property
+  const groups: Record<string, Team[]> = {};
+  computedTeams.forEach(t => {
+    if (t.group) {
+      if (!groups[t.group]) groups[t.group] = [];
+      groups[t.group].push(t);
+    }
+  });
+
+  // Sort each group independently using sortGroupStandings
+  const sortedGroups: Record<string, Team[]> = {};
+  Object.keys(groups).forEach(gName => {
+    const groupMatchesFiltered = groupMatches.filter(m => m.groupName === gName);
+    sortedGroups[gName] = sortGroupStandings(groups[gName], groupMatchesFiltered);
+  });
+
+  // Map each team ID to its position (0-indexed) in its group standings
+  const teamPositions = new Map<string, number>();
+  Object.keys(sortedGroups).forEach(gName => {
+    sortedGroups[gName].forEach((t, idx) => {
+      teamPositions.set(t.id, idx);
+    });
+  });
+
+  // Sort using Classifica Avulsa priorities
+  return [...computedTeams].sort((a, b) => {
+    const aPos = teamPositions.has(a.id) ? teamPositions.get(a.id)! : 999;
+    const bPos = teamPositions.has(b.id) ? teamPositions.get(b.id)! : 999;
+
+    // a) miglior posizione nella classifica del girone
+    if (aPos !== bPos) {
+      return aPos - bPos;
+    }
+
+    // b) miglior quoziente ottenuto dividendo i punti conquistati in classifica per il numero delle gare disputate
+    const aGares = a.wins + a.losses;
+    const bGares = b.wins + b.losses;
+    const qPtsA = aGares === 0 ? 0 : a.points / aGares;
+    const qPtsB = bGares === 0 ? 0 : b.points / bGares;
+    if (qPtsB !== qPtsA) {
+      return qPtsB - qPtsA;
+    }
+
+    // c) miglior quoziente set tra i sets vinti e quelli perduti
+    const qSetsA = a.setsLost === 0 ? a.setsWon : a.setsWon / a.setsLost;
+    const qSetsB = b.setsLost === 0 ? b.setsWon : b.setsWon / b.setsLost;
+    if (qSetsB !== qSetsA) {
+      return qSetsB - qSetsA;
+    }
+
+    // d) miglior quoziente punti tra i punti realizzati e quelli subiti
+    const qGPointsA = a.pointsLost === 0 ? a.pointsWon : a.pointsWon / a.pointsLost;
+    const qGPointsB = b.pointsLost === 0 ? b.pointsWon : b.pointsWon / b.pointsLost;
+    if (qGPointsB !== qGPointsA) {
+      return qGPointsB - qGPointsA;
+    }
+
+    // e) miglior posizione nella lista d'ingresso confermata all'inizio del torneo
+    const sortedOriginal = sortTeamsByEntryList(computedTeams);
+    const idxA = sortedOriginal.findIndex(t => t.id === a.id);
+    const idxB = sortedOriginal.findIndex(t => t.id === b.id);
+    return idxA - idxB;
+  });
+}
+
+
+// Helper to shuffle array for FIPAV randomized fasce
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[arr[j] ? j : i]] = [arr[arr[j] ? j : i], arr[i]];
+  }
+  return arr;
+}
+
+// Split teams into FIPAV-compliant balanced pools (Pages 1, 2, 3)
+export function splitTeamsIntoGroups(teams: Team[], groupCount: number): Record<string, Team[]> {
+  const sorted = sortTeamsByEntryList(teams);
+  const G = groupCount;
+  const K = Math.ceil(sorted.length / G);
+
+  const groups: Record<string, Team[]> = {};
+  const groupNames: string[] = [];
+  for (let i = 0; i < G; i++) {
+    const char = String.fromCharCode(65 + i); // 'A', 'B', 'C', etc.
+    const name = `Girone ${char}`;
+    groups[name] = [];
+    groupNames.push(name);
+  }
+
+  // Divide sorted teams into K fasce (merit tiers), each of size G
+  for (let fIdx = 0; fIdx < K; fIdx++) {
+    let tierTeams = sorted.slice(fIdx * G, (fIdx + 1) * G);
+
+    // FIPAV random draw: for odd K (like 3 or 5), the last fascia is automatically drawn randomly
+    const isRandomDraw = (K % 2 !== 0) && (fIdx === K - 1);
+    if (isRandomDraw) {
+      tierTeams = shuffleArray(tierTeams);
+    }
+
+    // Direction placement:
+    // Odd 1-based fasce -> POOL A to last Pool (forward)
+    // Even 1-based fasce -> last Pool to POOL A (backward)
+    const fasciaNum = fIdx + 1;
+    const isForward = (fasciaNum % 2 !== 0);
+
+    if (isForward) {
+      for (let j = 0; j < tierTeams.length; j++) {
+        const groupName = groupNames[j];
+        if (groupName) {
+          groups[groupName].push({ ...tierTeams[j], group: groupName });
+        }
+      }
+    } else {
+      for (let j = 0; j < tierTeams.length; j++) {
+        const groupName = groupNames[G - 1 - j];
+        if (groupName) {
+          groups[groupName].push({ ...tierTeams[j], group: groupName });
+        }
+      }
+    }
+  }
 
   return groups;
 }
 
-// Generate round-robin matches for groups (pools)
+// Generate FIPAV-compliant round-robin scheduled matches for pools (Pages 1, 2, 3)
 export function generateRoundRobinMatches(
   groups: Record<string, Team[]>,
   startHour: string = '09:00',
@@ -568,80 +795,240 @@ export function generateRoundRobinMatches(
   pointsPerSet?: 15 | 21,
   maxSets?: 1 | 3
 ): Match[] {
-  const matches: Match[] = [];
   const groupNames = Object.keys(groups);
-  let matchIdCounter = 1001; // Start with different range to easily identify group matches
+  let matchIdCounter = 1001; // Easy ID prefix block for pool matches
 
   // Parse start hour
   const [startHr, startMin] = startHour.split(':').map(Number);
-  let globalMatchIndex = 0;
+  
+  // 1. Pre-generate matches list ordered within each pool to follow official schedules
+  const allGroupMatches: Record<string, Match[]> = {};
 
   groupNames.forEach((groupName) => {
-    // Clone and pad if odd length to make it standard round-robin with resting default victory
-    const groupTeams = [...groups[groupName]];
-    if (groupTeams.length > 0 && groupTeams.length % 2 !== 0) {
-      groupTeams.push({
-        ...BYE_TEAM,
-        id: `bye_group_${groupName}_${groupTeams.length}`,
-        name: `BYE_riposo`,
-        group: groupName,
-      });
-    }
+    const groupTeams = sortTeamsByEntryList(groups[groupName]); // sorted pool teams represent fasce order
     const n = groupTeams.length;
-    if (n < 2) return;
+    const groupMatchesList: Match[] = [];
 
-    // Generate standard pairings
-    const pairings: [Team, Team][] = [];
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        pairings.push([groupTeams[i], groupTeams[j]]);
-      }
-    }
+    if (n === 3) {
+      // Pool Round Robin SI - 3 teams per group (Page 1)
+      const T = groupTeams;
+      const mIds = [
+        `m-g-${matchIdCounter++}`,
+        `m-g-${matchIdCounter++}`,
+        `m-g-${matchIdCounter++}`,
+      ];
 
-    // Schedule pairings
-    pairings.forEach(([team1, team2]) => {
-      // Court assignment: alternate among available courts
-      const courtIndex = (globalMatchIndex % courtCount) + 1;
-      const court = `Campo ${courtIndex}`;
-
-      // Time offset: we can play matches in parallel if we have multiple courts
-      const timeSlotIndex = Math.floor(globalMatchIndex / courtCount);
-      const totalOffsetMinutes = timeSlotIndex * durationMinutes;
-      
-      const matchDate = new Date();
-      matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);
-      
-      const hh = String(matchDate.getHours()).padStart(2, '0');
-      const mm = String(matchDate.getMinutes()).padStart(2, '0');
-      const timeStr = `${hh}:${mm}`;
-
-      matches.push({
-        id: `m-g-${matchIdCounter++}`,
+      // Gara 1: Fascia 1 vs Fascia 3 (T[0] vs T[2])
+      groupMatchesList.push({
+        id: mIds[0],
         round: 1,
         roundLabel: `${groupName}`,
-        position: globalMatchIndex + 1,
-        team1,
-        team2,
+        position: 1,
+        team1: T[0],
+        team2: T[2],
         team1Score: 0,
         team2Score: 0,
         sets: [],
         status: 'scheduled',
-        court,
-        time: timeStr,
+        court: '',
+        time: '',
+        phase: 'gironi',
+        groupName,
+        pointsPerSet,
+        maxSets,
+        nextMatchId: mIds[2], // Winner plays in Gara 3
+        nextMatchSlot: 'team1',
+        loserMatchId: mIds[1], // Loser plays in Gara 2
+        loserMatchSlot: 'team1',
+      });
+
+      // Gara 2: Loser Gara 1 vs Fascia 2 (TBD vs T[1])
+      groupMatchesList.push({
+        id: mIds[1],
+        round: 1,
+        roundLabel: `${groupName}`,
+        position: 2,
+        team1: null, // Populated via Gara 1 loser
+        team2: T[1],
+        team1Score: 0,
+        team2Score: 0,
+        sets: [],
+        status: 'scheduled',
+        court: '',
+        time: '',
         phase: 'gironi',
         groupName,
         pointsPerSet,
         maxSets,
       });
 
-      globalMatchIndex++;
-    });
+      // Gara 3: Winner Gara 1 vs Fascia 2 (TBD vs T[1])
+      groupMatchesList.push({
+        id: mIds[2],
+        round: 1,
+        roundLabel: `${groupName}`,
+        position: 3,
+        team1: null, // Populated via Gara 1 winner
+        team2: T[1],
+        team1Score: 0,
+        team2Score: 0,
+        sets: [],
+        status: 'scheduled',
+        court: '',
+        time: '',
+        phase: 'gironi',
+        groupName,
+        pointsPerSet,
+        maxSets,
+      });
+
+    } else if (n === 4) {
+      // Pool Round Robin 4 - 4 teams per group (Page 2)
+      const T = groupTeams;
+      const order = [
+        [0, 3], // 1° gara: Fascia 1 vs 4
+        [1, 2], // 2° gara: Fascia 2 vs 3
+        [0, 2], // 3° gara: Fascia 1 vs 3
+        [1, 3], // 4° gara: Fascia 2 vs 4
+        [2, 3], // 5° gara: Fascia 3 vs 4
+        [0, 1], // 6° gara: Fascia 1 vs 2
+      ];
+
+      order.forEach(([i1, i2], idx) => {
+        groupMatchesList.push({
+          id: `m-g-${matchIdCounter++}`,
+          round: 1,
+          roundLabel: `${groupName}`,
+          position: idx + 1,
+          team1: T[i1],
+          team2: T[i2],
+          team1Score: 0,
+          team2Score: 0,
+          sets: [],
+          status: 'scheduled',
+          court: '',
+          time: '',
+          phase: 'gironi',
+          groupName,
+          pointsPerSet,
+          maxSets,
+         });
+      });
+
+    } else if (n === 5) {
+      // Pool Round Robin 5 - 5 teams per group (Page 3)
+      const T = groupTeams;
+      const order = [
+        [0, 4], // 1° gara: Fascia 1 vs 5
+        [1, 3], // 2° gara: Fascia 2 vs 4
+        [0, 2], // 3° gara: Fascia 1 vs 3
+        [3, 4], // 4° gara: Fascia 4 vs 5
+        [1, 4], // 5° gara: Fascia 2 vs 5
+        [2, 3], // 6° gara: Fascia 3 vs 4
+        [0, 3], // 7° gara: Fascia 1 vs 4
+        [1, 2], // 8° gara: Fascia 2 vs 3
+        [2, 4], // 9° gara: Fascia 3 vs 5
+        [0, 1], // 10° gara: Fascia 1 vs 2
+      ];
+
+      order.forEach(([i1, i2], idx) => {
+        groupMatchesList.push({
+          id: `m-g-${matchIdCounter++}`,
+          round: 1,
+          roundLabel: `${groupName}`,
+          position: idx + 1,
+          team1: T[i1],
+          team2: T[i2],
+          team1Score: 0,
+          team2Score: 0,
+          sets: [],
+          status: 'scheduled',
+          court: '',
+          time: '',
+          phase: 'gironi',
+          groupName,
+          pointsPerSet,
+          maxSets,
+        });
+      });
+
+    } else {
+      // Fallback to traditional Round Robin
+      const grTeams = [...groupTeams];
+      if (grTeams.length % 2 !== 0) {
+        grTeams.push({
+          ...BYE_TEAM,
+          id: `bye_group_${groupName}_${grTeams.length}`,
+          name: `BYE_riposo`,
+          group: groupName,
+        });
+      }
+      const len = grTeams.length;
+      for (let i = 0; i < len; i++) {
+        for (let j = i + 1; j < len; j++) {
+          groupMatchesList.push({
+            id: `m-g-${matchIdCounter++}`,
+            round: 1,
+            roundLabel: `${groupName}`,
+            position: groupMatchesList.length + 1,
+            team1: grTeams[i],
+            team2: grTeams[j],
+            team1Score: 0,
+            team2Score: 0,
+            sets: [],
+            status: 'scheduled',
+            court: '',
+            time: '',
+            phase: 'gironi',
+            groupName,
+            pointsPerSet,
+            maxSets,
+          });
+        }
+      }
+    }
+
+    allGroupMatches[groupName] = groupMatchesList;
   });
 
-  return autoResolveAndPropagate(matches);
+  // 2. Interleave match numbers across all pools to alternate play cleanly
+  const interleavedMatches: Match[] = [];
+  const maxMatchesCount = Math.max(...groupNames.map(gn => allGroupMatches[gn]?.length || 0), 0);
+
+  for (let j = 0; j < maxMatchesCount; j++) {
+    groupNames.forEach((groupName) => {
+      const list = allGroupMatches[groupName];
+      if (list && j < list.length) {
+        interleavedMatches.push(list[j]);
+      }
+    });
+  }
+
+  // 3. Coordinate assigned courts and match starting times
+  let globalMatchIndex = 0;
+  interleavedMatches.forEach((match) => {
+    const courtIndex = (globalMatchIndex % courtCount) + 1;
+    match.court = `Campo ${courtIndex}`;
+
+    const timeSlotIndex = Math.floor(globalMatchIndex / courtCount);
+    const totalOffsetMinutes = timeSlotIndex * durationMinutes;
+
+    const matchDate = new Date();
+    matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);
+
+    const hh = String(matchDate.getHours()).padStart(2, '0');
+    const mm = String(matchDate.getMinutes()).padStart(2, '0');
+    match.time = `${hh}:${mm}`;
+
+    match.position = globalMatchIndex + 1;
+    globalMatchIndex++;
+  });
+
+  // Run initial auto resolve to automatically schedule/pass resting BYE matches if present
+  return autoResolveAndPropagate(interleavedMatches);
 }
 
-// Compute group standings independently
+// Compute group standings independently under FIPAV pool guidelines
 export function computeGroupStandings(teams: Team[], groupMatches: Match[]): Record<string, Team[]> {
   const computedTeams = computeTeamStats(teams, groupMatches);
   const groups: Record<string, Team[]> = {};
@@ -653,17 +1040,10 @@ export function computeGroupStandings(teams: Team[], groupMatches: Match[]): Rec
     }
   });
 
-  // Sort each group's teams
+  // Sort each group's teams using our FIPAV compliant sortGroupStandings
   Object.keys(groups).forEach(gName => {
-    groups[gName].sort((a, b) => {
-      if (b.wins !== a.wins) return b.wins - a.wins;
-      const aSetRatio = a.setsWon / (a.setsLost || 1);
-      const bSetRatio = b.setsWon / (b.setsLost || 1);
-      if (bSetRatio !== aSetRatio) return bSetRatio - aSetRatio;
-      const aPointRatio = a.pointsWon / (a.pointsLost || 1);
-      const bPointRatio = b.pointsWon / (b.pointsLost || 1);
-      return bPointRatio - aPointRatio;
-    });
+    const groupMatchesFiltered = groupMatches.filter(m => m.groupName === gName);
+    groups[gName] = sortGroupStandings(groups[gName], groupMatchesFiltered);
   });
 
   return groups;
@@ -1009,4 +1389,172 @@ export function generateDoubleEliminationBracket(
   });
 
   return autoResolveAndPropagate(matches);
+}
+
+export function recalculateTournamentStages(allMatches: Match[], teamsList: Team[]): Match[] {
+  let updated = allMatches.map(m => ({ ...m }));
+  let changed = true;
+  let iterations = 0;
+
+  // 1. Handle group standings to playoff seeding propagation
+  const hasGironi = updated.some(m => m.phase === 'gironi');
+  // Check if playoff matches are present
+  const hasPlayoffs = updated.some(m => m.phase === 'eliminazione' || m.id.startsWith('m-p-'));
+
+  if (hasGironi && hasPlayoffs) {
+    const groupMatches = updated.filter(m => m.phase === 'gironi');
+    const standings = computeGroupStandings(teamsList, groupMatches);
+    const groupNames = Object.keys(standings).sort();
+
+    const qualifiers: Team[] = [];
+    if (groupNames.length === 2) {
+      const gA = standings[groupNames[0]] || [];
+      const gB = standings[groupNames[1]] || [];
+      const firstA = gA[0] || null;
+      const secondB = gB[1] || gB[0] || null;
+      const firstB = gB[0] || null;
+      const secondA = gA[1] || gA[0] || null;
+      qualifiers.push(firstA, secondB, firstB, secondA);
+    } else if (groupNames.length >= 4) {
+      const gA = standings[groupNames[0]] || [];
+      const gB = standings[groupNames[1]] || [];
+      const gC = standings[groupNames[2]] || [];
+      const gD = standings[groupNames[3]] || [];
+      qualifiers.push(
+        gA[0] || null, gB[1] || null,
+        gC[0] || null, gD[1] || null,
+        gB[0] || null, gA[1] || null,
+        gD[0] || null, gC[1] || null
+      );
+    } else if (groupNames.length === 1) {
+      const gA = standings[groupNames[0]] || [];
+      qualifiers.push(gA[0] || null, gA[1] || null);
+    }
+
+    // Update Round 1 playoff matches
+    const round1Playoffs = updated
+      .filter(m => (m.phase === 'eliminazione' || m.id.startsWith('m-p-')) && m.round === 1)
+      .sort((a, b) => a.position - b.position);
+
+    for (let i = 0; i < round1Playoffs.length; i++) {
+      const matchInUpdatedIdx = updated.findIndex(m => m.id === round1Playoffs[i].id);
+      if (matchInUpdatedIdx !== -1) {
+        const team1Val = qualifiers[i * 2] || BYE_TEAM;
+        const team2Val = qualifiers[i * 2 + 1] || BYE_TEAM;
+
+        // If team1 or team2 has changed in our computed schedule, reset the match!
+        if (updated[matchInUpdatedIdx].team1?.id !== team1Val.id) {
+          updated[matchInUpdatedIdx].team1 = team1Val;
+          updated[matchInUpdatedIdx].sets = [];
+          updated[matchInUpdatedIdx].team1Score = 0;
+          updated[matchInUpdatedIdx].team2Score = 0;
+          updated[matchInUpdatedIdx].status = 'scheduled';
+          updated[matchInUpdatedIdx].winnerId = undefined;
+        }
+        if (updated[matchInUpdatedIdx].team2?.id !== team2Val.id) {
+          updated[matchInUpdatedIdx].team2 = team2Val;
+          updated[matchInUpdatedIdx].sets = [];
+          updated[matchInUpdatedIdx].team1Score = 0;
+          updated[matchInUpdatedIdx].team2Score = 0;
+          updated[matchInUpdatedIdx].status = 'scheduled';
+          updated[matchInUpdatedIdx].winnerId = undefined;
+        }
+      }
+    }
+  }
+
+  // 2. Propagate and reset downstream matches if necessary
+  while (changed && iterations < 100) {
+    changed = false;
+    iterations++;
+
+    for (let i = 0; i < updated.length; i++) {
+      const m = updated[i];
+
+      // Auto resolve if scheduled and team with bypass BYE
+      if (m.status !== 'completed' && m.team1 && m.team2) {
+        const resolved = autoResolveMatchWithByes(m);
+        if (resolved) {
+          updated[i] = resolved;
+          changed = true;
+          continue;
+        }
+      }
+
+      // Propagate Winner if completed
+      if (m.status === 'completed' && m.winnerId) {
+        const winnerTeam = m.winnerId === m.team1?.id ? m.team1 : (m.winnerId === m.team2?.id ? m.team2 : null);
+        if (!winnerTeam) {
+          // Reset match because winner ID is invalid or team was removed/changed
+          m.status = 'scheduled';
+          m.sets = [];
+          m.team1Score = 0;
+          m.team2Score = 0;
+          m.winnerId = undefined;
+          changed = true;
+          continue;
+        }
+
+        if (m.nextMatchId) {
+          const nextMatchIndex = updated.findIndex(nm => nm.id === m.nextMatchId);
+          if (nextMatchIndex !== -1) {
+            const nextMatch = updated[nextMatchIndex];
+            if (m.nextMatchSlot === 'team1') {
+              if (nextMatch.team1?.id !== winnerTeam.id) {
+                nextMatch.team1 = winnerTeam;
+                nextMatch.sets = [];
+                nextMatch.team1Score = 0;
+                nextMatch.team2Score = 0;
+                nextMatch.status = 'scheduled';
+                nextMatch.winnerId = undefined;
+                changed = true;
+              }
+            } else if (m.nextMatchSlot === 'team2') {
+              if (nextMatch.team2?.id !== winnerTeam.id) {
+                nextMatch.team2 = winnerTeam;
+                nextMatch.sets = [];
+                nextMatch.team1Score = 0;
+                nextMatch.team2Score = 0;
+                nextMatch.status = 'scheduled';
+                nextMatch.winnerId = undefined;
+                changed = true;
+              }
+            }
+          }
+        }
+
+        // Propagate Loser
+        if (m.loserMatchId) {
+          const loserTeam = m.winnerId === m.team1?.id ? m.team2 : m.team1;
+          const loserMatchIndex = updated.findIndex(nm => nm.id === m.loserMatchId);
+          if (loserMatchIndex !== -1 && loserTeam) {
+            const loserMatch = updated[loserMatchIndex];
+            if (m.loserMatchSlot === 'team1') {
+              if (loserMatch.team1?.id !== loserTeam.id) {
+                loserMatch.team1 = loserTeam;
+                loserMatch.sets = [];
+                loserMatch.team1Score = 0;
+                loserMatch.team2Score = 0;
+                loserMatch.status = 'scheduled';
+                loserMatch.winnerId = undefined;
+                changed = true;
+              }
+            } else if (m.loserMatchSlot === 'team2') {
+              if (loserMatch.team2?.id !== loserTeam.id) {
+                loserMatch.team2 = loserTeam;
+                loserMatch.sets = [];
+                loserMatch.team1Score = 0;
+                loserMatch.team2Score = 0;
+                loserMatch.status = 'scheduled';
+                loserMatch.winnerId = undefined;
+                changed = true;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return updated;
 }

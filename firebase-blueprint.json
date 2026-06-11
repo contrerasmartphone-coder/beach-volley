@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "Team": {
+      "title": "Team",
+      "description": "Represents a beach volley team",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "player1": { "type": "string" },
+        "player2": { "type": "string" },
+        "level": {
+          "type": "string",
+          "enum": ["Beginner", "Bronze", "Silver", "Gold"]
+        },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "phone2": { "type": "string" },
+        "email2": { "type": "string" },
+        "registeredAt": { "type": "string" },
+        "group": { "type": "string" },
+        "wins": { "type": "number" },
+        "losses": { "type": "number" },
+        "setsWon": { "type": "number" },
+        "setsLost": { "type": "number" },
+        "pointsWon": { "type": "number" },
+        "pointsLost": { "type": "number" },
+        "points": { "type": "number" }
+      },
+      "required": ["id", "name", "player1", "player2", "level", "phone", "email", "registeredAt"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Represents a tournament match",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "round": { "type": "number" },
+        "roundLabel": { "type": "string" },
+        "position": { "type": "number" },
+        "team1": { "type": "object" },
+        "team2": { "type": "object" },
+        "team1Score": { "type": "number" },
+        "team2Score": { "type": "number" },
+        "sets": { "type": "array" },
+        "status": {
+          "type": "string",
+          "enum": ["scheduled", "live", "completed"]
+        },
+        "court": { "type": "string" },
+        "time": { "type": "string" },
+        "winnerId": { "type": "string" },
+        "nextMatchId": { "type": "string" },
+        "nextMatchSlot": { "type": "string", "enum": ["team1", "team2"] },
+        "loserMatchId": { "type": "string" },
+        "loserMatchSlot": { "type": "string", "enum": ["team1", "team2"] },
+        "livePointTicker": { "type": "string" },
+        "phase": { "type": "string" },
+        "groupName": { "type": "string" },
+        "pointsPerSet": { "type": "number" },
+        "maxSets": { "type": "number" }
+      },
+      "required": ["id", "round", "roundLabel", "position", "team1Score", "team2Score", "sets", "status", "court", "time"]
+    },
+    "NotificationLog": {
+      "title": "NotificationLog",
+      "description": "A notification representing a score update or scheduling change",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string", "enum": ["live_update", "schedule_change", "system", "result"] },
+        "matchId": { "type": "string" }
+      },
+      "required": ["id", "title", "message", "time", "type"]
+    },
+    "TournamentConfig": {
+      "title": "TournamentConfig",
+      "description": "Represents the active configuration settings of the beach volleyball tournament",
+      "type": "object",
+      "properties": {
+        "admittedTeamsCount": { "type": "number" },
+        "activeTournamentConfig": { "type": "object" }
+      }
+    },
+    "AppUser": {
+      "title": "AppUser",
+      "description": "Represents an access-authorized user of the Beach Volley Hub application",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "collaborator", "reader"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "username", "password", "role", "createdAt"]
+    },
+    "ArchivedTournament": {
+      "title": "ArchivedTournament",
+      "description": "Represents a completed and saved beach volleyball tournament",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "date": { "type": "string" },
+        "formula": { "type": "string" },
+        "teamsCount": { "type": "number" },
+        "teams": { "type": "array" },
+        "matches": { "type": "array" },
+        "winnerTeamName": { "type": "string" }
+      },
+      "required": ["id", "name", "date", "formula", "teamsCount", "teams", "matches"]
+    }
+  },
+  "firestore": {
+    "/teams/{teamId}": {
+      "schema": "Team",
+      "description": "Stores teams registered for the tournament"
+    },
+    "/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Stores volleyball matches generated or schedule status"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "NotificationLog",
+      "description": "Stores system notification logs and news"
+    },
+    "/config/settings": {
+      "schema": "TournamentConfig",
+      "description": "Houses current tournament phase constraints and settings variables"
+    },
+    "/users/{userId}": {
+      "schema": "AppUser",
+      "description": "Stores credentials and permissions for users running the app"
+    },
+    "/archives/{archiveId}": {
+      "schema": "ArchivedTournament",
+      "description": "Stores historical tournament results for export, lookup, and printing"
+    }
+  }
+}

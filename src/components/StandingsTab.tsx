@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Team, Match } from '../types';
-import { computeTeamStats } from '../utils';
+import { computeFipavStandings } from '../utils';
 import { Trophy, Award, BarChart3, Medal, ListOrdered, Percent, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -12,27 +12,8 @@ interface StandingsTabProps {
 export default function StandingsTab({ teams, matches }: StandingsTabProps) {
   const [filterLevel, setFilterLevel] = useState<string>('all');
 
-  // Compute stats on-the-fly from historical match results
-  const computedTeams = computeTeamStats(teams, matches);
-
-  // Sorting:
-  // 1st criteria: Victories (Wins) DESC
-  // 2nd criteria: Total Ranking Points DESC
-  // 3rd criteria: Set Ratio (Sets Won / (Sets Lost || 1)) DESC
-  // 4th criteria: Point Quotient (Points Won / (Points Lost || 1)) DESC
-  const sortedTeams = [...computedTeams].sort((a, b) => {
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    
-    // Set ratio comparison
-    const aSetRatio = a.setsWon / (a.setsLost || 1);
-    const bSetRatio = b.setsWon / (b.setsLost || 1);
-    if (bSetRatio !== aSetRatio) return bSetRatio - aSetRatio;
-
-    // Point ratio comparison
-    const aPointRatio = a.pointsWon / (a.pointsLost || 1);
-    const bPointRatio = b.pointsWon / (b.pointsLost || 1);
-    return bPointRatio - aPointRatio;
-  });
+  // Compute stats on-the-fly from historical match results sorted under FIPAV Classifica Avulsa
+  const sortedTeams = computeFipavStandings(teams, matches);
 
   const filteredTeams = filterLevel === 'all' 
     ? sortedTeams 
@@ -207,6 +188,7 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                     <th className="py-4 px-4">Squadra / Atleti</th>
                     <th className="py-4 px-4 text-center">Livello di Gioco</th>
                     <th className="py-4 px-4 text-center">Gare</th>
+                    <th className="py-4 px-4 text-center text-blue-600">Punti Gara</th>
                     <th className="py-4 px-4 text-center text-emerald-600">Vinte</th>
                     <th className="py-4 px-4 text-center text-red-500">Perse</th>
                     <th className="py-4 px-4 text-center text-orange-600">Ratio Set (V/P)</th>
@@ -268,6 +250,11 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                         {/* Played */}
                         <td id={`standing-played-${team.id}`} className="py-4.5 px-4 text-center font-extrabold font-mono text-slate-600 text-sm">
                           {gamesPlayed}
+                        </td>
+
+                        {/* Punti Gara */}
+                        <td id={`standing-points-${team.id}`} className="py-4.5 px-4 text-center font-black font-mono text-blue-600 text-base">
+                          {team.points}
                         </td>
 
                         {/* Wins */}
@@ -354,10 +341,14 @@ export default function StandingsTab({ teams, matches }: StandingsTabProps) {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-4 gap-1.5 text-center mt-3 pt-2.5 border-t border-slate-200/60 text-[10px] font-bold text-slate-500">
+                    <div className="grid grid-cols-5 gap-1.5 text-center mt-3 pt-2.5 border-t border-slate-200/60 text-[10px] font-bold text-slate-500">
                       <div className="bg-slate-100/60 p-1.5 rounded-lg">
                         <div className="text-[9px] uppercase tracking-wider text-slate-400 mb-0.5">Giocate</div>
                         <div className="font-mono font-black text-slate-700 text-sm">{gamesPlayed}</div>
+                      </div>
+                      <div className="bg-blue-50/60 p-1.5 rounded-lg">
+                        <div className="text-[9px] uppercase tracking-wider text-blue-600 mb-0.5 font-black">Punti Gara</div>
+                        <div className="font-mono font-black text-blue-600 text-sm">{team.points}</div>
                       </div>
                       <div className="bg-emerald-50/60 p-1.5 rounded-lg">
                         <div className="text-[9px] uppercase tracking-wider text-emerald-600/80 mb-0.5 font-black">Vinte</div>
