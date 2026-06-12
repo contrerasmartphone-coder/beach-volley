@@ -337,7 +337,7 @@ export default function TeamsTab({
     <div id="teams-tab-container" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Registration Column */}
       {canWrite && (
-        <div id="registration-panel" className="lg:col-span-1 space-y-6">
+        <div id="registration-panel" className={`lg:col-span-1 space-y-6 ${isLocked ? 'order-2 lg:order-none' : 'order-1 lg:order-none'}`}>
         <div className="bg-white rounded-3xl shadow-xl border-4 border-orange-300 p-6 relative overflow-hidden">
           {!canWrite ? (
             <div className="absolute inset-0 bg-slate-50/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-25 animate-in fade-in duration-200">
@@ -650,7 +650,7 @@ export default function TeamsTab({
       )}
 
       {/* Roster / Directory Column */}
-      <div id="roster-panel" className={`${canWrite ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6`}>
+      <div id="roster-panel" className={`${canWrite ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6 ${isLocked ? 'order-1 lg:order-none' : 'order-2 lg:order-none'}`}>
         {/* Statistics headers */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="col-span-2 lg:col-span-1 bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-orange-400 shadow-md flex items-center gap-3">

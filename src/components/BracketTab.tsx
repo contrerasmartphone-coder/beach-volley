@@ -399,39 +399,21 @@ export default function BracketTab({
       const groupStageMatches = generateRoundRobinMatches(groups, '09:00', generalMatchDuration, currentCourtCount, currentPointsPerSet as 15 | 21, currentMaxSets as 1 | 3);
       mockMatches.push(...groupStageMatches);
 
-      const playoffTeamsCount = currentTeamsCount === 4 ? 2 : (currentTeamsCount === 8 ? 4 : 8);
-      const playoffMatchesCount = playoffTeamsCount === 2 ? 1 : playoffTeamsCount;
-
-      for (let i = 0; i < playoffMatchesCount; i++) {
-        const round = playoffTeamsCount === 8 ? (i < 4 ? 1 : i < 6 ? 2 : 3) : playoffTeamsCount === 4 ? (i < 2 ? 1 : 2) : 1;
-        
-        let roundLabel = '';
-        if (playoffTeamsCount === 8) {
-          if (round === 1) roundLabel = 'Quarti di finale';
-          else if (round === 2) roundLabel = 'Semifinali';
-          else if (round === 3) roundLabel = 'Finale';
-        } else if (playoffTeamsCount === 4) {
-          if (round === 1) roundLabel = 'Semifinali';
-          else if (round === 2) roundLabel = 'Finale';
-        } else {
-          roundLabel = 'Finale';
-        }
-
-        const isSFOrFinal = roundLabel.includes('Semifinali') || roundLabel.includes('Finale');
-
-        mockMatches.push({
-          id: `m-p-estimate-${i}`,
-          round,
-          roundLabel,
-          position: i + 1,
-          team1: { id: `est-1-${i}` } as Team,
-          team2: { id: `est-2-${i}` } as Team,
-          team1Score: 0, team2Score: 0, sets: [], status: 'scheduled', court: 'Campo 1', time: '12:00',
-          phase: 'eliminazione',
-          pointsPerSet: isSFOrFinal ? currentSfPointsPerSet : currentPointsPerSet,
-          maxSets: isSFOrFinal ? currentSfMaxSets : currentMaxSets,
-        });
-      }
+      const mockStandings = computeGroupStandings(selectedTeams, groupStageMatches);
+      const playoffMatches = generatePlayoffsFromGroups(
+        mockStandings,
+        '15:00',
+        generalMatchDuration,
+        currentCourtCount,
+        currentPointsPerSet as 15 | 21,
+        currentMaxSets as 1 | 3,
+        currentSfPointsPerSet as 15 | 21,
+        currentSfMaxSets as 1 | 3,
+        combinedQualifiedTeams,
+        selectedTeams,
+        groupStageMatches
+      );
+      mockMatches.push(...playoffMatches);
     }
 
     const resolvedMockMatches = autoResolveAndPropagate(mockMatches);
@@ -502,9 +484,7 @@ export default function BracketTab({
 
   let resolvedGroupCount = groupCount;
   if (formula === 'combined') {
-    if (teamsCount === 4) resolvedGroupCount = 1;
-    else if (teamsCount === 8) resolvedGroupCount = 2;
-    else if (teamsCount === 16) resolvedGroupCount = 4;
+    resolvedGroupCount = combinedGroups;
   } else if (formula === 'direct' || formula === 'double_elim') {
     resolvedGroupCount = 1;
   }
@@ -532,6 +512,7 @@ export default function BracketTab({
     const activePointsPerSet = activeFirstMatch?.pointsPerSet || 21;
     const activeMaxSets = activeFirstMatch?.maxSets || 3;
     const generalMatchDuration = getSingleMatchDuration(activePointsPerSet, activeMaxSets);
+    const activeCourtCount = activeTournamentConfig?.courtCount || courtCount;
 
     const realMatches = matches.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
     const realMatchesCount = realMatches.length;
@@ -543,7 +524,7 @@ export default function BracketTab({
     let totalElapsedMinutes = 0;
 
     if (activeFormula === 'pools') {
-      const slots = Math.ceil(realMatchesCount / courtCount);
+      const slots = Math.ceil(realMatchesCount / activeCourtCount);
       totalElapsedMinutes = slots * generalMatchDuration;
     } else if (activeFormula === 'direct' || activeFormula === 'double_elim') {
       const roundCounts: Record<number, Match[]> = {};
@@ -557,12 +538,12 @@ export default function BracketTab({
         const roundRealMatches = roundCounts[Number(roundKey)];
         const m = roundRealMatches[0];
         const roundSingleDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
-        const roundSlots = Math.ceil(roundRealMatches.length / courtCount);
+        const roundSlots = Math.ceil(roundRealMatches.length / activeCourtCount);
         totalElapsedMinutes += roundSlots * roundSingleDuration;
       });
     } else if (activeFormula === 'combined') {
       const groupMatches = realMatches.filter(m => m.phase === 'gironi' || m.id.startsWith('m-1') || !m.phase);
-      const groupSlots = Math.ceil(groupMatches.length / courtCount);
+      const groupSlots = Math.ceil(groupMatches.length / activeCourtCount);
       const groupElapsed = groupSlots * generalMatchDuration;
 
       const playoffMatches = realMatches.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
@@ -578,7 +559,7 @@ export default function BracketTab({
         const rMatches = pRoundCounts[Number(roundKey)];
         const m = rMatches[0];
         const roundSingleDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
-        const roundSlots = Math.ceil(rMatches.length / courtCount);
+        const roundSlots = Math.ceil(rMatches.length / activeCourtCount);
         playoffElapsed += roundSlots * roundSingleDuration;
       });
 
@@ -1291,9 +1272,9 @@ export default function BracketTab({
               )}
               {formula === 'combined' && (
                 <p>
-                  🥇 Fase 1: {teamsCount === 4 ? '1 Girone unico' : `${teamsCount / 4} Gironi`} da 4 squadre con classifica live.
+                  🥇 Fase 1: {combinedGroups === 1 ? '1 Girone unico' : `${combinedGroups} Gironi`} da {combinedTeamsPerGroup} squadre ciascuno con classifica live.
                   <br />
-                  Fase 2: I primi 2 di ciascun girone si qualificano per la fase di {teamsCount === 4 ? 'Finale' : teamsCount === 8 ? 'Semifinali' : 'Quarti di finale ad eliminazione diretta'}!
+                  Fase 2: {combinedQualifiedTeams} squadre in totale si qualificano ai playoff ad eliminazione diretta cominciando con la fase di {getRoundName(combinedQualifiedTeams)}!
                 </p>
               )}
               {formula === 'double_elim' && (
@@ -1601,8 +1582,8 @@ export default function BracketTab({
                                 <th className="pb-2 text-center text-[8px]">Gare</th>
                                 <th className="pb-2 text-center text-blue-500 font-black">Pti Gara</th>
                                 <th className="pb-2 text-center">V-P</th>
-                                <th className="pb-2 text-center font-mono">Set Ratio</th>
-                                <th className="pb-2 text-center font-mono">Pti Ratio</th>
+                                <th className="pb-2 text-center font-mono">Q.Set</th>
+                                <th className="pb-2 text-center font-mono">Q.Pti</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
@@ -1686,7 +1667,15 @@ export default function BracketTab({
                         </h4>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {groupMatches.filter(m => m.groupName === selectedGroupTab).map((match) => {
+                          {[...groupMatches]
+                            .filter(m => m.groupName === selectedGroupTab)
+                            .sort((a, b) => {
+                              if (a.time !== b.time) {
+                                return a.time.localeCompare(b.time);
+                              }
+                              return a.court.localeCompare(b.court);
+                            })
+                            .map((match) => {
                             const isLive = match.status === 'live';
                             const isCompleted = match.status === 'completed';
                             const t1Winner = isCompleted && match.winnerId === match.team1?.id;

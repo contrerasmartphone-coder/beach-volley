@@ -143,7 +143,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                   </div>
                   <span className="absolute -bottom-1 -right-1 bg-slate-500 text-white rounded-full text-[9px] w-4 h-4 flex items-center justify-center font-black shadow-sm">2</span>
                 </div>
-                <div id="podium-2nd-name" className="text-[10px] xs:text-xs font-black text-slate-800 text-center truncate w-16 xs:w-24 uppercase tracking-wide">{topThree[1].name}</div>
+                <div id="podium-2nd-name" className="text-[10px] xs:text-xs font-black text-slate-800 text-center uppercase tracking-wide break-words max-w-full">{topThree[1].name}</div>
                 <div className="w-16 xs:w-24 bg-slate-200 border-t-4 border-slate-300 rounded-t-2xl h-12 xs:h-16 mt-2 flex items-center justify-center text-slate-500 font-black font-mono text-xs xs:text-sm shadow-inner">
                   II
                 </div>
@@ -164,7 +164,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                   </div>
                   <span className="absolute -bottom-1 -right-1 bg-orange-500 text-white rounded-full text-xs w-5 h-5 flex items-center justify-center font-black shadow-md">1</span>
                 </div>
-                <div id="podium-1st-name" className="text-xs xs:text-sm font-black text-orange-850 text-center truncate w-20 xs:w-28 uppercase tracking-wide">{topThree[0].name}</div>
+                <div id="podium-1st-name" className="text-xs xs:text-sm font-black text-orange-850 text-center uppercase tracking-wide break-words max-w-full">{topThree[0].name}</div>
                 <div className="w-20 xs:w-28 bg-orange-400 border-t-4 border-orange-600 rounded-t-2xl h-18 xs:h-24 mt-2 flex items-center justify-center text-white font-black font-mono text-base xs:text-xl shadow-md">
                   I
                 </div>
@@ -185,7 +185,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                   </div>
                   <span className="absolute -bottom-1 -right-1 bg-amber-600 text-white rounded-full text-[9px] w-4 h-4 flex items-center justify-center font-black shadow-sm">3</span>
                 </div>
-                <div id="podium-3rd-name" className="text-[10px] xs:text-xs font-black text-slate-800 text-center truncate w-16 xs:w-24 uppercase tracking-wide">{topThree[2].name}</div>
+                <div id="podium-3rd-name" className="text-[10px] xs:text-xs font-black text-slate-800 text-center uppercase tracking-wide break-words max-w-full">{topThree[2].name}</div>
                 <div className="w-16 xs:w-24 bg-amber-100 border-t-4 border-amber-250 rounded-t-2xl h-10 xs:h-12 mt-2 flex items-center justify-center text-amber-700 font-black font-mono text-xs xs:text-sm shadow-inner">
                   III
                 </div>
@@ -280,8 +280,8 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                     <th className="py-4 px-4 text-center text-blue-600">Punti Gara</th>
                     <th className="py-4 px-4 text-center text-emerald-600">Vinte</th>
                     <th className="py-4 px-4 text-center text-red-500">Perse</th>
-                    <th className="py-4 px-4 text-center text-orange-600">Ratio Set (V/P)</th>
-                    <th className="py-4 px-4 text-center text-amber-600">Quoz. Punti (V/P)</th>
+                    <th className="py-4 px-4 text-center text-orange-600">Quoziente Set (V/P)</th>
+                    <th className="py-4 px-4 text-center text-amber-600">Q.Pti (V/P)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -440,27 +440,32 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-1.5 text-center mt-3 pt-2.5 border-t border-slate-200/60 text-[10px] font-bold text-slate-500">
-                      <div className="bg-slate-100/60 p-1.5 rounded-lg">
-                        <div className="text-[9px] uppercase tracking-wider text-slate-400 mb-0.5">Giocate</div>
-                        <div className="font-mono font-black text-slate-700 text-sm">{gamesPlayed}</div>
+                    <div className="grid grid-cols-6 gap-1 text-center mt-3 pt-2.5 border-t border-slate-200/60 text-[9px] font-bold text-slate-500">
+                      <div className="bg-slate-100/60 p-1 rounded-lg">
+                        <div className="text-[8px] uppercase tracking-wider text-slate-400 mb-0.5">Giocate</div>
+                        <div className="font-mono font-black text-slate-700 text-xs">{gamesPlayed}</div>
                       </div>
-                      <div className="bg-blue-50/60 p-1.5 rounded-lg">
-                        <div className="text-[9px] uppercase tracking-wider text-blue-600 mb-0.5 font-black">Punti Gara</div>
-                        <div className="font-mono font-black text-blue-600 text-sm">{team.points}</div>
+                      <div className="bg-blue-50/60 p-1 rounded-lg">
+                        <div className="text-[8px] uppercase tracking-wider text-blue-600 mb-0.5 font-black">Punti</div>
+                        <div className="font-mono font-black text-blue-600 text-xs">{team.points}</div>
                       </div>
-                      <div className="bg-emerald-50/60 p-1.5 rounded-lg">
-                        <div className="text-[9px] uppercase tracking-wider text-emerald-600/80 mb-0.5 font-black">Vinte</div>
-                        <div className="font-mono font-black text-emerald-600 text-sm">{team.wins}</div>
+                      <div className="bg-emerald-50/60 p-1 rounded-lg">
+                        <div className="text-[8px] uppercase tracking-wider text-emerald-600/80 mb-0.5 font-black">Vinte</div>
+                        <div className="font-mono font-black text-emerald-600 text-xs">{team.wins}</div>
                       </div>
-                      <div className="bg-rose-50/60 p-1.5 rounded-lg">
-                        <div className="text-[9px] uppercase tracking-wider text-rose-500/80 mb-0.5 font-black">Perse</div>
-                        <div className="font-mono font-black text-rose-500 text-sm">{team.losses}</div>
+                      <div className="bg-rose-50/60 p-1 rounded-lg">
+                        <div className="text-[8px] uppercase tracking-wider text-rose-500/80 mb-0.5 font-black">Perse</div>
+                        <div className="font-mono font-black text-rose-500 text-xs">{team.losses}</div>
                       </div>
-                      <div className="bg-orange-50/60 p-1.5 rounded-lg">
-                        <div className="text-[9px] uppercase tracking-wider text-orange-600 mb-0.5 font-black">Ratio Set</div>
-                        <div className="font-mono font-black text-orange-600 text-[11px]">{setRatioString}</div>
-                        <div className="text-[7.5px] text-slate-400 font-mono mt-0.5">{team.setsWon}V / {team.setsLost}P</div>
+                      <div className="bg-orange-50/60 p-1 rounded-lg">
+                        <div className="text-[8px] uppercase tracking-wider text-orange-600 mb-0.5 font-black">Q.Set</div>
+                        <div className="font-mono font-black text-orange-600 text-[10px]">{setRatioString}</div>
+                        <div className="text-[7px] text-slate-400 font-mono mt-0.5">{team.setsWon}V/{team.setsLost}P</div>
+                      </div>
+                      <div className="bg-amber-50/60 p-1 rounded-lg">
+                        <div className="text-[8px] uppercase tracking-wider text-amber-600 mb-0.5 font-black">Q.Pti</div>
+                        <div className="font-mono font-black text-amber-600 text-[10px]">{pointsRatioString}</div>
+                        <div className="text-[7px] text-slate-400 font-mono mt-0.5">{team.pointsWon}/{team.pointsLost}</div>
                       </div>
                     </div>
                   </div>

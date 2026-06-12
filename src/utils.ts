@@ -836,20 +836,16 @@ export function generateRoundRobinMatches(
         groupName,
         pointsPerSet,
         maxSets,
-        nextMatchId: mIds[2], // Winner plays in Gara 3
-        nextMatchSlot: 'team1',
-        loserMatchId: mIds[1], // Loser plays in Gara 2
-        loserMatchSlot: 'team1',
       });
 
-      // Gara 2: Loser Gara 1 vs Fascia 2 (TBD vs T[1])
+      // Gara 2: Fascia 2 vs Fascia 3 (T[1] vs T[2])
       groupMatchesList.push({
         id: mIds[1],
         round: 1,
         roundLabel: `${groupName}`,
         position: 2,
-        team1: null, // Populated via Gara 1 loser
-        team2: T[1],
+        team1: T[1],
+        team2: T[2],
         team1Score: 0,
         team2Score: 0,
         sets: [],
@@ -862,13 +858,13 @@ export function generateRoundRobinMatches(
         maxSets,
       });
 
-      // Gara 3: Winner Gara 1 vs Fascia 2 (TBD vs T[1])
+      // Gara 3: Fascia 1 vs Fascia 2 (T[0] vs T[1])
       groupMatchesList.push({
         id: mIds[2],
         round: 1,
         roundLabel: `${groupName}`,
         position: 3,
-        team1: null, // Populated via Gara 1 winner
+        team1: T[0],
         team2: T[1],
         team1Score: 0,
         team2Score: 0,
@@ -1004,9 +1000,18 @@ export function generateRoundRobinMatches(
     });
   }
 
-  // 3. Coordinate assigned courts and match starting times
+  // 3. Pre-resolve BYEs to find matches involving BYE teams which are resolved instantly
+  const preResolved = autoResolveAndPropagate(interleavedMatches);
+
+  // 4. Coordinate assigned courts and match starting times for active (non-BYE) matches
   let globalMatchIndex = 0;
-  interleavedMatches.forEach((match) => {
+  preResolved.forEach((match) => {
+    if (match.status === 'completed' && (isByeTeam(match.team1) || isByeTeam(match.team2))) {
+      match.court = '';
+      match.time = '';
+      return;
+    }
+
     const courtIndex = (globalMatchIndex % courtCount) + 1;
     match.court = `Campo ${courtIndex}`;
 
@@ -1024,8 +1029,7 @@ export function generateRoundRobinMatches(
     globalMatchIndex++;
   });
 
-  // Run initial auto resolve to automatically schedule/pass resting BYE matches if present
-  return autoResolveAndPropagate(interleavedMatches);
+  return preResolved;
 }
 
 // Compute group standings independently under FIPAV pool guidelines
