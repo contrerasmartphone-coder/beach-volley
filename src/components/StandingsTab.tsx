@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Team, Match } from '../types';
+import { Team, Match, AppUser } from '../types';
 import { computeFipavStandings, computeTeamStats, sortGroupStandings } from '../utils';
 import { Trophy, Award, BarChart3, Medal, ListOrdered, Percent, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -8,9 +8,11 @@ interface StandingsTabProps {
   teams: Team[];
   matches: Match[];
   activeTournamentConfig?: any;
+  currentUser?: AppUser | null;
 }
 
-export default function StandingsTab({ teams, matches, activeTournamentConfig }: StandingsTabProps) {
+export default function StandingsTab({ teams, matches, activeTournamentConfig, currentUser = null }: StandingsTabProps) {
+  const isOrganizer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isCombined = activeTournamentConfig?.formula === 'combined';
   const standingsMatches = isCombined ? matches.filter(m => m.phase === 'gironi') : matches;
 
@@ -223,7 +225,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                     <th className="py-4 px-4 w-16 text-center">Posiz</th>
                     <th className="py-4 px-4">Squadra / Atleti</th>
                     <th className="py-4 px-4 text-center text-rose-600">Piazz. Girone</th>
-                    <th className="py-4 px-4 text-center">Livello di Gioco</th>
+                    {isOrganizer && <th className="py-4 px-4 text-center">Livello di Gioco</th>}
                     <th className="py-4 px-4 text-center">Gare</th>
                     <th className="py-4 px-4 text-center text-blue-600">Punti Gara</th>
                     <th className="py-4 px-4 text-center text-emerald-600">Vinte</th>
@@ -283,11 +285,13 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                         </td>
 
                         {/* Level Tag */}
-                        <td className="py-4.5 px-4 text-center">
-                          <span id={`standing-level-${team.id}`} className={`${getLevelBadgeStyles(team.level)}`}>
-                            {team.level}
-                          </span>
-                        </td>
+                        {isOrganizer && (
+                          <td className="py-4.5 px-4 text-center">
+                            <span id={`standing-level-${team.id}`} className={`${getLevelBadgeStyles(team.level)}`}>
+                              {team.level}
+                            </span>
+                          </td>
+                        )}
 
                         {/* Played */}
                         <td id={`standing-played-${team.id}`} className="py-4.5 px-4 text-center font-extrabold font-mono text-slate-600 text-sm">
@@ -383,9 +387,11 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                           )}
                         </div>
                       </div>
-                      <span className={`${getLevelBadgeStyles(team.level)} shrink-0`}>
-                        {team.level}
-                      </span>
+                      {isOrganizer && (
+                        <span className={`${getLevelBadgeStyles(team.level)} shrink-0`}>
+                          {team.level}
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-6 gap-1 text-center mt-3 pt-2.5 border-t border-slate-200/60 text-[9px] font-bold text-slate-500">

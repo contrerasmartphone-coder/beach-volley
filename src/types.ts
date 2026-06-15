@@ -93,6 +93,11 @@ export interface ArchivedTournament {
   formula: string;
   teamsCount: number;
   teams: Team[];
-  matches: Match[];
+  matches?: Match[];
   winnerTeamName?: string;
+  podium?: {
+    first: Team | null;
+    second: Team | null;
+    third: Team | null;
+  };
 }

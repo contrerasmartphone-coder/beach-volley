@@ -256,8 +256,8 @@ export default function App() {
     };
 
     try {
-      await setDoc(doc(db, 'teams', newTeam.id), newTeam);
-      await setDoc(doc(db, 'notifications', addedNotif.id), addedNotif);
+      await setDoc(doc(db, 'teams', newTeam.id), cleanObject(newTeam));
+      await setDoc(doc(db, 'notifications', addedNotif.id), cleanObject(addedNotif));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `teams/${newTeam.id}`);
     }
@@ -302,8 +302,8 @@ export default function App() {
     };
 
     try {
-      await setDoc(doc(db, 'teams', updatedTeam.id), updatedTeam);
-      await setDoc(doc(db, 'notifications', updateNotif.id), updateNotif);
+      await setDoc(doc(db, 'teams', updatedTeam.id), cleanObject(updatedTeam));
+      await setDoc(doc(db, 'notifications', updateNotif.id), cleanObject(updateNotif));
 
       // Map and write matches update in parallel if needed
       const matchesPromises = matches.map(async (m) => {
@@ -337,11 +337,11 @@ export default function App() {
         }
 
         if (updated) {
-          await setDoc(doc(db, 'matches', m.id), {
+          await setDoc(doc(db, 'matches', m.id), cleanObject({
             ...m,
             team1: newTeam1,
             team2: newTeam2,
-          });
+          }));
         }
       });
       await Promise.all(matchesPromises);
@@ -405,9 +405,9 @@ export default function App() {
       await clearCollection('notifications');
       await deleteDoc(doc(db, 'config', 'settings'));
 
-      const teamPromises = selectedDemos.map((team) => setDoc(doc(db, 'teams', team.id), team));
+      const teamPromises = selectedDemos.map((team) => setDoc(doc(db, 'teams', team.id), cleanObject(team)));
       await Promise.all(teamPromises);
-      await setDoc(doc(db, 'notifications', demNotif.id), demNotif);
+      await setDoc(doc(db, 'notifications', demNotif.id), cleanObject(demNotif));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'teams_demo');
     }
@@ -480,7 +480,8 @@ export default function App() {
         config.pointsPerSet,
         config.maxSets,
         config.sfPointsPerSet,
-        config.sfMaxSets
+        config.sfMaxSets,
+        config.courtCount
       );
 
       // Remove any group association in play
@@ -698,7 +699,7 @@ export default function App() {
     };
 
     try {
-      await setDoc(doc(db, 'notifications', swapNotif.id), swapNotif);
+      await setDoc(doc(db, 'notifications', swapNotif.id), cleanObject(swapNotif));
       
       // Save full individual changes immediately to Firestore
       const teamPromises = updatedTeams.map(t => setDoc(doc(db, 'teams', t.id), cleanObject(t)));
@@ -730,7 +731,7 @@ export default function App() {
   // EXPLICIT NOTIFICATION EMITTERS
   const handleAddNotification = async (notification: NotificationLog) => {
     try {
-      await setDoc(doc(db, 'notifications', notification.id), notification);
+      await setDoc(doc(db, 'notifications', notification.id), cleanObject(notification));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `notifications/${notification.id}`);
     }
@@ -768,8 +769,13 @@ export default function App() {
           className="bg-white rounded-3xl shadow-2xl border-4 border-amber-400 p-8 w-full max-w-sm font-sans space-y-6 relative overflow-hidden"
         >
           <div className="text-center space-y-3">
-            <div className="w-16 h-16 bg-amber-50 border-2 border-amber-400 rounded-full flex items-center justify-center mx-auto text-amber-500 shadow-sm">
-              <Sun className="w-10 h-10 text-orange-500 animate-[spin_30s_linear_infinite]" />
+            <div className="w-20 h-20 bg-white border-2 border-amber-300 rounded-2xl flex items-center justify-center mx-auto shadow-md overflow-hidden">
+              <img
+                src="/src/assets/images/wsicily_logo_white_bg_1781554165519.jpg"
+                alt="WSICILY Logo"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h2 className="text-2xl md:text-3xl font-black tracking-tight uppercase italic leading-none text-slate-850">
@@ -842,14 +848,6 @@ export default function App() {
               Accedi Ora 🚀
             </button>
           </form>
-
-          <div className="pt-4 border-t border-slate-100 text-center">
-            <p className="text-[10px] font-medium text-slate-400 leading-relaxed max-w-[280px] mx-auto">
-              💡 Credenziali di default dell'Amministratore:<br />
-              <strong className="text-slate-500 font-mono">contrera.service@gmail.com</strong><br />
-              password: <strong className="text-slate-500 font-mono">admin</strong>
-            </p>
-          </div>
         </motion.div>
       </div>
     );
@@ -861,8 +859,13 @@ export default function App() {
       <header id="beach-app-header-sec" className="bg-sky-500 text-white shadow-lg border-b-4 border-sky-600">
         <div className="max-w-7xl mx-auto px-4 py-4 md:px-6 md:py-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="bg-white p-2 text-orange-500 rounded-full shadow-md shrink-0">
-              <Sun className="w-8 h-8 md:w-10 md:h-10 text-orange-500 animate-[spin_20s_linear_infinite]" />
+            <div className="bg-white border-2 border-sky-400/50 rounded-2xl overflow-hidden shadow-md shrink-0 w-12 h-12 md:w-16 md:h-16 flex items-center justify-center">
+              <img
+                src="/src/assets/images/wsicily_logo_white_bg_1781554165519.jpg"
+                alt="WSICILY Logo"
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-black tracking-tight uppercase italic leading-none text-white drop-shadow-sm">
@@ -1029,7 +1032,7 @@ export default function App() {
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.15 }}
             >
-              <StandingsTab teams={teams} matches={matches} activeTournamentConfig={activeTournamentConfig} />
+              <StandingsTab teams={teams} matches={matches} activeTournamentConfig={activeTournamentConfig} currentUser={currentUser} />
             </motion.div>
           )}
 

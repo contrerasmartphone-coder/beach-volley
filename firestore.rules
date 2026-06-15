@@ -51,9 +51,11 @@ service cloud.firestore {
         && a.name is string && a.name.size() <= 300
         && a.date is string
         && a.formula is string
-        && a.teamsCount is int
+        && (a.teamsCount is int || a.teamsCount is float)
         && a.teams is list
-        && a.matches is list;
+        && (!('winnerTeamName' in a) || a.winnerTeamName is string)
+        && (!('podium' in a) || a.podium is map || a.podium == null)
+        && (!('matches' in a) || a.matches is list || a.matches == null);
     }
 
     match /teams/{teamId} {

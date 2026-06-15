@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
 import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap } from '../utils';
-import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock } from 'lucide-react';
+import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface BracketTabProps {
@@ -882,6 +882,417 @@ export default function BracketTab({
     }
   };
 
+  const handleSaveScheduleOnly = () => {
+    if (!editingMatch) return;
+
+    const updatedMatch: Match = {
+      ...editingMatch,
+      court: editCourt,
+      time: editTime,
+    };
+
+    let updated = matches.map(m => m.id === updatedMatch.id ? updatedMatch : m);
+    onUpdateMatches(updated);
+
+    onAddNotification({
+      id: `notif-${Date.now()}-sch`,
+      title: 'Cambio Orario/Campo ⏰',
+      message: `Ora e campo agg. per ${updatedMatch.team1?.name || '?'} vs ${updatedMatch.team2?.name || '?'}: ${updatedMatch.court || 'Campo ?'} alle ${updatedMatch.time || 'Ora ?'}.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'live_update',
+      matchId: updatedMatch.id,
+    });
+
+    setEditingMatch(null);
+  };
+
+  const handlePrintEntryList = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
+      return;
+    }
+
+    const sortedTeams = [...teams].sort((a, b) => {
+      const levelOrder = { Gold: 4, Silver: 3, Bronze: 2, Beginner: 1 };
+      const levelDiff = (levelOrder[b.level] || 0) - (levelOrder[a.level] || 0);
+      if (levelDiff !== 0) return levelDiff;
+      return a.name.localeCompare(b.name);
+    });
+
+    const rowsHTML = sortedTeams.map((t, idx) => `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 12px 10px; font-weight: bold; font-family: monospace; text-align: center; font-size: 14px; width: 60px;">${idx + 1}</td>
+        <td style="padding: 12px 10px; font-weight: bold; color: #1e293b; font-size: 14px;">${t.name}</td>
+        <td style="padding: 12px 10px; color: #334155; font-size: 14px;">${t.player1} &amp; ${t.player2}</td>
+        <td style="padding: 12px 10px; text-align: center; width: 120px;">
+          <span style="
+            padding: 3px 8px; 
+            border-radius: 4px; 
+            font-size: 11px; 
+            font-weight: bold; 
+            text-transform: uppercase;
+            background: ${
+              t.level === 'Gold' ? '#fef3c7; color: #d97706; border: 1px solid #fde68a;' :
+              t.level === 'Silver' ? '#f1f5f9; color: #475569; border: 1px solid #cbd5e1;' :
+              t.level === 'Bronze' ? '#ffedd5; color: #c2410c; border: 1px solid #fed7aa;' :
+              '#e1fdf4; color: #047857; border: 1px solid #a7f3d0;'
+            }
+          ">${t.level}</span>
+        </td>
+        <td style="padding: 12px 10px; width: 180px; text-align: left; font-size: 12px; color: #64748b; font-family: monospace;">
+          ${t.phone || '-'}
+        </td>
+        <td style="padding: 12px 10px; border-left: 1px dashed #cbd5e1; width: 120px; text-align: center; font-size: 11px; color: #94a3b8;">
+          [ &nbsp; ] Presente
+        </td>
+      </tr>
+    `).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Lista di Ingresso - ${tournamentName}</title>
+          <style>
+            @media print {
+              body { padding: 15px; }
+              button { display: none; }
+            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; }
+            .header { text-align: center; border-bottom: 3px solid #f97316; padding-bottom: 12px; margin-bottom: 25px; }
+            h1 { margin: 0; color: #0f172a; font-size: 24px; text-transform: uppercase; font-weight: 800; letter-spacing: -0.5px; }
+            .subtitle { margin: 5px 0 0; color: #f97316; font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+            .meta-info { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 20px; font-weight: 600; text-transform: uppercase; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background: #f8fafc; border-bottom: 2px solid #cbd5e1; padding: 12px 10px; font-weight: bold; font-size: 11px; text-transform: uppercase; text-align: left; color: #475569; }
+            .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-transform: uppercase; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Lista d'Ingresso Squadre</h1>
+            <div class="subtitle">${tournamentName}</div>
+          </div>
+          <div class="meta-info">
+            <span>Formula: ${activeTournamentConfig?.formula?.toUpperCase() || 'COMBINED'}</span>
+            <span>Totale Squadre: ${teams.length} Iscritte</span>
+            <span>Data: ${new Date().toLocaleDateString('it-IT')}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align: center;">Pos / Seed</th>
+                <th>Nome Squadra</th>
+                <th>Atleti / Componenti</th>
+                <th style="text-align: center;">Livello</th>
+                <th style="text-align: left;">Contatto</th>
+                <th style="text-align: center;">Firma Presenza</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHTML}
+            </tbody>
+          </table>
+          <div class="footer">
+            Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
+          </div>
+          <script>
+            window.onload = function() { window.print(); window.close(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  const handlePrintGroupsAndPools = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
+      return;
+    }
+
+    const gironiMatches = matches.filter(m => m.phase === 'gironi');
+    const teamsWithGroup = teams.filter(t => t.group);
+    
+    if (teamsWithGroup.length === 0 && gironiMatches.length === 0) {
+      printWindow.document.write(`
+        <html>
+          <head><title>Fase a Gironi - Errore</title></head>
+          <body style="font-family: sans-serif; text-align: center; padding: 50px; color: #333;">
+            <h2>Nessuna Fase a Gironi rilevata per il torneo corrente.</h2>
+            <p>Assicurati che la formula del torneo includa i gironi (es. "Fase a Gironi" o "Gironi + Playoff") e che i gironi siano generati.</p>
+            <button onclick="window.close()" style="padding: 10px 20px; font-weight: bold; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer;">Chiudi Finestra</button>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      return;
+    }
+
+    const distinctGroups = Array.from(new Set(teamsWithGroup.map(t => t.group || ''))).filter(Boolean).sort();
+    
+    if (distinctGroups.length === 0 && gironiMatches.length > 0) {
+      const inferred = Array.from(new Set(gironiMatches.map(m => m.groupName || ''))).filter(Boolean).sort();
+      distinctGroups.push(...inferred);
+    }
+
+    const sectionsHTML = distinctGroups.map(groupName => {
+      const groupTeams = teams.filter(t => t.group === groupName);
+      
+      const computedStandings = [...groupTeams].sort((a, b) => {
+        if ((b.points || 0) !== (a.points || 0)) return (b.points || 0) - (a.points || 0);
+        const setRatioA = a.setsLost === 0 ? a.setsWon : a.setsWon / a.setsLost;
+        const setRatioB = b.setsLost === 0 ? b.setsWon : b.setsWon / b.setsLost;
+        if (setRatioB !== setRatioA) return setRatioB - setRatioA;
+        return b.wins - a.wins;
+      });
+
+      const teamsGroupRows = computedStandings.map((t, index) => `
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 8px 10px; font-weight: bold; text-align: center; color: #64748b; font-size: 13px;">${index + 1}°</td>
+          <td style="padding: 8px 10px; font-weight: bold; color: #1e293b; font-size: 13px;">${t.name}</td>
+          <td style="padding: 8px 10px; font-size: 12px; color: #475569;">${t.player1} / ${t.player2}</td>
+          <td style="padding: 8px 10px; text-align: center; font-weight: bold; font-family: monospace; font-size: 13px;">${t.points || 0}</td>
+          <td style="padding: 8px 10px; text-align: center; font-size: 12px; color: #475569;">${t.wins || 0}V - ${t.losses || 0}P</td>
+          <td style="padding: 8px 10px; text-align: center; font-size: 12px; color: #64748b;">${t.setsWon || 0}:${t.setsLost || 0}</td>
+        </tr>
+      `).join('');
+
+      const groupMatches = gironiMatches.filter(m => m.groupName === groupName || m.id.includes(groupName.replace('Girone ', '').toLowerCase()));
+      
+      const matchesGroupRows = groupMatches.map(m => {
+        const garaNum = garaNumbersMap[m.id] ? `Gara #${garaNumbersMap[m.id]}` : `Match`;
+        const setsStr = m.sets && m.sets.length > 0 
+          ? m.sets.map(s => `${s.team1}-${s.team2}`).join(' / ')
+          : '<em>Da giocare</em>';
+        const resultStr = m.status === 'completed' 
+          ? `<strong style="color: #f97316;">${m.team1Score} - ${m.team2Score}</strong>`
+          : '<span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #fef3c7; color: #d97706; font-weight: bold;">DA GIOCARE</span>';
+        
+        return `
+          <tr style="border-bottom: 1px solid #f8fafc;">
+            <td style="padding: 10px 8px; font-family: monospace; font-size: 12px; color: #475569; font-weight: bold;">${garaNum}</td>
+            <td style="padding: 10px 8px; font-size: 12px; color: #64748b;">${m.time || 'Da definire'}</td>
+            <td style="padding: 10px 8px; font-size: 12px; color: #1e293b; font-weight: bold;">${m.court || 'Campo ?'}</td>
+            <td style="padding: 10px 8px; font-size: 13px;">
+              <span style="${m.status === 'completed' && m.team1Score > m.team2Score ? 'font-weight: bold; color: #0284c7;' : ''}">${m.team1?.name || 'BYE'}</span> 
+              <span style="color: #94a3b8; font-weight: normal; margin: 0 4px;">vs</span> 
+              <span style="${m.status === 'completed' && m.team2Score > m.team1Score ? 'font-weight: bold; color: #0284c7;' : ''}">${m.team2?.name || 'BYE'}</span>
+            </td>
+            <td style="padding: 10px 8px; text-align: center; font-size: 13px;">${resultStr}</td>
+            <td style="padding: 10px 8px; font-size: 12px; color: #64748b; font-family: monospace; text-align: center;">${setsStr}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div style="page-break-inside: avoid; margin-bottom: 40px; border: 2px solid #e2e8f0; border-radius: 20px; padding: 20px; background: #fff;">
+          <h2 style="margin-top: 0; color: #f97316; font-size: 18px; border-bottom: 2px solid #fed7aa; padding-bottom: 8px; text-transform: uppercase; font-weight: 800; display: flex; justify-content: space-between;">
+            <span>📋 ${groupName}</span>
+            <span style="font-size: 11px; background: #ffedd5; color: #ea580c; padding: 3px 10px; border-radius: 9999px; font-weight: bold;">Fase a Gironi</span>
+          </h2>
+          
+          <h3 style="font-size: 12px; font-weight: 850; text-transform: uppercase; tracking: 0.5px; color: #475569; margin: 15px 0 8px 0;">Classifica Corrente</h3>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+              <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1;">
+                <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Pos</th>
+                <th style="width: 30%; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Squadra</th>
+                <th style="width: 30%; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Giocatori</th>
+                <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Punti</th>
+                <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">V / P</th>
+                <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Set V:P</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${teamsGroupRows || '<tr><td colspan="6" style="padding: 10px; text-align: center; color: #94a3b8;">Nessuna squadra iscritta in questo girone</td></tr>'}
+            </tbody>
+          </table>
+
+          <h3 style="font-size: 12px; font-weight: 850; text-transform: uppercase; tracking: 0.5px; color: #475569; margin: 20px 0 8px 0;">Programma Incontri del Girone</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1;">
+                <th style="width: 15%; padding: 8px; font-size: 10px; text-transform: uppercase;">Gara</th>
+                <th style="width: 15%; padding: 8px; font-size: 10px; text-transform: uppercase;">Orario</th>
+                <th style="width: 15%; padding: 8px; font-size: 10px; text-transform: uppercase;">Campo</th>
+                <th style="width: 30%; padding: 8px; font-size: 10px; text-transform: uppercase;">Incontro</th>
+                <th style="width: 10%; text-align: center; padding: 8px; font-size: 10px; text-transform: uppercase;">Risultato</th>
+                <th style="width: 15%; text-align: center; padding: 8px; font-size: 10px; text-transform: uppercase;">Parziali Set</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${matchesGroupRows || '<tr><td colspan="6" style="padding: 10px; text-align: center; color: #94a3b8;">Nessun incontro programmato per questo girone</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Composizione e Gare Gironi - ${tournamentName}</title>
+          <style>
+            @media print {
+              body { padding: 15px; background: transparent; }
+              button { display: none; }
+            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 35px; color: #1e293b; background: #f8fafc; line-height: 1.5; }
+            .header { text-align: center; border-bottom: 3px solid #f97316; padding-bottom: 12px; margin-bottom: 25px; background: #fff; border-radius: 12px; padding: 15px; }
+            h1 { margin: 0; color: #0f172a; font-size: 22px; text-transform: uppercase; font-weight: 800; }
+            .subtitle { margin: 5px 0 0; color: #f97316; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+            .meta-info { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 20px; font-weight: bold; padding: 0 10px; text-transform: uppercase; }
+            .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; font-weight: bold; text-transform: uppercase; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Composizione Gironi e Programma Gare</h1>
+            <div class="subtitle">${tournamentName}</div>
+          </div>
+          <div class="meta-info">
+            <span>Stato: Fase a Gironi in corso</span>
+            <span>Gironi totali: ${distinctGroups.length}</span>
+            <span>Data Report: ${new Date().toLocaleDateString('it-IT')}</span>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            ${sectionsHTML}
+          </div>
+
+          <div class="footer">
+            Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
+          </div>
+          <script>
+            window.onload = function() { window.print(); window.close(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  const handlePrintOrderedMatches = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
+      return;
+    }
+
+    const sortedMatches = [...matches].sort((a, b) => {
+      const numA = garaNumbersMap[a.id] || 999999;
+      const numB = garaNumbersMap[b.id] || 999999;
+      if (numA !== numB) return numA - numB;
+      
+      const timeA = a.time || '99:99';
+      const timeB = b.time || '99:99';
+      if (timeA !== timeB) return timeA.localeCompare(timeB);
+      
+      return (a.court || '').localeCompare(b.court || '');
+    });
+
+    const rowsHTML = sortedMatches.map(m => {
+      const garaNumber = garaNumbersMap[m.id] ? `Gara ${garaNumbersMap[m.id]}` : 'Match';
+      
+      let phaseLabel = m.phase === 'gironi' ? 'Gironi' : 'Playoff';
+      if (m.roundLabel) {
+        phaseLabel += ` - ${m.roundLabel}`;
+      } else if (m.groupName) {
+        phaseLabel += ` - ${m.groupName}`;
+      }
+
+      const t1Name = m.team1 ? m.team1.name : 'TBD';
+      const t2Name = m.team2 ? m.team2.name : 'TBD';
+
+      let resultString = '-';
+      let setsDetails = '-';
+      if (m.status === 'completed') {
+        resultString = `<span style="font-weight: bold; color: #ea580c;">${m.team1Score} - ${m.team2Score}</span>`;
+        if (m.sets && m.sets.length > 0) {
+          setsDetails = m.sets.map(s => `${s.team1}-${s.team2}`).join(' / ');
+        }
+      } else if (m.status === 'live') {
+        resultString = '<span style="font-weight: bold; background: #fef08a; color: #854d0e; padding: 2px 6px; border-radius: 4px; font-size: 11px;">LIVE</span>';
+      } else {
+        resultString = '<span style="font-weight: bold; background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px; font-size: 11px;">PROGRAMMATO</span>';
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0; height: 45px;">
+          <td style="padding: 10px; font-family: monospace; font-size: 13px; font-weight: bold; text-align: center; background: #f8fafc; color: #0f172a;">${garaNumber}</td>
+          <td style="padding: 10px; font-weight: bold; font-family: monospace; font-size: 13px; text-align: center; color: #2563eb;">${m.time || '--:--'}</td>
+          <td style="padding: 10px; font-weight: 800; font-size: 13px; text-align: center; color: #059669;">${m.court || 'Campo ?'}</td>
+          <td style="padding: 10px; font-size: 11px; text-transform: uppercase; font-weight: bold; color: #64748b;">${phaseLabel}</td>
+          <td style="padding: 10px; font-size: 14px;">
+            <span style="${m.status === 'completed' && m.team1Score > m.team2Score ? 'font-weight: bold; color: #0f172a;' : 'color: #334155;'}">${t1Name}</span>
+            <span style="color: #94a3b8; font-weight: normal; margin: 0 5px;">vs</span>
+            <span style="${m.status === 'completed' && m.team2Score > m.team1Score ? 'font-weight: bold; color: #0f172a;' : 'color: #334155;'}">${t2Name}</span>
+          </td>
+          <td style="padding: 10px; text-align: center; font-size: 14px;">${resultString}</td>
+          <td style="padding: 10px; font-family: monospace; font-size: 12px; color: #475569; text-align: center;">${setsDetails}</td>
+        </tr>
+      `;
+    }).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Elenco Ordinato Gare - ${tournamentName}</title>
+          <style>
+            @media print {
+              body { padding: 15px; }
+              button { display: none; }
+            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 30px; color: #1e293b; line-height: 1.5; }
+            .header { text-align: center; border-bottom: 3px solid #f97316; padding-bottom: 12px; margin-bottom: 25px; }
+            h1 { margin: 0; color: #0f172a; font-size: 24px; text-transform: uppercase; font-weight: 800; }
+            .subtitle { margin: 5px 0 0; color: #f97316; font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+            .meta-info { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 20px; font-weight: 600; text-transform: uppercase; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background: #f8fafc; border-bottom: 2px solid #cbd5e1; padding: 12px 10px; font-weight: bold; font-size: 11px; text-transform: uppercase; text-align: left; color: #475569; }
+            .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; text-transform: uppercase; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Programma Completo ed Elenco Ordinato Gare</h1>
+            <div class="subtitle">${tournamentName}</div>
+          </div>
+          <div class="meta-info">
+            <span>Formula: ${activeTournamentConfig?.formula?.toUpperCase() || 'COMBINED'}</span>
+            <span>Totale Gare: ${matches.length} Partite</span>
+            <span>Data Report: ${new Date().toLocaleDateString('it-IT')}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align: center; width: 80px;">N° Gara</th>
+                <th style="text-align: center; width: 80px;">Orario</th>
+                <th style="text-align: center; width: 100px;">Campo</th>
+                <th style="width: 150px;">Fase / Gruppo</th>
+                <th>Incontro</th>
+                <th style="text-align: center; width: 100px;">Risultato Sets</th>
+                <th style="text-align: center; width: 150px;">Parziali Dettaglio</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHTML}
+            </tbody>
+          </table>
+          <div class="footer">
+            Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
+          </div>
+          <script>
+            window.onload = function() { window.print(); window.close(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const handleSaveScoreManual = () => {
     if (!editingMatch || !editingMatch.team1 || !editingMatch.team2) return;
 
@@ -1266,15 +1677,19 @@ export default function BracketTab({
       playoffStartHour = `${hStr}:${mStr}`;
     }
 
+    const activeCourtCount = activeTournamentConfig?.courtCount || courtCount;
+    const activeSfPointsPerSet = activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet;
+    const activeSfMaxSets = activeTournamentConfig?.sfMaxSets || sfMaxSets;
+
     const playoffMatches = generatePlayoffsFromGroups(
       groupsStandings,
       playoffStartHour,
       40,
-      courtCount,
+      activeCourtCount,
       ptsSet,
       mSets,
-      sfPointsPerSet,
-      sfMaxSets,
+      activeSfPointsPerSet,
+      activeSfMaxSets,
       resolvedQualifiedCount,
       teams,
       groupMatches
@@ -1775,6 +2190,61 @@ export default function BracketTab({
             </div>
           </div>
 
+          {/* Sezione Stampe e Report Ufficiali */}
+          <div className="bg-gradient-to-br from-slate-50 to-slate-100/90 rounded-3xl border-4 border-slate-200/80 p-5 mt-4 shadow-md">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/60 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <Printer className="w-5 h-5 text-orange-500 stroke-[2.5]" />
+                <h4 className="font-extrabold text-slate-800 text-xs sm:text-sm uppercase tracking-wider">Area Stampa Documenti & Report Ufficiali 🖨️</h4>
+              </div>
+              <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-200/60 px-2.5 py-1 rounded-md">
+                Torneo Attivo: {tournamentName}
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <button
+                type="button"
+                id="print-btn-entry-list"
+                onClick={handlePrintEntryList}
+                className="flex items-center justify-center gap-2 bg-white hover:bg-sky-50 text-sky-900 border-2 border-slate-200 hover:border-sky-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
+              >
+                <FileText className="w-4 h-4 text-sky-500 stroke-[2.5]" />
+                Lista d'Ingresso
+              </button>
+              
+              <button
+                type="button"
+                id="print-btn-groups-pools"
+                onClick={handlePrintGroupsAndPools}
+                className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
+                  matches.some(m => m.phase === 'gironi')
+                    ? 'bg-white hover:bg-amber-50 text-amber-900 border-2 border-slate-200 hover:border-amber-300 active:translate-y-0.5'
+                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                }`}
+                disabled={!matches.some(m => m.phase === 'gironi')}
+                title={!matches.some(m => m.phase === 'gironi') ? "La formula attuale non prevede incontri a gironi" : "Stampa i gironi e i relativi incontri"}
+              >
+                <ListFilter className={`w-4 h-4 ${matches.some(m => m.phase === 'gironi') ? 'text-amber-500' : 'text-slate-400'} stroke-[2.5]`} />
+                Composizione & Gare Gironi
+              </button>
+              
+              <button
+                type="button"
+                id="print-btn-ordered-matches"
+                onClick={handlePrintOrderedMatches}
+                className="flex items-center justify-center gap-2 bg-white hover:bg-orange-50 text-orange-950 border-2 border-slate-200 hover:border-orange-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
+              >
+                <Clock className="w-4 h-4 text-orange-500 stroke-[2.5]" />
+                Elenco Ordinato Gare
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-slate-400 mt-3 italic font-medium">
+              * Cliccando sui pulsanti si aprirà una nuova scheda pronta per l'invio alla tua stampante o per essere salvata come file PDF sul tuo dispositivo.
+            </p>
+          </div>
+
           {/* Phase selector tabs for multi-phase tournaments */}
           {matches.some(m => m.phase === 'gironi') && (
             <div className="flex bg-sky-900/10 p-1 rounded-2xl border border-sky-950/20 max-w-md mx-auto">
@@ -2087,7 +2557,7 @@ export default function BracketTab({
                     {Object.keys(roundsMap).map((roundKey) => {
                       const rNum = Number(roundKey);
                       const roundMatches = roundsMap[rNum] || [];
-                      const label = roundMatches[0]?.roundLabel || `Turno ${rNum}`;
+                      const label = rNum === 2 ? "FINALI" : (roundMatches[0]?.roundLabel || `Turno ${rNum}`);
 
                       return (
                         <div key={rNum} className="flex-1 flex flex-col justify-around space-y-6">
@@ -2261,8 +2731,8 @@ export default function BracketTab({
                     {Object.keys(roundsMap).map((roundKey) => {
                       const rNum = Number(roundKey);
                       let roundLabel = roundsMap[rNum]?.[0]?.roundLabel || `Turno ${rNum}`;
-                      if (rNum === 2 && matches.some(m => m.id.startsWith('m-de-'))) {
-                        roundLabel = "Vincenti / Perdenti";
+                      if (rNum === 2) {
+                        roundLabel = "FINALI";
                       }
                       return (
                         <button
@@ -2685,7 +3155,7 @@ export default function BracketTab({
             </div>
 
             {/* Modal Footer Controls */}
-            <div className="p-4 bg-slate-50 border-t-2 border-slate-100 flex gap-3 shrink-0">
+            <div className="p-4 bg-slate-50 border-t-2 border-slate-100 flex flex-col sm:flex-row gap-2.5 shrink-0">
               <button
                 type="button"
                 id="cancel-score-btn"
@@ -2693,6 +3163,15 @@ export default function BracketTab({
                 className="flex-1 bg-slate-100 border-2 border-slate-200 text-slate-500 hover:bg-slate-200 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-colors"
               >
                 Annulla
+              </button>
+              <button
+                type="button"
+                id="save-schedule-only-btn"
+                onClick={handleSaveScheduleOnly}
+                className="flex-1 bg-sky-50 hover:bg-sky-100 border-2 border-sky-200 text-sky-700 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 active:translate-y-0.5 shadow-sm transition-all font-sans"
+              >
+                <Clock className="w-4 h-4 text-sky-600 stroke-[2.5]" />
+                Salva Solo Ora/Campo
               </button>
               <button
                 type="button"

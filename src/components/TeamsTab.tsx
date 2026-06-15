@@ -251,9 +251,11 @@ export default function TeamsTab({
                   Rank #{globalRank}
                 </span>
               )}
-              <span id={`team-level-badge-${team.id}`} className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 ${getLevelColor(team.level)}`}>
-                {team.level}
-              </span>
+              {canWrite && (
+                <span id={`team-level-badge-${team.id}`} className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 ${getLevelColor(team.level)}`}>
+                  {team.level}
+                </span>
+              )}
             </div>
             <h4 id={`team-name-title-${team.id}`} className="font-extrabold text-slate-800 text-sm mt-2 uppercase">{team.name}</h4>
           </div>

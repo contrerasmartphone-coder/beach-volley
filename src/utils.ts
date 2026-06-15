@@ -1393,7 +1393,8 @@ export function generateDoubleEliminationBracket(
   pointsPerSet?: 15 | 21,
   maxSets?: 1 | 3,
   sfPointsPerSet?: 15 | 21,
-  sfMaxSets?: 1 | 3
+  sfMaxSets?: 1 | 3,
+  courtCount: number = 2
 ): Match[] {
   const matches: Match[] = [];
   
@@ -1416,10 +1417,9 @@ export function generateDoubleEliminationBracket(
 
   // Helper to schedule match time and court
   const getScheduledTimeAndCourt = (index: number) => {
-    // 2 courts default
-    const courtNum = (index % 2) + 1;
+    const courtNum = (index % courtCount) + 1;
     // Sequential blocks of matches (approx 40 minutes each)
-    const block = Math.floor(index / 2);
+    const block = Math.floor(index / courtCount);
     const totalOffsetMinutes = block * durationMinutes;
     const matchDate = new Date();
     matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);

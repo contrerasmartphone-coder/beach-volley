@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Team, Match, ArchivedTournament, AppUser } from '../types';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { getGaraNumbersMap } from '../utils';
+import { db, handleFirestoreError, OperationType, cleanObject } from '../firebase';
+import { getGaraNumbersMap, computeFipavStandings } from '../utils';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save } from 'lucide-react';
 
@@ -30,30 +30,72 @@ export default function ArchiveTab({
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
 
-  // Determine potential winner of current tournament
-  const getPotentialWinner = (): string => {
-    if (!activeMatches || activeMatches.length === 0) return 'N/A';
-    // Find final match
-    const completed = activeMatches.filter(m => m.status === 'completed');
-    if (completed.length === 0) return 'In corso (Nessun vincitore ancora)';
+  // Determine top 3 for the podium
+  const getPodium = (): { first: Team | null; second: Team | null; third: Team | null } => {
+    if (!activeMatches || activeMatches.length === 0) {
+      return { first: null, second: null, third: null };
+    }
     
-    // Find the match with highest round or final (e.g. Finale or round 4, or highest position/id)
-    const sorted = [...completed].sort((a, b) => b.round - a.round);
-    const finalMatch = sorted[0];
-    if (finalMatch) {
-      if (finalMatch.team1Score > finalMatch.team2Score && finalMatch.team1) {
-        return finalMatch.team1.name;
-      } else if (finalMatch.team2Score > finalMatch.team1Score && finalMatch.team2) {
-        return finalMatch.team2.name;
+    // Sort teams by standings first as fallback
+    const standsMatches = activeTournamentConfig?.formula === 'combined' 
+      ? activeMatches.filter(m => m.phase === 'gironi') 
+      : activeMatches;
+    const sortedTeams = computeFipavStandings(activeTeams, standsMatches);
+
+    const grandFinal = activeMatches.find(m => m.roundLabel === 'Finale' && (m.phase === 'eliminazione' || m.id.includes('de') || m.id.startsWith('m-p-')));
+    const final3rd = activeMatches.find(m => m.roundLabel === 'Finale 3°/4° Posto');
+    const formula = activeTournamentConfig?.formula;
+    const isPlayoffTourney = formula && formula !== 'pools';
+
+    let first: Team | null = null;
+    let second: Team | null = null;
+    let third: Team | null = null;
+
+    if (isPlayoffTourney) {
+      if (grandFinal && grandFinal.status === 'completed' && grandFinal.winnerId) {
+        const winnerId = grandFinal.winnerId;
+        const loserId = winnerId === grandFinal.team1?.id ? grandFinal.team2?.id : grandFinal.team1?.id;
+        first = activeTeams.find(t => t.id === winnerId) || null;
+        second = loserId ? (activeTeams.find(t => t.id === loserId) || null) : null;
+      }
+
+      if (final3rd && final3rd.status === 'completed' && final3rd.winnerId) {
+        third = activeTeams.find(t => t.id === final3rd.winnerId) || null;
+      } else if (formula === 'double_elim') {
+        const match10 = activeMatches.find(m => m.id === 'm-de-10');
+        if (match10 && match10.status === 'completed') {
+          const loserId = match10.winnerId === match10.team1?.id ? match10.team2?.id : match10.team1?.id;
+          third = loserId ? (activeTeams.find(t => t.id === loserId) || null) : null;
+        }
       }
     }
-    return 'In corso / Non definito';
+
+    const list: Team[] = [];
+    if (first) list.push(first);
+    if (second) list.push(second);
+    if (third) list.push(third);
+
+    const remaining = sortedTeams.filter(t => !list.some(lt => lt.id === t.id));
+    
+    const finalFirst = first || remaining.shift() || sortedTeams[0] || null;
+    const finalSecond = second || remaining.shift() || sortedTeams[1] || null;
+    const finalThird = third || remaining.shift() || sortedTeams[2] || null;
+
+    return { first: finalFirst, second: finalSecond, third: finalThird };
+  };
+
+  // Determine potential winner of current tournament
+  const getPotentialWinner = (): string => {
+    const podiumData = getPodium();
+    if (podiumData.first) return podiumData.first.name;
+    return 'Non definito';
   };
 
   // Archive current tournament
   const handleArchiveCurrent = async () => {
     if (activeMatches.length === 0) return;
     const nameToUse = archiveName.trim() || activeTournamentConfig?.name || `Capionato del ${new Date().toLocaleDateString()}`;
+    const podiumData = getPodium();
     
     const newArchive: ArchivedTournament = {
       id: `archive-${Date.now()}`,
@@ -61,13 +103,32 @@ export default function ArchiveTab({
       date: new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       formula: activeTournamentConfig?.formula || 'N/A',
       teamsCount: activeTeams.length,
-      teams: activeTeams,
-      matches: activeMatches,
-      winnerTeamName: getPotentialWinner(),
+      // "lista d'ingresso" contains clean team list details as per registration (without current temporary match dev stats)
+      teams: activeTeams.map(t => ({
+        id: t.id,
+        name: t.name,
+        player1: t.player1,
+        player2: t.player2,
+        level: t.level,
+        phone: t.phone,
+        email: t.email,
+        phone2: t.phone2 || '',
+        email2: t.email2 || '',
+        registeredAt: t.registeredAt,
+        wins: 0,
+        losses: 0,
+        setsWon: 0,
+        setsLost: 0,
+        pointsWon: 0,
+        pointsLost: 0,
+        points: 0,
+      })),
+      winnerTeamName: podiumData.first?.name || 'N/A',
+      podium: podiumData,
     };
 
     try {
-      await setDoc(doc(db, 'archives', newArchive.id), newArchive);
+      await setDoc(doc(db, 'archives', newArchive.id), cleanObject(newArchive));
       setIsSuccessMessage(`Torneo "${nameToUse}" archiviato con successo nell'archivio storico! 🏅`);
       setIsArchivingModalOpen(false);
       setArchiveName('');
@@ -96,24 +157,23 @@ export default function ArchiveTab({
     csv += `Squadre Partecipanti,${arc.teamsCount}\n`;
     csv += `Vincitore,${arc.winnerTeamName || 'N/A'}\n\n`;
 
-    // Teams Section
-    csv += `SQUADRE E STATISTICHE\n`;
-    csv += `Squadra,Giocatori,Vittorie,Sconfitte,Punti Gara,Set Vinti,Set Persi,Punti fatti,Punti subiti\n`;
-    arc.teams.forEach(t => {
-      csv += `"${t.name}","${t.player1} e ${t.player2}",${t.wins || 0},${t.losses || 0},${t.points || 0},${t.setsWon || 0},${t.setsLost || 0},${t.pointsWon || 0},${t.pointsLost || 0}\n`;
-    });
+    // Podium Section
+    csv += `PODIO UFFICIALE\n`;
+    csv += `Posizione,Squadra,Giocatori,Livello\n`;
+    if (arc.podium) {
+      if (arc.podium.first) csv += `1° Posto,"${arc.podium.first.name}","${arc.podium.first.player1} e ${arc.podium.first.player2}","${arc.podium.first.level}"\n`;
+      if (arc.podium.second) csv += `2° Posto,"${arc.podium.second.name}","${arc.podium.second.player1} e ${arc.podium.second.player2}","${arc.podium.second.level}"\n`;
+      if (arc.podium.third) csv += `3° Posto,"${arc.podium.third.name}","${arc.podium.third.player1} e ${arc.podium.third.player2}","${arc.podium.third.level}"\n`;
+    } else {
+      csv += `1° Posto,"${arc.winnerTeamName || 'N/A'}",-,- \n`;
+    }
     csv += `\n`;
 
-    // Matches Section
-    csv += `CALENDARIO E RISULTATI\n`;
-    csv += `Match ID,Fase,Turno,Campo,Ora,Squadra 1,Squadra 2,Punteggio,Stato,Set Dettaglio\n`;
-    arc.matches.forEach(m => {
-      const t1 = m.team1 ? m.team1.name : 'TBD';
-      const t2 = m.team2 ? m.team2.name : 'TBD';
-      const setsStr = m.sets && m.sets.length > 0 
-        ? m.sets.map(s => `${s.team1}-${s.team2}`).join(' / ')
-        : '';
-      csv += `${m.id},"${m.phase || ''}","${m.roundLabel || m.round}","${m.court}","${m.time}","${t1}","${t2}","${m.team1Score}-${m.team2Score}","${m.status}","${setsStr}"\n`;
+    // Entry List Section
+    csv += `LISTA D'INGRESSO PARTECIPANTI\n`;
+    csv += `Squadra,Atleta 1,Contatto 1,Atleta 2,Contatto 2,Livello,Registrato il\n`;
+    arc.teams.forEach(t => {
+      csv += `"${t.name}","${t.player1}","${t.email || t.phone || ''}","${t.player2}","${t.email2 || t.phone2 || ''}","${t.level}","${t.registeredAt}"\n`;
     });
 
     return csv;
@@ -158,78 +218,98 @@ export default function ArchiveTab({
       return;
     }
 
+    const podiumHTML = arc.podium ? `
+      <div style="display: flex; justify-content: center; gap: 20px; text-align: center; margin-bottom: 40px; font-family: sans-serif; padding: 15px; background: #fffdf5; border: 2px solid #fef3c7; border-radius: 16px;">
+        ${arc.podium.second ? `
+          <div style="flex: 1; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🥈</div>
+            <div style="font-weight: bold; font-size: 14px; text-transform: uppercase; color: #1e293b;">${arc.podium.second.name}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 3px;">${arc.podium.second.player1} / ${arc.podium.second.player2}</div>
+            <div style="font-weight: 800; font-size: 11px; color: #475569; margin-top: 5px; background: #f1f5f9; padding: 2px 8px; border-radius: 10px;">2° CLASSIFICATO</div>
+          </div>
+        ` : ''}
+        ${arc.podium.first ? `
+          <div style="flex: 1.2; padding: 15px; background: #fffbeb; border: 2px solid #fde047; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; transform: scale(1.05); box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
+            <div style="font-size: 34px; margin-bottom: 5px;">🏆</div>
+            <div style="font-weight: 900; font-size: 16px; text-transform: uppercase; color: #78350f;">${arc.podium.first.name}</div>
+            <div style="font-size: 12px; color: #b45309; margin-top: 3px; font-weight: 550;">${arc.podium.first.player1} / ${arc.podium.first.player2}</div>
+            <div style="font-weight: 900; font-size: 11px; color: #ffffff; margin-top: 8px; background: #ea580c; padding: 3px 12px; border-radius: 10px; letter-spacing: 0.5px;">VINCITORE 🥇</div>
+          </div>
+        ` : `
+          <div style="flex: 1.2; padding: 15px; background: #fffbeb; border: 2px solid #fde047; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
+            <div style="font-size: 34px; margin-bottom: 5px;">🏆</div>
+            <div style="font-weight: 900; font-size: 16px; text-transform: uppercase; color: #78350f;">${arc.winnerTeamName || 'N/A'}</div>
+            <div style="font-weight: 900; font-size: 11px; color: #ffffff; margin-top: 8px; background: #ea580c; padding: 3px 12px; border-radius: 10px; letter-spacing: 0.5px;">VINCITORE 🥇</div>
+          </div>
+        `}
+        ${arc.podium.third ? `
+          <div style="flex: 1; padding: 10px; background: #fdfbf7; border: 1px solid #f5e0c3; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🥉</div>
+            <div style="font-weight: bold; font-size: 14px; text-transform: uppercase; color: #7c2d12;">${arc.podium.third.name}</div>
+            <div style="font-size: 11px; color: #9a3412; margin-top: 3px;">${arc.podium.third.player1} / ${arc.podium.third.player2}</div>
+            <div style="font-weight: 800; font-size: 11px; color: #7c2d12; margin-top: 5px; background: #ffedd5; padding: 2px 8px; border-radius: 10px;">3° CLASSIFICATO</div>
+          </div>
+        ` : ''}
+      </div>
+    ` : `
+      <div style="text-align: center; margin-bottom: 40px; font-family: sans-serif; padding: 20px; background: #fffbeb; border: 2px solid #fde047; border-radius: 16px;">
+        <div style="font-size: 32px; margin-bottom: 5px;">🏆</div>
+        <h3 style="color: #b45309; margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Campione del Torneo</h3>
+        <p style="font-size: 24px; font-weight: 950; margin: 8px 0 0 0; color: #78350f; text-transform: uppercase;">${arc.winnerTeamName || 'N/A'}</p>
+      </div>
+    `;
+
     const teamsHTML = arc.teams.map((t, idx) => `
-      <tr style="border-bottom: 1px solid #ddd;">
-        <td style="padding: 10px; font-weight: bold; text-align: left;">#${idx + 1} ${t.name}</td>
-        <td style="padding: 10px; text-align: left;">${t.player1} / ${t.player2}</td>
-        <td style="padding: 10px; font-weight: bold; text-align: center;">${t.level}</td>
-        <td style="padding: 10px; text-align: center;">${t.wins} - ${t.losses}</td>
-        <td style="padding: 10px; font-weight: bold; text-align: center; color: #0284c7;">${t.points || 0}</td>
-        <td style="padding: 10px; text-align: center;">${t.setsWon} - ${t.setsLost}</td>
-        <td style="padding: 10px; text-align: center;">${t.pointsWon} - ${t.pointsLost}</td>
+      <tr style="border-bottom: 1px solid #e2e8f0; font-family: sans-serif; font-size: 13px;">
+        <td style="padding: 12px; font-weight: bold; text-align: left; color: #334155;">#${idx + 1}</td>
+        <td style="padding: 12px; font-weight: 900; text-align: left; text-transform: uppercase; color: #0f172a;">${t.name}</td>
+        <td style="padding: 12px; text-align: left; color: #475569;">${t.player1} & ${t.player2}</td>
+        <td style="padding: 12px; font-weight: bold; text-align: center; color: #0284c7;">${t.level}</td>
+        <td style="padding: 12px; text-align: center; color: #64748b; font-family: monospace; font-size: 11px;">${t.registeredAt || '-'}</td>
       </tr>
     `).join('');
-
-    const matchesHTML = arc.matches.map(m => {
-      const setsStr = m.sets && m.sets.length > 0 
-        ? m.sets.map((s, idx) => `Set ${idx + 1}: ${s.team1}-${s.team2}`).join('&nbsp;&nbsp;|&nbsp;&nbsp;')
-        : 'In attesa punteggio';
-      return `
-        <div style="border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-family: sans-serif;">
-          <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-bottom: 5px;">
-            <span>CAMPO ${m.court} @ ORA ${m.time} (${m.roundLabel || `Turno ${m.round}`})</span>
-            <span style="font-weight: bold; text-transform: uppercase;">Stato: ${m.status}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: bold;">
-            <span style="${m.status === 'completed' && m.team1Score > m.team2Score ? 'color: #ea580c;' : ''}">${m.team1 ? m.team1.name : 'TBD'}</span>
-            <span style="background: #f1f5f9; padding: 4px 10px; border-radius: 4px; font-size: 16px;">${m.team1Score} - ${m.team2Score}</span>
-            <span style="${m.status === 'completed' && m.team2Score > m.team1Score ? 'color: #ea580c;' : ''}">${m.team2 ? m.team2.name : 'TBD'}</span>
-          </div>
-          <div style="font-size: 11px; color: #555; margin-top: 6px; border-top: 1px dashed #eee; padding-top: 6px; text-align: center;">
-            ${setsStr}
-          </div>
-        </div>
-      `;
-    }).join('');
 
     printWindow.document.write(`
       <html>
         <head>
-          <title>Certificato Torneo Beach Volley: ${arc.name}</title>
+          <title>Report Ufficiale Torneo Beach Volley: ${arc.name}</title>
           <style>
-            body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 30px; color: #333; line-height: 1.5; }
-            h1 { color: #0284c7; text-transform: uppercase; font-size: 26px; border-b: 4px solid #0284c7; padding-bottom: 10px; }
-            .info-box { display: flex; justify-content: space-between; background: #f0f9ff; border: 2px solid #bae6fd; padding: 20px; border-radius: 12px; margin-bottom: 30px; }
-            .section-title { font-size: 18px; color: #0f172a; margin-top: 30px; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 5px; text-transform: uppercase; }
+            body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 40px; color: #333; line-height: 1.5; }
+            h1 { color: #0284c7; text-transform: uppercase; font-size: 28px; border-bottom: 4px solid #0284c7; padding-bottom: 10px; margin-bottom: 30px; letter-spacing: -0.5px; }
+            .info-box { display: flex; justify-content: space-between; background: #f0f9ff; border: 2px solid #bae6fd; padding: 20px; border-radius: 16px; margin-bottom: 30px; }
+            .info-box p { margin: 6px 0; font-size: 13px; color: #0f172a; }
+            .section-title { font-size: 16px; color: #0f172a; margin-top: 40px; margin-bottom: 15px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-            th { background: #f1f5f9; padding: 12px; font-weight: bold; font-size: 12px; text-transform: uppercase; text-align: left; }
+            th { background: #f1f5f9; padding: 12px; font-weight: bold; font-size: 11px; text-transform: uppercase; text-align: left; color: #475569; border-bottom: 2px solid #cbd5e1; }
           </style>
         </head>
         <body>
-          <h1 style="text-align: center; margin-bottom: 30px;">Report Torneo Beach Volley</h1>
+          <div style="text-align: center; margin-bottom: 20px;">
+            <span style="font-size: 12px; font-weight: 900; background: #ea580c; color: white; padding: 4px 12px; border-radius: 12px; text-transform: uppercase; tracking-widest;">REPARE UFFICIALE</span>
+          </div>
+          <h1 style="text-align: center; margin-bottom: 30px;">Beach Volley Cup • Archivio Storico</h1>
+          
           <div class="info-box">
             <div>
               <p><strong>Nome Torneo:</strong> ${arc.name}</p>
-              <p><strong>Formula:</strong> ${arc.formula.toUpperCase()}</p>
+              <p><strong>Formula di Gara:</strong> ${arc.formula.toUpperCase()}</p>
               <p><strong>Data Archiviazione:</strong> ${arc.date}</p>
-            </div>
-            <div style="text-align: right; background: #fffbeb; border: 2px solid #fef3c7; padding: 12px 24px; border-radius: 8px; box-shadow: inset 0 0 5px rgba(0,0,0,0.05);">
-              <h3 style="color: #d97706; margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Campioni del Torneo 🏆</h3>
-              <p style="font-size: 22px; font-weight: 900; margin: 5px 0 0 0; color: #92400e;">${arc.winnerTeamName || 'N/A'}</p>
+              <p><strong>Squadre Partecipanti:</strong> ${arc.teamsCount}</p>
             </div>
           </div>
 
-          <div class="section-title">Classifiche & Team Partecipanti (${arc.teamsCount})</div>
+          <div class="section-title">🏆 Podio Ufficiale 🏆</div>
+          ${podiumHTML}
+
+          <div class="section-title">📋 Lista d'Ingresso Ufficiale (Partecipanti)</div>
           <table>
             <thead>
               <tr>
-                <th style="width: 25%;">Squadra</th>
-                <th style="width: 25%;">Atleti</th>
-                <th style="width: 10%; text-align: center;">Livello</th>
-                <th style="width: 10%; text-align: center;">Gare V/P</th>
-                <th style="width: 10%; text-align: center;">Punti Gara</th>
-                <th style="width: 10%; text-align: center;">Set V/P</th>
-                <th style="width: 10%; text-align: center;">Punti V/P</th>
+                <th style="width: 8%;">Pos.</th>
+                <th style="width: 32%;">Squadra</th>
+                <th style="width: 35%;">Atleti</th>
+                <th style="width: 12%; text-align: center;">Livello</th>
+                <th style="width: 13%; text-align: center;">Registrato il</th>
               </tr>
             </thead>
             <tbody>
@@ -237,12 +317,7 @@ export default function ArchiveTab({
             </tbody>
           </table>
 
-          <div class="section-title" style="page-break-before: always;">Calendario Tabelloni & Match realizzati</div>
-          <div style="display: grid; grid-template-columns: 1fr; gap: 15px;">
-            ${matchesHTML}
-          </div>
-
-          <footer style="margin-top: 50px; text-align: center; font-size: 11px; color: #94a3b8; border-t: 1px solid #e2e8f0; padding-top: 15px;">
+          <footer style="margin-top: 60px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
             Beach Volley Hub - Report generato il ${new Date().toLocaleString()}
           </footer>
           <script>
@@ -553,99 +628,124 @@ export default function ArchiveTab({
                   {isExpanded && (
                     <div className="border-t border-sky-100 bg-sky-50/5 p-4 md:p-6 space-y-6">
                       
-                      {/* Expanded Sub Section: Standings */}
+                      {/* Podio del Torneo */}
+                      <div className="bg-gradient-to-b from-amber-50/50 to-orange-50/20 rounded-2xl border border-amber-200/50 p-5 shadow-sm">
+                        <h4 className="text-xs font-black text-amber-800 uppercase tracking-wider mb-4 flex items-center justify-center gap-1">
+                          <Trophy className="w-4 h-4 text-amber-500" />
+                          Podio Ufficiale dell'Edizione
+                        </h4>
+
+                        {arc.podium ? (
+                          <div className="flex justify-center items-end gap-3 xs:gap-6 md:gap-12 max-w-md mx-auto pt-2">
+                            {/* 2nd Place */}
+                            {arc.podium.second && (
+                              <div className="flex flex-col items-center flex-1 min-w-0">
+                                <div className="relative mb-1">
+                                  <div className="w-9 h-9 bg-slate-100 border-2 border-slate-300 rounded-full flex items-center justify-center shadow">
+                                    <span className="text-slate-500 font-bold text-xs">🥈</span>
+                                  </div>
+                                </div>
+                                <div className="text-[10px] font-black text-slate-800 text-center uppercase tracking-wide truncate max-w-full">{arc.podium.second.name}</div>
+                                <div className="text-[9px] text-slate-400 text-center truncate max-w-full">{arc.podium.second.player1} / {arc.podium.second.player2}</div>
+                                <div className="w-14 xs:w-18 bg-slate-200 border-t-2 border-slate-300 rounded-t-xl h-8 mt-2 flex items-center justify-center text-slate-500 font-black font-mono text-[10px]">
+                                  II
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 1st Place */}
+                            {arc.podium.first ? (
+                              <div className="flex flex-col items-center flex-1 min-w-0">
+                                <div className="relative mb-1">
+                                  <div className="w-12 h-12 bg-amber-100 border-2 border-amber-300 rounded-full flex items-center justify-center shadow-lg">
+                                    <span className="text-orange-550 font-bold text-base">🏆</span>
+                                  </div>
+                                </div>
+                                <div className="text-xs font-black text-orange-950 text-center uppercase tracking-wide truncate max-w-full">{arc.podium.first.name}</div>
+                                <div className="text-[9px] text-amber-700 text-center truncate max-w-full font-medium">{arc.podium.first.player1} / {arc.podium.first.player2}</div>
+                                <div className="w-18 xs:w-22 bg-amber-400 border-t-2 border-amber-600 rounded-t-xl h-12 mt-2 flex items-center justify-center text-white font-black font-mono text-xs">
+                                  I
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center flex-1 min-w-0">
+                                <div className="relative mb-1">
+                                  <div className="w-12 h-12 bg-amber-100 border-2 border-amber-300 rounded-full flex items-center justify-center shadow-lg">
+                                    <span className="text-orange-550 font-bold text-base">🏆</span>
+                                  </div>
+                                </div>
+                                <div className="text-xs font-black text-orange-950 text-center uppercase tracking-wide truncate max-w-full">{arc.winnerTeamName || 'N/A'}</div>
+                                <div className="w-18 xs:w-22 bg-amber-400 border-t-2 border-amber-600 rounded-t-xl h-12 mt-2 flex items-center justify-center text-white font-black font-mono text-xs">
+                                  I
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3rd Place */}
+                            {arc.podium.third && (
+                              <div className="flex flex-col items-center flex-1 min-w-0">
+                                <div className="relative mb-1">
+                                  <div className="w-9 h-9 bg-amber-50 border-2 border-amber-200 rounded-full flex items-center justify-center shadow">
+                                    <span className="text-amber-700 font-bold text-xs">🥉</span>
+                                  </div>
+                                </div>
+                                <div className="text-[10px] font-black text-slate-800 text-center uppercase tracking-wide truncate max-w-full">{arc.podium.third.name}</div>
+                                <div className="text-[9px] text-amber-750 text-center truncate max-w-full">{arc.podium.third.player1} / {arc.podium.third.player2}</div>
+                                <div className="w-14 xs:w-18 bg-amber-100 border-t-2 border-amber-250 rounded-t-xl h-6 mt-2 flex items-center justify-center text-amber-700 font-black font-mono text-[10px]">
+                                  III
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-xs font-bold text-orange-800 uppercase flex items-center justify-center gap-2">
+                            <span>Vincitore Registrato:</span>
+                            <span className="bg-amber-100 px-3 py-1 rounded-full text-amber-900">{arc.winnerTeamName || 'N/A'}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Lista d'Ingresso Ufficiale */}
                       <div>
-                        <h4 className="text-xs font-black text-sky-900 uppercase tracking-wider mb-3 flex items-center gap-1">
-                          <Award className="w-4 h-4 text-orange-550" />
-                          Classifica Finale & Rendimento
+                        <h4 className="text-xs font-black text-sky-950 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                          <Award className="w-4 h-4 text-sky-600" />
+                          Lista d'Ingresso Partecipanti ({arc.teams.length})
                         </h4>
                         
                         <div className="overflow-x-auto border border-slate-100 rounded-xl bg-white shadow-inner">
                           <table className="w-full text-xs font-sans">
                             <thead>
-                              <tr className="bg-slate-50/80 border-b border-slate-100">
-                                <th className="p-3 font-semibold text-slate-500 uppercase tracking-wider">Squadra / Giocatori</th>
-                                <th className="p-3 text-center font-semibold text-slate-500 uppercase tracking-wider">Livello</th>
-                                <th className="p-3 text-center font-semibold text-slate-500 uppercase tracking-wider">Vinte</th>
-                                <th className="p-3 text-center font-semibold text-slate-500 uppercase tracking-wider">Perse</th>
-                                <th className="p-3 text-center font-semibold text-slate-500 uppercase tracking-wider">Set V/P</th>
-                                <th className="p-3 text-center font-semibold text-slate-500 uppercase tracking-wider">Punti Squadra</th>
+                              <tr className="bg-slate-50/80 border-b border-slate-100 text-left">
+                                <th className="p-3 font-semibold text-slate-500 uppercase tracking-wider w-[10%]">Pos.</th>
+                                <th className="p-3 font-semibold text-slate-500 uppercase tracking-wider w-[45%]">Squadra / Atleti</th>
+                                <th className="p-3 font-semibold text-slate-500 uppercase tracking-wider w-[20%] text-center">Livello</th>
+                                <th className="p-3 font-semibold text-slate-500 uppercase tracking-wider w-[25%] text-center">Registrato Il</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                               {arc.teams.map((t, index) => (
-                                <tr key={t.id} className="hover:bg-slate-50/30">
+                                <tr key={t.id || index} className="hover:bg-slate-50/30">
+                                  <td className="p-3 font-bold text-slate-400">
+                                    #{index + 1}
+                                  </td>
                                   <td className="p-3">
-                                    <div className="font-bold text-slate-800 uppercase flex items-center gap-1.5">
-                                      {t.name === arc.winnerTeamName ? '🏆' : `${index + 1}.`}
+                                    <div className="font-extrabold text-slate-800 uppercase flex items-center gap-1.5">
                                       <span>{t.name}</span>
                                     </div>
                                     <div className="text-[10px] text-slate-450 mt-0.5">{t.player1} • {t.player2}</div>
                                   </td>
-                                  <td className="p-3 text-center font-bold text-slate-500">{t.level}</td>
-                                  <td className="p-3 text-center font-bold text-emerald-600 font-mono">{t.wins}</td>
-                                  <td className="p-3 text-center font-bold text-red-500 font-mono">{t.losses}</td>
-                                  <td className="p-3 text-center font-medium text-slate-600 font-mono">{t.setsWon} - {t.setsLost}</td>
-                                  <td className="p-3 text-center font-black text-sky-700 font-mono text-xs">{t.points}</td>
+                                  <td className="p-3 text-center">
+                                    <span className="bg-sky-50 text-sky-700 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border border-sky-100">
+                                      {t.level}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center text-[10px] text-slate-400 font-mono font-bold">
+                                    {t.registeredAt ? new Date(t.registeredAt).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
-                        </div>
-                      </div>
-
-                      {/* Expanded Sub Section: Match list */}
-                      <div>
-                        <h4 className="text-xs font-black text-sky-900 uppercase tracking-wider mb-3 flex items-center gap-1">
-                          <Calendar className="w-4 h-4 text-sky-550" />
-                          Storico Gare & Match Giocati
-                        </h4>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {(() => {
-                            const garaNumbers = getGaraNumbersMap(arc.matches);
-                            return arc.matches.map((m) => {
-                              const isT1Winner = m.status === 'completed' && m.team1Score > m.team2Score;
-                              const isT2Winner = m.status === 'completed' && m.team2Score > m.team1Score;
-                              const garaNum = garaNumbers[m.id];
-                              return (
-                                <div key={m.id} className="bg-white border border-slate-100 rounded-xl p-3 shadow-inner flex flex-col justify-between">
-                                  <div>
-                                    <div className="flex justify-between items-center text-[9px] text-slate-400 uppercase font-black tracking-wider mb-2 border-b border-gray-150 pb-1.5">
-                                      <div className="flex gap-1.5 items-center">
-                                        {garaNum && (
-                                          <span className="font-extrabold text-white bg-slate-800 px-2.5 py-1 rounded uppercase text-[10px] shadow-sm">
-                                            Gara {garaNum}
-                                          </span>
-                                        )}
-                                        <span>Campo {m.court} • Ore {m.time}</span>
-                                      </div>
-                                      <span className="text-sky-655">{m.roundLabel || `Turno ${m.round}`}</span>
-                                    </div>
-
-                                    <div className="space-y-1.5">
-                                      <div className={`flex justify-between items-center text-xs font-bold uppercase transition-all ${isT1Winner ? 'text-orange-655' : 'text-slate-700'}`}>
-                                        <span className="truncate max-w-[150px]">{m.team1 ? m.team1.name : 'TBD'}</span>
-                                        <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-[11px]">{m.team1Score}</span>
-                                      </div>
-                                      <div className={`flex justify-between items-center text-xs font-bold uppercase transition-all ${isT2Winner ? 'text-orange-655' : 'text-slate-700'}`}>
-                                        <span className="truncate max-w-[150px]">{m.team2 ? m.team2.name : 'TBD'}</span>
-                                        <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-[11px]">{m.team2Score}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {m.sets && m.sets.length > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-dashed border-slate-100 flex flex-wrap gap-1 text-[9px] text-slate-400 font-mono justify-center">
-                                      {m.sets.map((s, idx) => (
-                                        <span key={idx} className="bg-slate-50 px-1.5 py-0.5 rounded">Set {idx + 1}: {s.team1}-{s.team2}</span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            });
-                          })()}
                         </div>
                       </div>
 

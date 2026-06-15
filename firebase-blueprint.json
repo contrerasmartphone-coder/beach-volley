@@ -109,10 +109,10 @@
         "formula": { "type": "string" },
         "teamsCount": { "type": "number" },
         "teams": { "type": "array" },
-        "matches": { "type": "array" },
-        "winnerTeamName": { "type": "string" }
+        "winnerTeamName": { "type": "string" },
+        "podium": { "type": "object" }
       },
-      "required": ["id", "name", "date", "formula", "teamsCount", "teams", "matches"]
+      "required": ["id", "name", "date", "formula", "teamsCount", "teams"]
     }
   },
   "firestore": {
