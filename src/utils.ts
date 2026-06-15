@@ -80,19 +80,31 @@ export function autoResolveMatchWithByes(match: Match): Match | null {
 
   let team1Score = 0;
   let team2Score = 0;
-  const sets: SetScore[] = [];
+  let sets: SetScore[] = [];
+
+  const targetSets = maxSets === 1 ? 1 : 2;
 
   if (isT1Bye && isT2Bye) {
     // Both are BYEs, team1 wins by default
-    team1Score = maxSets === 1 ? 1 : 2;
-    for (let i = 0; i < team1Score; i++) {
-      sets.push({ team1: pointsPerSet, team2: 0 });
+    team1Score = targetSets;
+    if (pointsPerSet === 15) {
+      if (maxSets === 1) {
+        sets = [{ team1: 15, team2: 9 }];
+      } else {
+        sets = [{ team1: 15, team2: 12 }, { team1: 15, team2: 12 }];
+      }
+    } else {
+      if (maxSets === 1) {
+        sets = [{ team1: 21, team2: 15 }];
+      } else {
+        sets = [{ team1: 21, team2: 18 }, { team1: 21, team2: 18 }];
+      }
     }
     return {
       ...match,
       status: 'completed',
       team1Score,
-      team2Score,
+      team2Score: 0,
       sets,
       winnerId: match.team1.id,
     };
@@ -100,9 +112,19 @@ export function autoResolveMatchWithByes(match: Match): Match | null {
 
   if (isT1Bye) {
     // Team 2 wins against BYE
-    team2Score = maxSets === 1 ? 1 : 2;
-    for (let i = 0; i < team2Score; i++) {
-      sets.push({ team1: 0, team2: pointsPerSet });
+    team2Score = targetSets;
+    if (pointsPerSet === 15) {
+      if (maxSets === 1) {
+        sets = [{ team1: 9, team2: 15 }];
+      } else {
+        sets = [{ team1: 12, team2: 15 }, { team1: 12, team2: 15 }];
+      }
+    } else {
+      if (maxSets === 1) {
+        sets = [{ team1: 15, team2: 21 }];
+      } else {
+        sets = [{ team1: 18, team2: 21 }, { team1: 18, team2: 21 }];
+      }
     }
     return {
       ...match,
@@ -114,9 +136,19 @@ export function autoResolveMatchWithByes(match: Match): Match | null {
     };
   } else {
     // Team 1 wins against BYE
-    team1Score = maxSets === 1 ? 1 : 2;
-    for (let i = 0; i < team1Score; i++) {
-      sets.push({ team1: pointsPerSet, team2: 0 });
+    team1Score = targetSets;
+    if (pointsPerSet === 15) {
+      if (maxSets === 1) {
+        sets = [{ team1: 15, team2: 9 }];
+      } else {
+        sets = [{ team1: 15, team2: 12 }, { team1: 15, team2: 12 }];
+      }
+    } else {
+      if (maxSets === 1) {
+        sets = [{ team1: 21, team2: 15 }];
+      } else {
+        sets = [{ team1: 21, team2: 18 }, { team1: 21, team2: 18 }];
+      }
     }
     return {
       ...match,
@@ -205,11 +237,89 @@ export function getInitialTeamStats(team: Omit<Team, 'wins' | 'losses' | 'setsWo
   };
 }
 
+export function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr || !timeStr.includes(':')) return 9 * 60; // default 09:00
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
+export function formatMinutesToTime(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60) % 24;
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+export function getMatchDuration(pts?: number, sets?: number): number {
+  const p = pts || 21;
+  const s = sets || 3;
+  if (s === 1) {
+    if (p === 15) return 15;
+    return 20;
+  } else {
+    if (p === 15) return 45;
+    return 50;
+  }
+}
+
+export function scheduleEliminationRounds(
+  roundsMatches: Match[][],
+  startHour: string,
+  courtCount: number,
+  defaultDuration: number = 40
+): Match[] {
+  let currentTimeMinutes = parseTimeToMinutes(startHour);
+
+  for (let r = 0; r < roundsMatches.length; r++) {
+    const roundMatches = roundsMatches[r];
+    if (roundMatches.length === 0) continue;
+
+    // For the final round, place 'Finale 3°/4° Posto' BEFORE the Grand Final so it gets scheduled first
+    if (r === roundsMatches.length - 1 && roundMatches.length > 1) {
+      const index3rd = roundMatches.findIndex(m => m.roundLabel === 'Finale 3°/4° Posto');
+      if (index3rd !== -1) {
+        const [final3rd] = roundMatches.splice(index3rd, 1);
+        roundMatches.unshift(final3rd); // place at the beginning
+      }
+    }
+
+    // Now, schedule all matches in this round sequentially using the available courts
+    let maxOffsetInThisRound = 0;
+
+    for (let p = 0; p < roundMatches.length; p++) {
+      const match = roundMatches[p];
+      const duration = getMatchDuration(match.pointsPerSet, match.maxSets) || defaultDuration;
+      
+      const courtNum = (p % courtCount) + 1;
+      const slotIndex = Math.floor(p / courtCount);
+      const matchOffset = slotIndex * duration;
+
+      const matchTimeInMinutes = currentTimeMinutes + matchOffset;
+      match.time = formatMinutesToTime(matchTimeInMinutes);
+      match.court = `Campo ${courtNum}`;
+      match.position = p + 1; // logical position in sequence
+
+      const matchEndTime = matchOffset + duration;
+      if (matchEndTime > maxOffsetInThisRound) {
+        maxOffsetInThisRound = matchEndTime;
+      }
+    }
+
+    // Round r is completed. The next round r+1 can only start after the entire round r completes.
+    currentTimeMinutes += maxOffsetInThisRound;
+  }
+
+  // Flatten the array and return
+  const flatResult: Match[] = [];
+  roundsMatches.forEach(rm => flatResult.push(...rm));
+  return flatResult;
+}
+
 export function generateDirectEliminationBracket(
   teams: Team[],
   teamsLimit: number,
   startHour: string = '09:00',
   durationMinutes: number = 40,
+  courtCount: number = 2,
   pointsPerSet?: 15 | 21,
   maxSets?: 1 | 3,
   sfPointsPerSet?: 15 | 21,
@@ -235,19 +345,12 @@ export function generateDirectEliminationBracket(
   }
 
   // Calculate rounds based on teams selection
-  // 32 teams: 5 rounds (Sedicesimi, Ottavi, Quarti, Semi, Finale)
-  // 16 teams: 4 rounds (Ottavi, Quarti, Semi, Finale)
-  // 8 teams: 3 rounds (Quarti, Semi, Finale)
-  // 4 teams: 2 rounds (Semi, Finale)
   const totalRounds = Math.log2(teamsLimit);
 
   // Initialize all matches across all rounds
   let currentRoundUnits = teamsLimit / 2;
   let matchIdCounter = 1;
   const roundMatchesByRound: Match[][] = [];
-
-  // Parse start hour
-  const [startHr, startMin] = startHour.split(':').map(Number);
 
   for (let r = 1; r <= totalRounds; r++) {
     const roundMatches: Match[] = [];
@@ -263,18 +366,6 @@ export function generateDirectEliminationBracket(
     else roundLabel = `Turno a ${currentRoundUnits * 2} squadre`;
 
     for (let p = 1; p <= maxPositions; p++) {
-      // Calculate scheduling details
-      // Simple logic: staggered starts or multiple courts
-      const totalOffsetMinutes = (r - 1) * 120 + Math.floor((p - 1) / 2) * durationMinutes;
-      const matchDate = new Date();
-      matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);
-      
-      const hh = String(matchDate.getHours()).padStart(2, '0');
-      const mm = String(matchDate.getMinutes()).padStart(2, '0');
-      const timeStr = `${hh}:${mm}`;
-
-      const courtNum = ((p - 1) % 2) + 1; // Alternating 2 courts default
-
       const isSFOrFinal = roundLabel.includes('Semifinali') || roundLabel.includes('Finale');
 
       const match: Match = {
@@ -288,8 +379,8 @@ export function generateDirectEliminationBracket(
         team2Score: 0,
         sets: [],
         status: 'scheduled',
-        court: `Campo ${courtNum}`,
-        time: timeStr,
+        court: '',
+        time: '',
         pointsPerSet: isSFOrFinal ? (sfPointsPerSet || pointsPerSet) : pointsPerSet,
         maxSets: isSFOrFinal ? (sfMaxSets || maxSets) : maxSets,
       };
@@ -301,7 +392,6 @@ export function generateDirectEliminationBracket(
   }
 
   // Assign Round 1 teams - paired as "prima contro ultima" (1st vs Nth, 2nd vs N-1th...)
-  // But also ensuring odd seeds are in upper half, even seeds in lower half to prevent seed 1 and 2 meeting early.
   const round1Matches = roundMatchesByRound[0];
   if (teamsLimit > 2) {
     const halfSize = teamsLimit / 2;
@@ -314,7 +404,6 @@ export function generateDirectEliminationBracket(
       const team2Val = finalTeams[teamsLimit - 1 - j];
 
       if ((j + 1) % 2 !== 0) {
-        // Odd rank -> upper half (indices 0 to quarterSize - 1)
         if (upperCount < quarterSize) {
           const m = round1Matches[upperCount];
           m.team1 = team1Val;
@@ -322,7 +411,6 @@ export function generateDirectEliminationBracket(
           upperCount++;
         }
       } else {
-        // Even rank -> lower half (indices quarterSize to halfSize - 1)
         if (lowerCount < quarterSize) {
           const m = round1Matches[quarterSize + lowerCount];
           m.team1 = team1Val;
@@ -346,7 +434,6 @@ export function generateDirectEliminationBracket(
 
     for (let i = 0; i < currentRound.length; i++) {
       const match = currentRound[i];
-      // Every 2 matches in current round feed to 1 match in next round
       const nextMatchIndex = Math.floor(i / 2);
       const nextMatch = nextRound[nextMatchIndex];
       match.nextMatchId = nextMatch.id;
@@ -362,7 +449,6 @@ export function generateDirectEliminationBracket(
     const semi2 = semiRound[1];
 
     if (semi1 && semi2 && finalRoundMatches && finalRoundMatches.length > 0) {
-      const grandFinal = finalRoundMatches[0];
       const final3rd: Match = {
         id: `m-${matchIdCounter++}`,
         round: totalRounds,
@@ -374,8 +460,8 @@ export function generateDirectEliminationBracket(
         team2Score: 0,
         sets: [],
         status: 'scheduled',
-        court: 'Campo 2',
-        time: grandFinal ? grandFinal.time : '12:00',
+        court: '',
+        time: '',
         pointsPerSet: sfPointsPerSet || pointsPerSet,
         maxSets: sfMaxSets || maxSets,
       };
@@ -390,10 +476,15 @@ export function generateDirectEliminationBracket(
     }
   }
 
-  // Combine to a flat array
-  const allMatches: Match[] = [];
-  roundMatchesByRound.forEach(rm => allMatches.push(...rm));
-  return autoResolveAndPropagate(allMatches);
+  // Schedule all rounds recursively and sequentially
+  const scheduledFlatMatches = scheduleEliminationRounds(
+    roundMatchesByRound,
+    startHour,
+    courtCount,
+    durationMinutes
+  );
+
+  return autoResolveAndPropagate(scheduledFlatMatches);
 }
 
 // Generate an individual set score for simulation
@@ -468,8 +559,9 @@ export function simulateCompletedMatch(match: Match): Match {
 
 // Recompute whole team stats from completed matches
 export function computeTeamStats(teams: Team[], matches: Match[]): Team[] {
-  // Reset stats
-  const resetTeams = teams.map(t => ({
+  // Reset stats (exclude withdrawn or substituted teams)
+  const activeTeams = teams.filter(t => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
+  const resetTeams = activeTeams.map(t => ({
     ...t,
     wins: 0,
     losses: 0,
@@ -496,28 +588,40 @@ export function computeTeamStats(teams: Team[], matches: Match[]): Team[] {
 
     if (isT1Bye) {
       if (t2) {
+        const targetSets = m.maxSets === 1 ? 1 : 2;
         t2.wins += 1;
-        t2.points += 2; // Bye gives 2 classification points
-        t2.setsWon += m.team2Score;
-        t2.setsLost += m.team1Score;
-        m.sets.forEach(s => {
-          t2.pointsWon += s.team2;
-          t2.pointsLost += s.team1;
-        });
+        t2.points += 2; // Bye/absence gives 2 classification points
+        t2.setsWon += targetSets;
+        t2.setsLost += 0;
+        if (m.sets && m.sets.length > 0) {
+          m.sets.forEach(s => {
+            t2.pointsWon += s.team2;
+            t2.pointsLost += s.team1;
+          });
+        } else {
+          t2.pointsWon += 6;
+          t2.pointsLost += 0;
+        }
       }
       return;
     }
 
     if (isT2Bye) {
       if (t1) {
+        const targetSets = m.maxSets === 1 ? 1 : 2;
         t1.wins += 1;
-        t1.points += 2; // Bye gives 2 classification points
-        t1.setsWon += m.team1Score;
-        t1.setsLost += m.team2Score;
-        m.sets.forEach(s => {
-          t1.pointsWon += s.team1;
-          t1.pointsLost += s.team2;
-        });
+        t1.points += 2; // Bye/absence gives 2 classification points
+        t1.setsWon += targetSets;
+        t1.setsLost += 0;
+        if (m.sets && m.sets.length > 0) {
+          m.sets.forEach(s => {
+            t1.pointsWon += s.team1;
+            t1.pointsLost += s.team2;
+          });
+        } else {
+          t1.pointsWon += 6;
+          t1.pointsLost += 0;
+        }
       }
       return;
     }
@@ -543,8 +647,29 @@ export function computeTeamStats(teams: Team[], matches: Match[]): Team[] {
     loser.points += loserMatchPoints;
 
     // Handle sets and points based on termination type
-    if (m.outcomeType === 'injury_before' || m.outcomeType === 'forfeit') {
-      // Rule b and c: Winner gets sets won, 0 points recorded. Loser gets 0 sets.
+    if (m.outcomeType === 'forfeit') {
+      const targetSets = m.maxSets === 1 ? 1 : 2;
+      winner.setsWon += targetSets;
+      // winner.setsLost += 0;
+      
+      if (m.sets && m.sets.length > 0) {
+        m.sets.forEach(s => {
+          const isWinnerT1 = (winner.id === m.team1.id);
+          winner.pointsWon += isWinnerT1 ? s.team1 : s.team2;
+          winner.pointsLost += isWinnerT1 ? s.team2 : s.team1;
+        });
+      } else {
+        winner.pointsWon += 6;
+        winner.pointsLost += 0;
+      }
+
+      // Loser team gets 0 sets won, 0 sets lost, 0 points won, 0 points lost
+      // loser.setsWon += 0;
+      // loser.setsLost += 0;
+      // loser.pointsWon += 0;
+      // loser.pointsLost += 0;
+    } else if (m.outcomeType === 'injury_before') {
+      // Rule b: Winner gets sets won, 0 points recorded. Loser gets targetSets lost
       const targetSets = m.maxSets === 1 ? 1 : 2;
       winner.setsWon += targetSets;
       loser.setsLost += targetSets;
@@ -1148,13 +1273,10 @@ export function generatePlayoffsFromGroups(
   // Generate elimination bracket matches
   const playoffTeamsCount = mode === 'ottavi' ? 16 : (mode === 'quorters' ? 8 : (mode === 'semis' ? 4 : 2));
   const totalRounds = Math.log2(playoffTeamsCount);
-  const matches: Match[] = [];
   
   let currentRoundUnits = playoffTeamsCount / 2;
   let matchIdCounter = 5001; // Start at 5001 for playoffs
   const roundMatchesByRound: Match[][] = [];
-
-  const [startHr, startMin] = startHour.split(':').map(Number);
 
   for (let r = 1; r <= totalRounds; r++) {
     const roundMatches: Match[] = [];
@@ -1167,16 +1289,6 @@ export function generatePlayoffsFromGroups(
     else if (currentRoundUnits === 1) roundLabel = 'Finale';
 
     for (let p = 1; p <= maxPositions; p++) {
-      const totalOffsetMinutes = (r - 1) * 90 + Math.floor((p - 1) / 2) * durationMinutes;
-      const matchDate = new Date();
-      matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);
-      
-      const hh = String(matchDate.getHours()).padStart(2, '0');
-      const mm = String(matchDate.getMinutes()).padStart(2, '0');
-      const timeStr = `${hh}:${mm}`;
-
-      const courtNum = ((p - 1) % courtCount) + 1;
-
       const isSFOrFinal = roundLabel.includes('Semifinali') || roundLabel.includes('Finale');
 
       const match: Match = {
@@ -1190,8 +1302,8 @@ export function generatePlayoffsFromGroups(
         team2Score: 0,
         sets: [],
         status: 'scheduled',
-        court: `Campo ${courtNum}`,
-        time: timeStr,
+        court: '',
+        time: '',
         phase: 'eliminazione',
         pointsPerSet: isSFOrFinal ? (sfPointsPerSet || pointsPerSet) : pointsPerSet,
         maxSets: isSFOrFinal ? (sfMaxSets || maxSets) : maxSets,
@@ -1235,7 +1347,6 @@ export function generatePlayoffsFromGroups(
     const semi2 = semiRound[1];
 
     if (semi1 && semi2 && finalRoundMatches && finalRoundMatches.length > 0) {
-      const grandFinal = finalRoundMatches[0];
       const final3rd: Match = {
         id: `m-p-${matchIdCounter++}`,
         round: totalRounds,
@@ -1247,8 +1358,8 @@ export function generatePlayoffsFromGroups(
         team2Score: 0,
         sets: [],
         status: 'scheduled',
-        court: 'Campo 2',
-        time: grandFinal ? grandFinal.time : '12:00',
+        court: '',
+        time: '',
         phase: 'eliminazione',
         pointsPerSet: sfPointsPerSet || pointsPerSet,
         maxSets: sfMaxSets || maxSets,
@@ -1264,9 +1375,15 @@ export function generatePlayoffsFromGroups(
     }
   }
 
-  // Flatten
-  roundMatchesByRound.forEach(rm => matches.push(...rm));
-  return autoResolveAndPropagate(matches);
+  // Schedule all playoff rounds recursively and sequentially
+  const scheduledPlayoffMatches = scheduleEliminationRounds(
+    roundMatchesByRound,
+    startHour,
+    courtCount,
+    durationMinutes
+  );
+
+  return autoResolveAndPropagate(scheduledPlayoffMatches);
 }
 
 export function generateDoubleEliminationBracket(
@@ -1629,4 +1746,40 @@ export function recalculateTournamentStages(allMatches: Match[], teamsList: Team
   }
 
   return updated;
+}
+
+export function getGaraNumbersMap(matches: Match[]): Record<string, number> {
+  const realMatches = matches.filter(m => {
+    if (!m) return false;
+    return !isByeTeam(m.team1) && !isByeTeam(m.team2);
+  });
+
+  const sortedMatches = [...realMatches].sort((a, b) => {
+    const phaseA = a.phase || 'gironi';
+    const phaseB = b.phase || 'gironi';
+    if (phaseA !== phaseB) {
+      return phaseA === 'gironi' ? -1 : 1;
+    }
+
+    const timeA = a.time || '00:00';
+    const timeB = b.time || '00:00';
+    if (timeA !== timeB) {
+      return timeA.localeCompare(timeB);
+    }
+
+    const courtA = a.court || '';
+    const courtB = b.court || '';
+    if (courtA !== courtB) {
+      return courtA.localeCompare(courtB);
+    }
+
+    return a.id.localeCompare(b.id);
+  });
+
+  const map: Record<string, number> = {};
+  sortedMatches.forEach((m, index) => {
+    map[m.id] = index + 1;
+  });
+
+  return map;
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
-import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings } from '../utils';
+import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap } from '../utils';
 import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -36,6 +36,11 @@ export default function BracketTab({
 }: BracketTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
+
+  const garaNumbersMap = React.useMemo(() => {
+    return getGaraNumbersMap(matches);
+  }, [matches]);
+
 
   // New Tournament States
   const [tournamentName, setTournamentName] = useState('Classic Beach Cup');
@@ -136,6 +141,82 @@ export default function BracketTab({
   const [outcomeType, setOutcomeType] = useState<'normal' | 'injury_during' | 'injury_before' | 'forfeit'>('normal');
   const [retiredTeamId, setRetiredTeamId] = useState<string>('');
 
+  const getSetValidationError = (
+    s1: number,
+    s2: number,
+    targetPoints: number,
+    isUnplayedAllowed: boolean
+  ): string | null => {
+    if (s1 === 0 && s2 === 0) {
+      if (isUnplayedAllowed) return null;
+      return "Questo set deve essere giocato per completare la partita.";
+    }
+
+    const max = Math.max(s1, s2);
+    const min = Math.min(s1, s2);
+
+    if (s1 === s2) {
+      return "I punteggi non possono essere uguali (situazione di parità non ammessa).";
+    }
+
+    if (max < targetPoints) {
+      return `Punteggio incompleto: una squadra deve raggiungere almeno ${targetPoints} punti (punteggio corrente: ${s1}-${s2}).`;
+    }
+
+    const diff = max - min;
+    if (diff < 2) {
+      return `Scarto insufficiente: ci deve essere una differenza di almeno 2 punti (punteggio corrente: ${s1}-${s2}, differenza: ${diff}).`;
+    }
+
+    if (max > targetPoints && diff !== 2) {
+      return `Punteggio impossibile: oltre la soglia di ${targetPoints} punti, lo scarto deve essere esattamente di 2 punti (es. ${max}-${max-2}).`;
+    }
+
+    return null;
+  };
+
+  // Set-level validation errors calculated dynamically of the selected match being edited
+  const editingMatchPointsPerSet = editingMatch?.pointsPerSet || 21;
+  const editingMatchMaxSets = editingMatch?.maxSets || 3;
+
+  const set1Error = editingMatch 
+    ? getSetValidationError(t1Set1, t2Set1, editingMatchPointsPerSet, false) 
+    : null;
+
+  const set2Error = editingMatch && editingMatchMaxSets === 3 
+    ? getSetValidationError(t1Set2, t2Set2, editingMatchPointsPerSet, false) 
+    : null;
+
+  const getSet3Error = () => {
+    if (!editingMatch || editingMatchMaxSets !== 3) return null;
+    
+    // Set 1 is valid if and only if set1Error is null
+    const s1Winner = !set1Error ? (t1Set1 > t2Set1 ? 't1' : 't2') : null;
+    const s2Winner = !set2Error ? (t1Set2 > t2Set2 ? 't1' : 't2') : null;
+
+    if (s1Winner && s2Winner) {
+      if (s1Winner !== s2Winner) {
+        // Tied 1-1, Set 3 is required up to 15 points
+        return getSetValidationError(t1Set3, t2Set3, 15, false);
+      } else {
+        // One team won 2-0. No Set 3 should be played.
+        if (t1Set3 > 0 || t2Set3 > 0) {
+          return "Il Set 3 non deve essere giocato se una squadra ha già vinto 2-0.";
+        }
+      }
+    } else {
+      // Set 1 or Set 2 is still not completely valid or entered.
+      // If they already started writing in Set 3, validate against 15 points.
+      if (t1Set3 > 0 || t2Set3 > 0) {
+        return getSetValidationError(t1Set3, t2Set3, 15, false);
+      }
+    }
+    return null;
+  };
+
+  const set3Error = getSet3Error();
+  const hasAnySetError = !!(set1Error || set2Error || set3Error);
+
   // Synchronize manual set results with calculated partial scores when they change under FIPAV
   useEffect(() => {
     if (!editingMatch) return;
@@ -206,6 +287,173 @@ export default function BracketTab({
   // Excluded teams (reserves) are strictly the latest ones registered (chronological cutoff)
   const chronologicallySortedForCutoff = [...teams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
   const excludedTeamsList = chronologicallySortedForCutoff.slice(teamsCount);
+
+  const renderStandardMatchCard = (match: Match, containerId?: string) => {
+    const isLive = match.status === 'live';
+    const isCompleted = match.status === 'completed';
+    const t1Winner = isCompleted && match.winnerId === match.team1?.id;
+    const t2Winner = isCompleted && match.winnerId === match.team2?.id;
+
+    return (
+      <div
+        key={match.id}
+        id={containerId}
+        className={`bg-white p-4 sm:p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
+          isLive
+            ? 'border-orange-400 ring-4 ring-orange-50 bg-orange-50/5 shadow-[0_4px_20px_rgba(251,146,60,0.12)]'
+            : 'border-slate-150 hover:border-sky-350 hover:shadow-md'
+        }`}
+      >
+        <div>
+          {/* Header */}
+          <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2.5 border-b border-slate-100 mb-3 text-[10px]">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-extrabold text-white bg-slate-800 px-2.5 py-1 rounded text-[10px] uppercase shadow-sm">
+                Gara {garaNumbersMap[match.id] || '?'}
+              </span>
+              <span className={`font-black px-2 py-0.5 rounded uppercase tracking-wider text-[8px] ${
+                isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
+              }`}>
+                {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
+              </span>
+              {match.groupName ? (
+                <span className="bg-amber-50 border border-amber-200 text-amber-800 font-extrabold px-1.5 py-0.5 rounded text-[8px] uppercase">
+                  {match.groupName}
+                </span>
+              ) : match.roundLabel ? (
+                <span className="bg-indigo-50 border border-indigo-200 text-indigo-805 font-extrabold px-1.5 py-0.5 rounded text-[8px] uppercase">
+                  {match.roundLabel}
+                </span>
+              ) : null}
+            </div>
+            
+            <div className="flex items-center gap-2 text-slate-400 font-bold shrink-0">
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3 text-orange-500" />
+                {match.time || 'N/D'}
+              </span>
+              <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded text-[9px]">
+                {match.court || 'Campo ?'}
+              </span>
+            </div>
+          </div>
+
+          {/* Teams / Competitors */}
+          <div className="space-y-3 pb-3">
+            {/* Team 1 */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 truncate">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${t1Winner ? 'bg-orange-500' : 'bg-slate-350'}`} />
+                <div className="truncate text-left">
+                  <h4 className={`text-xs font-extrabold uppercase truncate ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
+                    {match.team1 ? match.team1.name : 'TBD'}
+                  </h4>
+                  {match.team1 && (
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-tight truncate">
+                      {match.team1.player1} / {match.team1.player2}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <span className={`font-mono text-xs font-black min-w-[28px] text-center px-2 py-1 rounded-md ${isCompleted ? 'bg-slate-100 text-slate-800' : 'bg-slate-50 text-slate-400'} ${t1Winner ? 'bg-orange-100 text-orange-700 ring-1 ring-orange-200' : ''}`}>
+                {isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}
+              </span>
+            </div>
+
+            {/* Team 2 */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 truncate">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${t2Winner ? 'bg-amber-500' : 'bg-slate-350'}`} />
+                <div className="truncate text-left">
+                  <h4 className={`text-xs font-extrabold uppercase truncate ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
+                    {match.team2 ? match.team2.name : 'TBD'}
+                  </h4>
+                  {match.team2 && (
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-tight truncate">
+                      {match.team2.player1} / {match.team2.player2}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <span className={`font-mono text-xs font-black min-w-[28px] text-center px-2 py-1 rounded-md ${isCompleted ? 'bg-slate-100 text-slate-800' : 'bg-slate-50 text-slate-400'} ${t2Winner ? 'bg-orange-100 text-orange-700 ring-1 ring-orange-200' : ''}`}>
+                {isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}
+              </span>
+            </div>
+          </div>
+
+          {/* Sets partials */}
+          {isCompleted && match.sets && match.sets.length > 0 && (
+            <div className="bg-slate-50 border border-slate-100 rounded-xl p-2 mt-2 flex justify-between items-center text-[9px] font-black text-slate-500 uppercase tracking-wide">
+              <span>Set parziali:</span>
+              <div className="flex gap-1.5 font-mono text-xs">
+                {match.sets.map((s, idx) => (
+                  <span key={idx} className="bg-white py-0.5 px-2 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
+                    {s.team1}-{s.team2}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isCompleted && match.outcomeType && match.outcomeType !== 'normal' && (
+            <div className="bg-rose-50 border border-rose-100 rounded-xl p-2 mt-2 flex justify-between items-center text-[9px] font-black uppercase tracking-wide">
+              <span className="text-rose-700">Conclusione Gara:</span>
+              <span className="bg-rose-500 text-white font-extrabold px-1.5 py-0.5 rounded leading-none text-[8px] tracking-wider animate-pulse">
+                {match.outcomeType === 'forfeit' ? 'ASSENTE / RINUNCIA (2-0)' : match.outcomeType === 'injury_before' ? 'A TAVOLINO (2-0)' : 'INFORTUNIO'}
+              </span>
+            </div>
+          )}
+
+          {/* Live comment/ticker */}
+          {isLive && match.livePointTicker && (
+            <div className="bg-orange-50 border border-orange-150 rounded-xl p-2.5 mt-2 text-[10px] font-bold italic text-orange-950">
+              {match.livePointTicker}
+            </div>
+          )}
+        </div>
+
+        {/* Action Buttons */}
+        {match.team1 && match.team2 && !isCompleted && !isLive && canWrite && (
+          <div className="grid grid-cols-3 gap-1.5 mt-3 pt-3 border-t border-slate-100">
+            <button
+              disabled={!!liveSimulatingMatchId}
+              onClick={() => startLiveSimulation(match)}
+              className="bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-750 text-white font-black py-1.5 px-2 rounded-full text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700 active:translate-y-0.5"
+            >
+              <Play className="w-3 h-3 fill-white" />
+              Live
+            </button>
+            <button
+              onClick={() => openEditModal(match)}
+              className="bg-sky-500 hover:bg-sky-600 active:bg-sky-750 text-white font-black py-1.5 px-2 rounded-full text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700 active:translate-y-0.5"
+            >
+              <Edit2 className="w-3 h-3" />
+              Score
+            </button>
+            <button
+              onClick={() => handleQuickPlayAllMatch(match)}
+              className="bg-orange-400 hover:bg-orange-500 active:bg-orange-550 text-white font-black py-1.5 px-2 rounded-full text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600 active:translate-y-0.5"
+            >
+              <Zap className="w-3 h-3 text-white" />
+              Simula
+            </button>
+          </div>
+        )}
+
+        {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
+          <div className="mt-3 pt-3 border-t border-slate-100">
+            <button
+              onClick={() => openEditModal(match)}
+              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-2 px-3 rounded-full text-[10px] uppercase flex items-center justify-center gap-1.5 border border-slate-250 transition-all shadow-sm active:translate-y-0.5"
+            >
+              <Edit2 className="w-3 h-3 text-slate-600" />
+              Modifica Score
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const getSmartDefaultTeamsCount = (selectedFormula: string) => {
     const registeredCount = teams.length;
@@ -356,6 +604,7 @@ export default function BracketTab({
         currentTeamsCount,
         '09:00',
         generalMatchDuration,
+        currentCourtCount,
         currentPointsPerSet as 15 | 21,
         currentMaxSets as 1 | 3,
         currentSfPointsPerSet as 15 | 21,
@@ -400,9 +649,29 @@ export default function BracketTab({
       mockMatches.push(...groupStageMatches);
 
       const mockStandings = computeGroupStandings(selectedTeams, groupStageMatches);
+
+      // Dynamically calculate sequential start hour for playoff matches
+      let mockPlayoffStartHour = '15:00';
+      if (groupStageMatches.length > 0) {
+        let latestEndMinutes = 9 * 60; // 09:00
+        groupStageMatches.forEach(m => {
+          if (m.time && m.time.includes(':')) {
+            const matchDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+            const [h, min] = m.time.split(':').map(Number);
+            const endMins = h * 60 + min + matchDuration;
+            if (endMins > latestEndMinutes) {
+              latestEndMinutes = endMins;
+            }
+          }
+        });
+        const hStr = String(Math.floor(latestEndMinutes / 60) % 24).padStart(2, '0');
+        const mStr = String(latestEndMinutes % 60).padStart(2, '0');
+        mockPlayoffStartHour = `${hStr}:${mStr}`;
+      }
+
       const playoffMatches = generatePlayoffsFromGroups(
         mockStandings,
-        '15:00',
+        mockPlayoffStartHour,
         generalMatchDuration,
         currentCourtCount,
         currentPointsPerSet as 15 | 21,
@@ -616,6 +885,15 @@ export default function BracketTab({
   const handleSaveScoreManual = () => {
     if (!editingMatch || !editingMatch.team1 || !editingMatch.team2) return;
 
+    if (outcomeType === 'normal' && hasAnySetError) {
+      alert(`⚠️ Errore di compilazione: correggi i punteggi errati dei set prima di procedere.\n\n` + 
+        [set1Error && `• Set 1: ${set1Error}`, set2Error && `• Set 2: ${set2Error}`, set3Error && `• Set 3: ${set3Error}`]
+          .filter(Boolean)
+          .join('\n')
+      );
+      return;
+    }
+
     let sets: SetScore[] = [];
     const mMaxSets = editingMatch.maxSets || 3;
     const requiredWins = mMaxSets === 1 ? 1 : 2;
@@ -632,6 +910,35 @@ export default function BracketTab({
       // Validate Set 3 (only for maxSets === 3)
       if (mMaxSets === 3 && (t1Set3 > 0 || t2Set3 > 0)) {
         sets.push({ team1: t1Set3, team2: t2Set3 });
+      }
+    } else if (outcomeType === 'forfeit') {
+      const winnerIsTeam1 = (retiredTeamId === editingMatch.team2?.id);
+      const pPerSet = editingMatch.pointsPerSet || 21;
+      
+      if (pPerSet === 15) {
+        if (mMaxSets === 1) {
+          sets = [{
+            team1: winnerIsTeam1 ? 15 : 9,
+            team2: winnerIsTeam1 ? 9 : 15
+          }];
+        } else {
+          sets = [
+            { team1: winnerIsTeam1 ? 15 : 12, team2: winnerIsTeam1 ? 12 : 15 },
+            { team1: winnerIsTeam1 ? 15 : 12, team2: winnerIsTeam1 ? 12 : 15 }
+          ];
+        }
+      } else { // 21 points
+        if (mMaxSets === 1) {
+          sets = [{
+            team1: winnerIsTeam1 ? 21 : 15,
+            team2: winnerIsTeam1 ? 15 : 21
+          }];
+        } else {
+          sets = [
+            { team1: winnerIsTeam1 ? 21 : 18, team2: winnerIsTeam1 ? 18 : 21 },
+            { team1: winnerIsTeam1 ? 21 : 18, team2: winnerIsTeam1 ? 18 : 21 }
+          ];
+        }
       }
     }
 
@@ -939,9 +1246,29 @@ export default function BracketTab({
     const ptsSet = firstMatch?.pointsPerSet || 21;
     const mSets = firstMatch?.maxSets || 3;
     const resolvedQualifiedCount = activeTournamentConfig?.qualifiedCount || 4;
+
+    // Dynamically calculate sequential start hour for playoff matches from the actual end of group stage
+    let playoffStartHour = '15:30';
+    if (groupMatches.length > 0) {
+      let latestEndMinutes = 9 * 60; // 09:00
+      groupMatches.forEach(m => {
+        if (m.time && m.time.includes(':')) {
+          const matchDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+          const [h, min] = m.time.split(':').map(Number);
+          const endMins = h * 60 + min + matchDuration;
+          if (endMins > latestEndMinutes) {
+            latestEndMinutes = endMins;
+          }
+        }
+      });
+      const hStr = String(Math.floor(latestEndMinutes / 60) % 24).padStart(2, '0');
+      const mStr = String(latestEndMinutes % 60).padStart(2, '0');
+      playoffStartHour = `${hStr}:${mStr}`;
+    }
+
     const playoffMatches = generatePlayoffsFromGroups(
       groupsStandings,
-      '15:30',
+      playoffStartHour,
       40,
       courtCount,
       ptsSet,
@@ -1637,7 +1964,7 @@ export default function BracketTab({
                       {/* Right Column: Mini-Calendar/Matches of this Group */}
                       <div className="xl:col-span-7 space-y-4">
                         {/* Playoffs seeding prompt banner if group matches completed */}
-                        {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && (
+                        {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && canWrite && (
                           <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
@@ -1675,108 +2002,7 @@ export default function BracketTab({
                               }
                               return a.court.localeCompare(b.court);
                             })
-                            .map((match) => {
-                            const isLive = match.status === 'live';
-                            const isCompleted = match.status === 'completed';
-                            const t1Winner = isCompleted && match.winnerId === match.team1?.id;
-                            const t2Winner = isCompleted && match.winnerId === match.team2?.id;
-
-                            return (
-                              <div
-                                key={match.id}
-                                className={`bg-white p-5 rounded-3xl border-4 shadow-xl transition-all flex flex-col justify-between ${
-                                  isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-200 hover:border-sky-305'
-                                }`}
-                              >
-                                <div>
-                                  <div className="flex justify-between items-center pb-2 border-b-2 border-slate-100 mb-3 text-[10px]">
-                                    <span className={`font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                                      isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
-                                    }`}>
-                                      {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
-                                    </span>
-                                    <div className="flex gap-2">
-                                      <span className="flex items-center gap-1 text-slate-400 font-bold">
-                                        <Clock className="w-3.5 h-3.5 text-orange-500" />
-                                        {match.time}
-                                      </span>
-                                      <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Competitors showdown */}
-                                  <div className="space-y-2 pb-3.5">
-                                    <div className="flex justify-between items-center text-xs">
-                                      <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
-                                        <span className="w-2 h-2 rounded-full bg-orange-400 inline-block shrink-0"></span>
-                                        {match.team1 ? match.team1.name : 'TBD'}
-                                      </span>
-                                      <span className="font-mono text-xs font-black">{isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-xs">
-                                      <span className={`font-black uppercase truncate max-w-[130px] flex items-center gap-1.5 ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
-                                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0"></span>
-                                        {match.team2 ? match.team2.name : 'TBD'}
-                                      </span>
-                                      <span className="font-mono text-xs font-black">{isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Sets sub-scores */}
-                                  {isCompleted && match.sets.length > 0 && (
-                                    <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
-                                      <span>Set:</span>
-                                      <div className="flex gap-1.5 font-mono text-xs">
-                                        {match.sets.map((s, idx) => (
-                                          <span key={idx} className="bg-white py-0.5 px-1.5 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
-                                            {s.team1}-{s.team2}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Live & Edit Match triggers */}
-                                {match.team1 && match.team2 && !isCompleted && !isLive && (
-                                  <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
-                                    <button
-                                      disabled={!!liveSimulatingMatchId}
-                                      onClick={() => startLiveSimulation(match)}
-                                      className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700"
-                                    >
-                                      Live
-                                    </button>
-                                    <button
-                                      onClick={() => openEditModal(match)}
-                                      className="bg-sky-500 hover:bg-sky-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700"
-                                    >
-                                      Score
-                                    </button>
-                                    <button
-                                      onClick={() => handleQuickPlayAllMatch(match)}
-                                      className="bg-orange-400 hover:bg-orange-500 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600"
-                                    >
-                                      Simula
-                                    </button>
-                                  </div>
-                                )}
-
-                                {/* Modificatore del risultato se completato */}
-                                {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
-                                  <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
-                                    <button
-                                      onClick={() => openEditModal(match)}
-                                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-1.5 px-2.5 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1.5 shadow-sm border border-slate-250 transition-all active:translate-y-0.5"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5 text-slate-600" />
-                                      Modifica Score
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                            .map((match) => renderStandardMatchCard(match, `group-card-${match.id}`))}
                         </div>
                       </div>
                     </div>
@@ -1786,7 +2012,7 @@ export default function BracketTab({
                 /* ALL LIST VIEW (ORDINATA PER DATA E ORA) */
                 <div id="all-group-matches-list-view" className="space-y-6">
                   {/* Playoffs seeding prompt banner if group matches completed */}
-                  {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && (
+                  {formula === 'combined' && (groupMatches.length > 0 && groupMatches.every(m => m.status === 'completed')) && !matches.some(m => m.phase === 'eliminazione') && canWrite && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -1840,113 +2066,7 @@ export default function BracketTab({
                           );
                         }
 
-                        return sortedGroupMatches.map((match) => {
-                          const isLive = match.status === 'live';
-                          const isCompleted = match.status === 'completed';
-                          const t1Winner = isCompleted && match.winnerId === match.team1?.id;
-                          const t2Winner = isCompleted && match.winnerId === match.team2?.id;
-
-                          return (
-                            <div
-                              key={match.id}
-                              className={`bg-white p-5 rounded-3xl border-4 shadow-md hover:shadow-lg transition-all flex flex-col justify-between ${
-                                isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-250/80 hover:border-sky-350'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex justify-between items-center pb-2 border-b-2 border-slate-100 mb-3 text-[10px]">
-                                  <div className="flex gap-1.5 items-center">
-                                    <span className={`font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
-                                      isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
-                                    }`}>
-                                      {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
-                                    </span>
-                                    <span className="bg-amber-100 border border-amber-250 text-amber-900 font-black px-2 py-0.5 rounded uppercase tracking-wider text-[8px]">
-                                      {match.groupName}
-                                    </span>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <span className="flex items-center gap-1 text-slate-400 font-bold">
-                                      <Clock className="w-3.5 h-3.5 text-orange-500" />
-                                      {match.time}
-                                    </span>
-                                    <span className="font-extrabold text-sky-600 bg-sky-50 px-1.5 rounded">{match.court}</span>
-                                  </div>
-                                </div>
-
-                                {/* Competitors showdown */}
-                                <div className="space-y-2 pb-3.5">
-                                  <div className="flex justify-between items-center text-xs">
-                                    <span className={`font-black uppercase truncate max-w-[150px] flex items-center gap-1.5 ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
-                                      <span className="w-2 h-2 rounded-full bg-orange-400 inline-block shrink-0"></span>
-                                      {match.team1 ? match.team1.name : 'TBD'}
-                                    </span>
-                                    <span className="font-mono text-xs font-black">{isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center text-xs">
-                                    <span className={`font-black uppercase truncate max-w-[150px] flex items-center gap-1.5 ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
-                                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0"></span>
-                                      {match.team2 ? match.team2.name : 'TBD'}
-                                    </span>
-                                    <span className="font-mono text-xs font-black">{isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}</span>
-                                  </div>
-                                </div>
-
-                                {/* Sets sub-scores */}
-                                {isCompleted && match.sets.length > 0 && (
-                                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase">
-                                    <span>Set:</span>
-                                    <div className="flex gap-1.5 font-mono text-xs">
-                                      {match.sets.map((s, idx) => (
-                                        <span key={idx} className="bg-white py-0.5 px-1.5 rounded border border-slate-200 shadow-sm text-slate-800 font-bold">
-                                          {s.team1}-{s.team2}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Live & Edit Match triggers */}
-                              {match.team1 && match.team2 && !isCompleted && !isLive && (
-                                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100">
-                                  <button
-                                    disabled={!!liveSimulatingMatchId}
-                                    onClick={() => startLiveSimulation(match)}
-                                    className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 disabled:opacity-40 shadow-sm transition-all border-b-2 border-emerald-700"
-                                  >
-                                    Live
-                                  </button>
-                                  <button
-                                    onClick={() => openEditModal(match)}
-                                    className="bg-sky-500 hover:bg-sky-600 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-sky-700"
-                                  >
-                                    Score
-                                  </button>
-                                  <button
-                                    onClick={() => handleQuickPlayAllMatch(match)}
-                                    className="bg-orange-400 hover:bg-orange-500 text-white font-black py-1.5 px-2 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-orange-600"
-                                  >
-                                    Simula
-                                  </button>
-                                </div>
-                              )}
-
-                              {/* Modificatore del risultato se completato */}
-                              {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
-                                <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
-                                  <button
-                                    onClick={() => openEditModal(match)}
-                                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-1.5 px-2.5 rounded-xl text-[10px] uppercase flex items-center justify-center gap-1.5 shadow-sm border border-slate-250 transition-all active:translate-y-0.5"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5 text-slate-600" />
-                                    Modifica Score
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        });
+                        return sortedGroupMatches.map((match) => renderStandardMatchCard(match, `chrono-card-${match.id}`));
                       })()}
                     </div>
                   </div>
@@ -2010,8 +2130,8 @@ export default function BracketTab({
                                       }`}>
                                         {match.roundLabel}
                                       </span>
-                                      <span className="text-[10px] font-mono text-slate-400 font-black">
-                                        #DE-{match.id.replace('m-de-', '')}
+                                      <span className="text-[10px] bg-slate-800 text-white font-black px-2.5 py-1 rounded uppercase shadow-sm">
+                                        Gara {garaNumbersMap[match.id] || '?'}
                                       </span>
                                     </div>
 
@@ -2066,8 +2186,17 @@ export default function BracketTab({
                                       </div>
                                     )}
 
+                                    {isCompleted && match.outcomeType && match.outcomeType !== 'normal' && (
+                                      <div className="mt-2 pt-1.5 border-t border-slate-100 flex justify-between items-center text-[9px] font-black uppercase">
+                                        <span className="text-rose-600">Gara non disp:</span>
+                                        <span className="bg-rose-500 text-white px-1 py-0.5 rounded font-black text-[7px] tracking-wider">
+                                          {match.outcomeType === 'forfeit' ? 'ASSENTE / RINUNCIA' : match.outcomeType === 'injury_before' ? 'A TAVOLINO' : 'INFORTUNIO'}
+                                        </span>
+                                      </div>
+                                    )}
+
                                     {/* Quick actions on hover */}
-                                    {match.team1 && match.team2 && !isCompleted && !isLive && (
+                                    {match.team1 && match.team2 && !isCompleted && !isLive && canWrite && (
                                       <div className="mt-3 pt-2 border-t border-slate-100 flex gap-1 justify-end">
                                         <button
                                           id={`action-live-${match.id}`}
@@ -2154,148 +2283,7 @@ export default function BracketTab({
 
                   {/* Roster of select round matches */}
                   <div id="selected-round-matches-grid" className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {(roundsMap[selectedRoundTab] || []).map((match) => {
-                      const isLive = match.status === 'live';
-                      const isCompleted = match.status === 'completed';
-                      const t1Winner = isCompleted && match.winnerId === match.team1?.id;
-                      const t2Winner = isCompleted && match.winnerId === match.team2?.id;
-
-                      return (
-                        <div
-                          key={match.id}
-                          id={`detailed-card-${match.id}`}
-                          className={`bg-white p-6 rounded-3xl border-4 shadow-xl transition-all ${
-                            isLive ? 'border-orange-400 ring-4 ring-orange-50' : 'border-sky-200 hover:border-sky-350'
-                          }`}
-                        >
-                          <div className="flex justify-between items-center pb-3 border-b-2 border-slate-100 mb-4">
-                            <div className="flex items-center gap-2.5 flex-wrap">
-                              <span className={`text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-widest ${
-                                isCompleted ? 'bg-slate-100 text-slate-500' : (isLive ? 'bg-red-500 text-white animate-pulse' : 'bg-sky-50 text-sky-700 border border-sky-100')
-                              }`}>
-                                {isCompleted ? 'Finito' : (isLive ? 'In Corso' : 'Pianificato')}
-                              </span>
-                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Incontro {match.id.replace('m-', '')}</span>
-                              <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[9px] font-black px-2 rounded-full uppercase">
-                                {match.roundLabel}
-                              </span>
-                            </div>
-                            <div className="text-[11px] font-bold uppercase text-slate-500 flex items-center gap-3">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3.5 h-3.5 text-orange-500" />
-                                {match.time}
-                              </span>
-                              <span className="flex items-center gap-1 bg-sky-50 px-2 py-0.5 rounded text-sky-700">
-                                <Calendar className="w-3.5 h-3.5 text-sky-500" />
-                                {match.court}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Opponents showdown */}
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-orange-400 border-2 border-white shadow-sm"></div>
-                                <div>
-                                  <h4 id={`detailed-t1-${match.id}`} className={`text-base font-black ${t1Winner ? 'text-orange-950 underline decoration-orange-400 decoration-2' : 'text-slate-800'}`}>
-                                    {match.team1 ? match.team1.name : 'Squadra da definire'}
-                                  </h4>
-                                  {match.team1 && (
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{match.team1.player1} / {match.team1.player2}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <span id={`detailed-t1-sets-${match.id}`} className="text-sm font-black font-mono px-3.5 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 shadow-inner">
-                                {isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-amber-400 border-2 border-white shadow-sm"></div>
-                                <div>
-                                  <h4 id={`detailed-t2-${match.id}`} className={`text-base font-black ${t2Winner ? 'text-orange-950 underline decoration-amber-400 decoration-2' : 'text-slate-800'}`}>
-                                    {match.team2 ? match.team2.name : 'Squadra da definire'}
-                                  </h4>
-                                  {match.team2 && (
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{match.team2.player1} / {match.team2.player2}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <span id={`detailed-t2-sets-${match.id}`} className="text-sm font-black font-mono px-3.5 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 shadow-inner">
-                                {isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Line of points per set */}
-                          {isCompleted && match.sets.length > 0 && (
-                            <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl p-3 mt-4 flex justify-between items-center text-xs font-black text-slate-500 uppercase tracking-wide font-sans">
-                              <span>Set parziali:</span>
-                              <div className="flex gap-2">
-                                {match.sets.map((s, idx) => (
-                                  <span key={idx} className="bg-white py-1 px-2.5 rounded-lg border-2 border-slate-200 shadow-sm font-mono text-slate-800 font-bold">
-                                    {s.team1} - {s.team2}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Simulation comments */}
-                          {isLive && match.livePointTicker && (
-                            <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-3.5 mt-4 text-xs font-bold italic text-orange-950">
-                              {match.livePointTicker}
-                            </div>
-                          )}
-
-                          {/* Actions */}
-                          {match.team1 && match.team2 && !isCompleted && !isLive && (
-                            <div className="grid grid-cols-3 gap-2.5 mt-5 pt-4 border-t-2 border-slate-100">
-                              <button
-                                id={`details-action-live-${match.id}`}
-                                disabled={!!liveSimulatingMatchId}
-                                onClick={() => startLiveSimulation(match)}
-                                className="bg-emerald-500 hover:bg-emerald-600 text-white font-black py-2.5 px-3 rounded-full text-xs flex items-center justify-center gap-1 border-b-4 border-emerald-700 active:translate-y-0.5 shadow-md disabled:opacity-40"
-                              >
-                                <Play className="w-3.5 h-3.5 fill-white" />
-                                Live
-                              </button>
-                              <button
-                                id={`details-action-score-${match.id}`}
-                                onClick={() => openEditModal(match)}
-                                className="bg-sky-500 hover:bg-sky-600 text-white font-black py-2.5 px-3 rounded-full text-xs flex items-center justify-center gap-1 border-b-4 border-sky-700 active:translate-y-0.5 shadow-md"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                                Modifica
-                              </button>
-                              <button
-                                id={`details-action-fast-${match.id}`}
-                                onClick={() => handleQuickPlayAllMatch(match)}
-                                className="bg-orange-400 hover:bg-orange-500 text-white font-black py-2.5 px-3 rounded-full text-xs flex items-center justify-center gap-1 border-b-4 border-orange-600 active:translate-y-0.5 shadow-md"
-                              >
-                                <Zap className="w-3.5 h-3.5 text-white" />
-                                Simula
-                              </button>
-                            </div>
-                          )}
-
-                          {match.team1 && match.team2 && isCompleted && !isLive && canWrite && (
-                            <div className="mt-5 pt-4 border-t-2 border-slate-100 flex justify-end">
-                              <button
-                                id={`details-action-edit-completed-${match.id}`}
-                                onClick={() => openEditModal(match)}
-                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold py-2.5 px-4 rounded-full text-xs flex items-center justify-center gap-1.5 border border-slate-250 transition-all shadow-md active:translate-y-0.5"
-                              >
-                                <Edit2 className="w-3.5 h-3.5 text-slate-600" />
-                                Modifica Risultato
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {(roundsMap[selectedRoundTab] || []).map((match) => renderStandardMatchCard(match, `detailed-card-${match.id}`))}
                   </div>
                 </div>
               )}
@@ -2490,6 +2478,12 @@ export default function BracketTab({
                             />
                           </div>
                         </div>
+                        {set1Error && (
+                          <div className="mt-2.5 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-150 rounded-xl p-2 px-3 flex items-center gap-1.5 animate-pulse">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                            <span>{set1Error}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* SET 2 CARD */}
@@ -2531,6 +2525,12 @@ export default function BracketTab({
                               />
                             </div>
                           </div>
+                          {set2Error && (
+                            <div className="mt-2.5 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-150 rounded-xl p-2 px-3 flex items-center gap-1.5 animate-pulse">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                              <span>{set2Error}</span>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -2573,6 +2573,12 @@ export default function BracketTab({
                               />
                             </div>
                           </div>
+                          {set3Error && (
+                            <div className="mt-2.5 text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-150 rounded-xl p-2 px-3 flex items-center gap-1.5 animate-pulse">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                              <span>{set3Error}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

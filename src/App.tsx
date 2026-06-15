@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, NotificationLog, AppUser, ArchivedTournament } from './types';
-import { DEMO_TEAMS, getInitialTeamStats, generateDirectEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, generateDoubleEliminationBracket, autoResolveAndPropagate, sortTeamsByEntryList, recalculateTournamentStages } from './utils';
+import { DEMO_TEAMS, getInitialTeamStats, generateDirectEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, generateDoubleEliminationBracket, autoResolveAndPropagate, sortTeamsByEntryList, recalculateTournamentStages, getGaraNumbersMap } from './utils';
 import TeamsTab from './components/TeamsTab';
 import BracketTab from './components/BracketTab';
 import StandingsTab from './components/StandingsTab';
@@ -224,6 +224,14 @@ export default function App() {
     }
   }, [activeTournamentConfig]);
 
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'reader') {
+      if (activeTab !== 'teams' && activeTab !== 'bracket' && activeTab !== 'standings' && activeTab !== 'notifications') {
+        setActiveTab('teams');
+      }
+    }
+  }, [currentUser, activeTab]);
+
   const clearCollection = async (collectionName: string) => {
     try {
       const snap = await getDocs(collection(db, collectionName));
@@ -438,8 +446,11 @@ export default function App() {
       else if (config.pointsPerSet === 21) matchDuration = 50;
     }
 
+    // Exclude withdrawn/retired teams from tournament generation, so they aren't seeded or created in pools
+    const activeTeamsToUse = teamsToUse.filter(t => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
+
     // Sort teams by the centralized Entry List ranking criteria: Game Level, then registration date/time.
-    const sortedTeams = sortTeamsByEntryList<Team>(teamsToUse);
+    const sortedTeams = sortTeamsByEntryList<Team>(activeTeamsToUse);
 
     // Reset previous team group and stats for a clean state
     const clearedTeams = sortedTeams.map((team) => {
@@ -493,6 +504,7 @@ export default function App() {
         config.teamsCount as number,
         startHour,
         matchDuration,
+        config.courtCount,
         config.pointsPerSet,
         config.maxSets,
         config.sfPointsPerSet,
@@ -654,12 +666,14 @@ export default function App() {
     const promotedTeam = teams.find(t => t.id === promotedTeamId);
     if (!withdrawnTeam || !promotedTeam) return;
 
-    // Swap registeredAt timestamps to swap their chronological rank
+    // Mark withdrawn team and update promoted team without swapping registeredAt timestamps
     const updatedTeams = teams.map(t => {
       if (t.id === withdrawnTeamId) {
         return { 
           ...t, 
-          registeredAt: promotedTeam.registeredAt,
+          isWithdrawn: true,
+          replacedByTeamId: promotedTeamId,
+          replacedByTeamName: promotedTeam.name,
           name: t.name.endsWith(' [RITIRATA]') ? t.name : `${t.name} [RITIRATA]`
         };
       }
@@ -667,8 +681,9 @@ export default function App() {
         const cleanName = t.name.replace(' [RITIRATA]', '');
         return { 
           ...t, 
-          name: cleanName,
-          registeredAt: withdrawnTeam.registeredAt 
+          subenteredForTeamId: withdrawnTeamId,
+          subenteredForTeamName: withdrawnTeam.name,
+          name: cleanName
         };
       }
       return t;
@@ -684,6 +699,11 @@ export default function App() {
 
     try {
       await setDoc(doc(db, 'notifications', swapNotif.id), swapNotif);
+      
+      // Save full individual changes immediately to Firestore
+      const teamPromises = updatedTeams.map(t => setDoc(doc(db, 'teams', t.id), cleanObject(t)));
+      await Promise.all(teamPromises);
+
       if (activeTournamentConfig) {
         await handleGenerateTournament(activeTournamentConfig, updatedTeams);
       }
@@ -792,9 +812,9 @@ export default function App() {
               <label htmlFor="login-input-username" className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Indirizzo Email / Username</label>
               <input
                 id="login-input-username"
-                type="email"
+                type="text"
                 required
-                placeholder="esempio@gmail.com"
+                placeholder="Inserisci username o email"
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
                 className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 font-semibold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-amber-400 focus:bg-white transition-all shadow-sm"
@@ -915,9 +935,9 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 md:px-6">
             <nav id="app-nav-row" className="flex overflow-x-auto gap-2 md:gap-3 py-1 no-scrollbar [-ms-overflow-style:none] [scrollbar-width:none]">
               {(() => {
-                const navItems = [
+                let navItems = [
                   { id: 'teams', label: 'Lista Ingresso', count: teams.length, icon: <Users className="w-3.5 h-3.5" /> },
-                  { id: 'bracket', label: 'Gare', count: matches.length, icon: <Award className="w-3.5 h-3.5" /> },
+                  { id: 'bracket', label: 'Tabellone', count: matches.length, icon: <Award className="w-3.5 h-3.5" /> },
                   { id: 'standings', label: 'Classifiche', icon: <TrendingUp className="w-3.5 h-3.5" /> },
                   { id: 'notifications', label: 'Notifiche', count: notifications.length, icon: <Bell className="w-3.5 h-3.5" /> }
                 ];
@@ -1066,33 +1086,86 @@ export default function App() {
 
       {/* Bottom Ticker */}
       <footer className="mt-12 bg-emerald-500 h-14 flex items-center overflow-hidden whitespace-nowrap shadow-inner border-t-4 border-emerald-600">
-        <div className="bg-emerald-700 px-6 h-full flex items-center font-black text-white italic tracking-wider text-xs shrink-0 font-sans">
-          PROSSIMI MATCH
+        <div className="bg-emerald-700 h-full flex flex-col justify-center items-center font-black text-white italic tracking-wider text-[10px] md:text-xs shrink-0 font-sans text-center leading-none border-r border-emerald-600 w-20 md:w-24 px-1">
+          <div>PROSSIMI</div>
+          <div className="text-emerald-200 mt-0.5">MATCH</div>
         </div>
-        <div className="flex-1 overflow-hidden relative">
-          <div className="flex items-center space-x-12 px-6 text-emerald-50 font-black text-xs uppercase tracking-wider font-sans">
-            {(() => {
-              const realScheduledMatches = matches.filter(m => 
-                m.status === 'scheduled' && 
-                m.team1 && 
-                m.team2 && 
-                m.team1.id !== 't-bye' && 
-                m.team2.id !== 't-bye' &&
-                !m.team1.name.toLowerCase().includes('bye') && 
-                !m.team2.name.toLowerCase().includes('bye') &&
-                !m.team1.name.toLowerCase().includes('riposo') && 
-                !m.team2.name.toLowerCase().includes('riposo')
-              );
-              return realScheduledMatches.length > 0 ? (
-                realScheduledMatches.map((m, idx) => (
-                  <span key={m.id || idx} className="flex items-center gap-1.5 shrink-0">
-                    ⏱️ {m.time} - CAMPO {m.court}: {m.team1?.name} VS {m.team2?.name}
-                  </span>
-                ))
-              ) : (
-                <span>Nessun match programmato con squadre reali al momento. Genera il tabellone per iniziare la competizione! ☀️</span>
-              );
-            })()}
+        <div className="flex-1 overflow-hidden relative flex items-center">
+          <div className="animate-marquee flex items-center">
+            {/* First sequence of matches */}
+            <div className="flex items-center space-x-12 px-6 text-emerald-50 font-black text-xs uppercase tracking-wider font-sans shrink-0">
+              {(() => {
+                const garaMap = getGaraNumbersMap(matches);
+                const realScheduledMatches = matches.filter(m => 
+                  m.status === 'scheduled' && 
+                  m.team1 && 
+                  m.team2 && 
+                  m.team1.id !== 't-bye' && 
+                  m.team2.id !== 't-bye' &&
+                  !m.team1.name.toLowerCase().includes('bye') && 
+                  !m.team2.name.toLowerCase().includes('bye') &&
+                  !m.team1.name.toLowerCase().includes('riposo') && 
+                  !m.team2.name.toLowerCase().includes('riposo')
+                );
+                const sortedScheduled = [...realScheduledMatches].sort((a, b) => {
+                  const tA = a.time || '99:99';
+                  const tB = b.time || '99:99';
+                  if (tA !== tB) return tA.localeCompare(tB);
+                  return (a.position || 0) - (b.position || 0);
+                });
+                const earliestTime = sortedScheduled.length > 0 ? sortedScheduled[0].time : '';
+                const nextMatches = earliestTime 
+                  ? sortedScheduled.filter(m => m.time === earliestTime)
+                  : [];
+
+                return nextMatches.length > 0 ? (
+                  nextMatches.map((m, idx) => (
+                    <span key={`grp1-${m.id || idx}`} className="flex items-center gap-1.5 shrink-0 select-none">
+                      ⏱️ {m.time} - GARA {garaMap[m.id] || '?'}: {m.team1?.name} VS {m.team2?.name} {m.court && `(${m.court})`}
+                    </span>
+                  ))
+                ) : (
+                  <span className="shrink-0 select-none">Nessun match programmato con squadre reali al momento. Genera il tabellone per iniziare la competizione! ☀️</span>
+                );
+              })()}
+            </div>
+            {/* Second identical sequence of matches for seamless infinity loop */}
+            <div className="flex items-center space-x-12 px-6 text-emerald-50 font-black text-xs uppercase tracking-wider font-sans shrink-0" aria-hidden="true">
+              {(() => {
+                const garaMap = getGaraNumbersMap(matches);
+                const realScheduledMatches = matches.filter(m => 
+                  m.status === 'scheduled' && 
+                  m.team1 && 
+                  m.team2 && 
+                  m.team1.id !== 't-bye' && 
+                  m.team2.id !== 't-bye' &&
+                  !m.team1.name.toLowerCase().includes('bye') && 
+                  !m.team2.name.toLowerCase().includes('bye') &&
+                  !m.team1.name.toLowerCase().includes('riposo') && 
+                  !m.team2.name.toLowerCase().includes('riposo')
+                );
+                const sortedScheduled = [...realScheduledMatches].sort((a, b) => {
+                  const tA = a.time || '99:99';
+                  const tB = b.time || '99:99';
+                  if (tA !== tB) return tA.localeCompare(tB);
+                  return (a.position || 0) - (b.position || 0);
+                });
+                const earliestTime = sortedScheduled.length > 0 ? sortedScheduled[0].time : '';
+                const nextMatches = earliestTime 
+                  ? sortedScheduled.filter(m => m.time === earliestTime)
+                  : [];
+
+                return nextMatches.length > 0 ? (
+                  nextMatches.map((m, idx) => (
+                    <span key={`grp2-${m.id || idx}`} className="flex items-center gap-1.5 shrink-0 select-none">
+                      ⏱️ {m.time} - GARA {garaMap[m.id] || '?'}: {m.team1?.name} VS {m.team2?.name} {m.court && `(${m.court})`}
+                    </span>
+                  ))
+                ) : (
+                  <span className="shrink-0 select-none">Nessun match programmato con squadre reali al momento. Genera il tabellone per iniziare la competizione! ☀️</span>
+                );
+              })()}
+            </div>
           </div>
         </div>
         <div className="hidden md:flex bg-emerald-900 text-emerald-300 text-[10px] uppercase tracking-widest font-black px-4 h-full items-center shrink-0">

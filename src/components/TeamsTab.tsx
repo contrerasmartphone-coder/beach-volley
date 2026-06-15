@@ -157,12 +157,16 @@ export default function TeamsTab({
 
   const [substituteConfirmTeam, setSubstituteConfirmTeam] = useState<Team | null>(null);
 
-  const sortedGlobalTeams = sortTeamsByEntryList(teams);
-  
-  // Admitted and Reserve lists division when tournament behaves with exclusions
-  const hasExclusions = !!(isLocked && admittedTeamsCount !== null && admittedTeamsCount !== undefined && teams.length > admittedTeamsCount);
+  // Separate active teams and withdrawn/substituted teams to avoid mixing them in normal lists
+  const activeTeams = teams.filter((t) => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
+  const withdrawnTeams = teams.filter((t) => !!t.isWithdrawn || t.name.endsWith(' [RITIRATA]'));
 
-  const chronologicallySorted = [...teams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+  const sortedGlobalTeams = sortTeamsByEntryList(activeTeams);
+  
+  // Admitted and Reserve lists division when tournament behaves with exclusions (use activeTeams only)
+  const hasExclusions = !!(isLocked && admittedTeamsCount !== null && admittedTeamsCount !== undefined && activeTeams.length > admittedTeamsCount);
+
+  const chronologicallySorted = [...activeTeams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
 
   const admittedTeams = hasExclusions && admittedTeamsCount !== null && admittedTeamsCount !== undefined
     ? chronologicallySorted.slice(0, admittedTeamsCount)
@@ -190,7 +194,7 @@ export default function TeamsTab({
   const filteredReserves = filterByQuery(sortedReserves);
 
   const filteredTeams = sortTeamsByEntryList(
-    teams.filter((t) =>
+    activeTeams.filter((t) =>
       t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.player1.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.player2.toLowerCase().includes(searchQuery.toLowerCase())
@@ -203,6 +207,7 @@ export default function TeamsTab({
   const goldCount = teams.filter((t) => t.level === 'Gold').length;
 
   const renderTeamCard = (team: Team, index: number, isReserve: boolean) => {
+    const isWithdrawn = team.isWithdrawn || team.name.includes('[RITIRATA]');
     const globalRank = sortedGlobalTeams.findIndex(t => t.id === team.id) + 1;
     const isReservePosition = sortedReserves.findIndex(t => t.id === team.id) + 1;
     
@@ -223,15 +228,21 @@ export default function TeamsTab({
         key={team.id}
         id={`team-card-${team.id}`}
         className={`border-2 rounded-2xl p-4 relative group hover:shadow-lg transition-all ${
-          isReserve 
-            ? 'border-dashed border-orange-200 bg-orange-50/15 hover:border-orange-400' 
-            : 'border-slate-200 bg-slate-50 hover:border-sky-400 bg-sky-50/5'
+          isWithdrawn
+            ? 'border-rose-200 bg-rose-50/20 opacity-80 border-dashed'
+            : isReserve 
+              ? 'border-dashed border-orange-200 bg-orange-50/15 hover:border-orange-400' 
+              : 'border-slate-200 bg-slate-50 hover:border-sky-400 bg-sky-50/5'
         }`}
       >
         <div className="flex justify-between items-start mb-2">
           <div>
             <div className="flex flex-wrap gap-1.5 items-center">
-              {isReserve ? (
+              {isWithdrawn ? (
+                <span className="bg-rose-500 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 border-rose-700 animate-pulse">
+                  ❌ Ritirata
+                </span>
+              ) : isReserve ? (
                 <span className="bg-orange-400 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border-b-2 border-orange-600">
                   Riserva #{isReservePosition}
                 </span>
@@ -247,15 +258,17 @@ export default function TeamsTab({
             <h4 id={`team-name-title-${team.id}`} className="font-extrabold text-slate-800 text-sm mt-2 uppercase">{team.name}</h4>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              id={`edit-team-btn-${team.id}`}
-              onClick={() => openDetailsAndEdit(team)}
-              className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors border border-transparent hover:border-sky-200 cursor-pointer"
-              title={canWrite && (!isLocked || !isTournamentStarted) ? "Dettagli / Modifica squadra" : "Dettagli squadra"}
-            >
-              <Eye className="w-4 h-4 text-sky-500" />
-            </button>
-            {canWrite && (!isLocked || !isTournamentStarted) ? (
+            {canWrite && (
+              <button
+                id={`edit-team-btn-${team.id}`}
+                onClick={() => openDetailsAndEdit(team)}
+                className="text-slate-400 hover:text-sky-600 p-1.5 rounded-lg hover:bg-sky-50 transition-colors border border-transparent hover:border-sky-200 cursor-pointer"
+                title={canWrite && (!isLocked || !isTournamentStarted) ? "Dettagli / Modifica squadra" : "Dettagli squadra"}
+              >
+                <Eye className="w-4 h-4 text-sky-500" />
+              </button>
+            )}
+            {canWrite && (!isLocked || !isTournamentStarted) && !isWithdrawn ? (
               <button
                 id={`delete-team-btn-${team.id}`}
                 onClick={() => {
@@ -270,12 +283,16 @@ export default function TeamsTab({
               </button>
             ) : (
               <div className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-xl border select-none cursor-not-allowed ${
-                isReserve 
-                  ? 'bg-orange-50 border-orange-250 text-orange-600' 
-                  : 'bg-slate-100 border-slate-200 text-slate-500'
-              }`} title={isReserve ? "Riserva nel torneo attivo" : "Iscritta nel torneo attivo"}>
+                isWithdrawn
+                  ? 'bg-rose-50 border-rose-100 text-rose-500'
+                  : isReserve 
+                    ? 'bg-orange-50 border-orange-250 text-orange-600' 
+                    : 'bg-slate-100 border-slate-200 text-slate-500'
+              }`} title={isWithdrawn ? "Squadre ritirata dal torneo" : isReserve ? "Riserva nel torneo attivo" : "Iscritta nel torneo attivo"}>
                 <Lock className="w-3 h-3 text-current" />
-                <span className="text-[9px] font-black uppercase tracking-wider">{isReserve ? 'Riserva' : 'Rank'}</span>
+                <span className="text-[9px] font-black uppercase tracking-wider">
+                  {isWithdrawn ? 'Ritirata' : isReserve ? 'Riserva' : 'Rank'}
+                </span>
               </div>
             )}
           </div>
@@ -292,7 +309,21 @@ export default function TeamsTab({
           </div>
         </div>
 
-        {isLocked && !isReserve && !isTournamentStarted && (
+        {/* Visualise links of substitution/retirement */}
+        {isWithdrawn && team.replacedByTeamName && (
+          <div className="mt-2.5 text-[10px] font-bold text-rose-700 bg-rose-50/70 border border-rose-150 rounded-xl p-2 px-3 flex items-center gap-1.5 leading-tight">
+            <RefreshCw className="w-3.5 h-3.5 text-rose-500 shrink-0 animate-spin duration-3000" />
+            <span>Sostituita da: <strong className="uppercase">{team.replacedByTeamName}</strong></span>
+          </div>
+        )}
+        {!isWithdrawn && team.subenteredForTeamName && (
+          <div className="mt-2.5 text-[10px] font-bold text-emerald-800 bg-emerald-50/70 border border-emerald-150 rounded-xl p-2 px-3 flex items-center gap-1.5 leading-tight">
+            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span>Subentrata al posto di: <strong className="uppercase">{team.subenteredForTeamName}</strong></span>
+          </div>
+        )}
+
+        {isLocked && !isReserve && !isTournamentStarted && !isWithdrawn && canWrite && (
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -307,27 +338,34 @@ export default function TeamsTab({
           </div>
         )}
 
-        <div className="border-t border-slate-200 flex items-center justify-between mt-3.5 pt-2 text-[10px] font-bold text-slate-400">
-          <span>
-            Iscritta:{' '}
-            {(() => {
-              if (team.registeredAt.includes(' ')) {
-                const [d, t] = team.registeredAt.split(' ');
-                const parts = d.split('-');
+        <div className="border-t border-slate-200 flex flex-col gap-0.5 mt-3.5 pt-2 text-[10px] font-bold text-slate-400">
+          <div className="flex justify-between items-center w-full">
+            <span>
+              Iscritta:{' '}
+              {(() => {
+                if (team.registeredAt.includes(' ')) {
+                  const [d, t] = team.registeredAt.split(' ');
+                  const parts = d.split('-');
+                  if (parts.length === 3) {
+                    const [y, m, dayVal] = parts;
+                    return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                  }
+                }
+                const parts = team.registeredAt.split('-');
                 if (parts.length === 3) {
                   const [y, m, dayVal] = parts;
-                  return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                  return `${dayVal}/${m}/${y}`;
                 }
-              }
-              const parts = team.registeredAt.split('-');
-              if (parts.length === 3) {
-                const [y, m, dayVal] = parts;
-                return `${dayVal}/${m}/${y}`;
-              }
-              return team.registeredAt;
-            })()}
-          </span>
-          <span className="text-[9px] text-slate-400/80 font-mono">ID: {team.id.substring(0, 8)}</span>
+                return team.registeredAt;
+              })()}
+            </span>
+            <span className="text-[9px] text-slate-400/80 font-mono">ID: {team.id.substring(0, 8)}</span>
+          </div>
+          {!isWithdrawn && team.subenteredForTeamName && (
+            <span className="text-[9px] text-emerald-600 font-extrabold uppercase tracking-wide flex items-center gap-1 mt-1">
+              • Data d'iscrizione ereditata dalla squadra sostituita
+            </span>
+          )}
         </div>
       </motion.div>
     );
@@ -776,7 +814,7 @@ export default function TeamsTab({
                     <div className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full bg-orange-400"></span>
                       <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wide">
-                        Lista Riserve / Escluse ({teams.length - (admittedTeamsCount || 0)})
+                        Lista Riserve / Escluse ({activeTeams.length - (admittedTeamsCount || 0)})
                       </h4>
                     </div>
                     <span className="text-[9px] bg-orange-50 text-orange-700 font-extrabold px-2 py-0.5 rounded-md border border-orange-200 uppercase tracking-wide">
@@ -806,6 +844,36 @@ export default function TeamsTab({
                 {filteredTeams.map((team, index) => renderTeamCard(team, index, false))}
               </div>
             )
+          )}
+
+          {/* DEDICATED WITHDRAWN TEAMS SECTION */}
+          {withdrawnTeams.length > 0 && (
+            <div className="mt-10 pt-8 border-t-2 border-dashed border-slate-250 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+                  <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wide font-sans">
+                    Squadre Ritirate / Sostituite ({withdrawnTeams.length})
+                  </h4>
+                </div>
+                <span className="text-[9px] bg-rose-50 text-rose-700 font-extrabold px-2 py-0.5 rounded-md border border-rose-200 uppercase tracking-wide">
+                  Ritirate / Escluse ❌
+                </span>
+              </div>
+
+              <div id="teams-grid-withdrawn" className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {withdrawnTeams
+                  .filter((t) => {
+                    const q = searchQuery.toLowerCase();
+                    return (
+                      t.name.toLowerCase().includes(q) ||
+                      t.player1.toLowerCase().includes(q) ||
+                      t.player2.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((team, index) => renderTeamCard(team, index, false))}
+              </div>
+            </div>
           )}
         </div>
       </div>

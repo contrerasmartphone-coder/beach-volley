@@ -19,6 +19,14 @@ export interface Team {
   pointsWon: number;
   pointsLost: number;
   points: number; // General tournament ranking points
+
+  // Fields to support team substitution while preserving chronological links
+  isWithdrawn?: boolean;
+  withdrawnAt?: string;
+  replacedByTeamId?: string;
+  replacedByTeamName?: string;
+  subenteredForTeamId?: string;
+  subenteredForTeamName?: string;
 }
 
 export interface SetScore {

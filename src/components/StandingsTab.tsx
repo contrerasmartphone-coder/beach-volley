@@ -11,8 +11,6 @@ interface StandingsTabProps {
 }
 
 export default function StandingsTab({ teams, matches, activeTournamentConfig }: StandingsTabProps) {
-  const [filterLevel, setFilterLevel] = useState<string>('all');
-
   const isCombined = activeTournamentConfig?.formula === 'combined';
   const standingsMatches = isCombined ? matches.filter(m => m.phase === 'gironi') : matches;
 
@@ -43,9 +41,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
     return index !== -1 ? `${index + 1}° (${team.group.replace('Girone ', '')})` : '-';
   };
 
-  const filteredTeams = filterLevel === 'all' 
-    ? sortedTeams 
-    : sortedTeams.filter(t => t.level === filterLevel);
+  const filteredTeams = sortedTeams;
 
   // Determine top 3 for the podium based on actual finals results if it's a playoff/bracket tournament
   const grandFinal = matches.find(m => m.roundLabel === 'Finale' && (m.phase === 'eliminazione' || m.id.includes('de') || m.id.startsWith('m-p-')));
@@ -209,54 +205,6 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
               }
             </p>
           </div>
-          {/* Level Filter */}
-          <div className="flex flex-wrap gap-2 self-start">
-            <button
-              id="filter-standing-all"
-              onClick={() => setFilterLevel('all')}
-              className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                filterLevel === 'all' ? 'bg-orange-400 border-orange-600 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-500'
-              }`}
-            >
-              Tutti i livelli
-            </button>
-            <button
-              id="filter-standing-beginner"
-              onClick={() => setFilterLevel('Beginner')}
-              className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                filterLevel === 'Beginner' ? 'bg-emerald-500 border-emerald-700 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-500'
-              }`}
-            >
-              Beginner
-            </button>
-            <button
-              id="filter-standing-bronze"
-              onClick={() => setFilterLevel('Bronze')}
-              className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                filterLevel === 'Bronze' ? 'bg-amber-700 border-amber-900 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-500'
-              }`}
-            >
-              Bronze
-            </button>
-            <button
-              id="filter-standing-silver"
-              onClick={() => setFilterLevel('Silver')}
-              className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                filterLevel === 'Silver' ? 'bg-slate-400 border-slate-500 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-500'
-              }`}
-            >
-              Silver
-            </button>
-            <button
-              id="filter-standing-gold"
-              onClick={() => setFilterLevel('Gold')}
-              className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                filterLevel === 'Gold' ? 'bg-amber-500 border-amber-600 text-white shadow-md' : 'bg-slate-50 hover:bg-slate-100 border-2 border-slate-200 text-slate-500'
-              }`}
-            >
-              Gold
-            </button>
-          </div>
         </div>
 
         {filteredTeams.length === 0 ? (
@@ -296,7 +244,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                       ? '1.00' 
                       : (team.pointsWon / team.pointsLost).toFixed(2);
 
-                    const isPodiumNum = idx < 3 && filterLevel === 'all';
+                    const isPodiumNum = idx < 3;
 
                     return (
                       <tr
@@ -400,7 +348,7 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig }:
                   ? '1.00' 
                   : (team.pointsWon / team.pointsLost).toFixed(2);
 
-                const isPodiumNum = idx < 3 && filterLevel === 'all';
+                const isPodiumNum = idx < 3;
 
                 return (
                   <div

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Team, Match, ArchivedTournament, AppUser } from '../types';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { getGaraNumbersMap } from '../utils';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save } from 'lucide-react';
 
@@ -601,37 +602,50 @@ export default function ArchiveTab({
                         </h4>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {arc.matches.map((m) => {
-                            const isT1Winner = m.status === 'completed' && m.team1Score > m.team2Score;
-                            const isT2Winner = m.status === 'completed' && m.team2Score > m.team1Score;
-                            return (
-                              <div key={m.id} className="bg-white border border-slate-100 rounded-xl p-3 shadow-inner flex flex-col justify-between">
-                                <div className="flex justify-between items-center text-[9px] text-slate-400 uppercase font-black tracking-wider mb-2">
-                                  <span>Campo {m.court} • Ore {m.time}</span>
-                                  <span className="text-sky-655">{m.roundLabel || `Turno ${m.round}`}</span>
-                                </div>
+                          {(() => {
+                            const garaNumbers = getGaraNumbersMap(arc.matches);
+                            return arc.matches.map((m) => {
+                              const isT1Winner = m.status === 'completed' && m.team1Score > m.team2Score;
+                              const isT2Winner = m.status === 'completed' && m.team2Score > m.team1Score;
+                              const garaNum = garaNumbers[m.id];
+                              return (
+                                <div key={m.id} className="bg-white border border-slate-100 rounded-xl p-3 shadow-inner flex flex-col justify-between">
+                                  <div>
+                                    <div className="flex justify-between items-center text-[9px] text-slate-400 uppercase font-black tracking-wider mb-2 border-b border-gray-150 pb-1.5">
+                                      <div className="flex gap-1.5 items-center">
+                                        {garaNum && (
+                                          <span className="font-extrabold text-white bg-slate-800 px-2.5 py-1 rounded uppercase text-[10px] shadow-sm">
+                                            Gara {garaNum}
+                                          </span>
+                                        )}
+                                        <span>Campo {m.court} • Ore {m.time}</span>
+                                      </div>
+                                      <span className="text-sky-655">{m.roundLabel || `Turno ${m.round}`}</span>
+                                    </div>
 
-                                <div className="space-y-1.5">
-                                  <div className={`flex justify-between items-center text-xs font-bold uppercase transition-all ${isT1Winner ? 'text-orange-655' : 'text-slate-700'}`}>
-                                    <span className="truncate max-w-[150px]">{m.team1 ? m.team1.name : 'TBD'}</span>
-                                    <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-[11px]">{m.team1Score}</span>
+                                    <div className="space-y-1.5">
+                                      <div className={`flex justify-between items-center text-xs font-bold uppercase transition-all ${isT1Winner ? 'text-orange-655' : 'text-slate-700'}`}>
+                                        <span className="truncate max-w-[150px]">{m.team1 ? m.team1.name : 'TBD'}</span>
+                                        <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-[11px]">{m.team1Score}</span>
+                                      </div>
+                                      <div className={`flex justify-between items-center text-xs font-bold uppercase transition-all ${isT2Winner ? 'text-orange-655' : 'text-slate-700'}`}>
+                                        <span className="truncate max-w-[150px]">{m.team2 ? m.team2.name : 'TBD'}</span>
+                                        <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-[11px]">{m.team2Score}</span>
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div className={`flex justify-between items-center text-xs font-bold uppercase transition-all ${isT2Winner ? 'text-orange-655' : 'text-slate-700'}`}>
-                                    <span className="truncate max-w-[150px]">{m.team2 ? m.team2.name : 'TBD'}</span>
-                                    <span className="font-mono bg-slate-50 px-2 py-0.5 rounded text-[11px]">{m.team2Score}</span>
-                                  </div>
-                                </div>
 
-                                {m.sets && m.sets.length > 0 && (
-                                  <div className="mt-2 pt-2 border-t border-dashed border-slate-100 flex flex-wrap gap-1 text-[9px] text-slate-400 font-mono justify-center">
-                                    {m.sets.map((s, idx) => (
-                                      <span key={idx} className="bg-slate-50 px-1.5 py-0.5 rounded">Set {idx + 1}: {s.team1}-{s.team2}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                                  {m.sets && m.sets.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-dashed border-slate-100 flex flex-wrap gap-1 text-[9px] text-slate-400 font-mono justify-center">
+                                      {m.sets.map((s, idx) => (
+                                        <span key={idx} className="bg-slate-50 px-1.5 py-0.5 rounded">Set {idx + 1}: {s.team1}-{s.team2}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            });
+                          })()}
                         </div>
                       </div>
 
