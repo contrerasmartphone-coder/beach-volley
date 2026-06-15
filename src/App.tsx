@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType, cleanObject } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
 
+const logoUrl = new URL('./assets/images/wsicily_logo_white_bg_1781554165519.jpg', import.meta.url).href;
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'teams' | 'bracket' | 'standings' | 'notifications' | 'archive' | 'users'>('teams');
 
@@ -771,7 +773,7 @@ export default function App() {
           <div className="text-center space-y-3">
             <div className="w-20 h-20 bg-white border-2 border-amber-300 rounded-2xl flex items-center justify-center mx-auto shadow-md overflow-hidden">
               <img
-                src="/src/assets/images/wsicily_logo_white_bg_1781554165519.jpg"
+                src={logoUrl}
                 alt="WSICILY Logo"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -861,7 +863,7 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="bg-white border-2 border-sky-400/50 rounded-2xl overflow-hidden shadow-md shrink-0 w-12 h-12 md:w-16 md:h-16 flex items-center justify-center">
               <img
-                src="/src/assets/images/wsicily_logo_white_bg_1781554165519.jpg"
+                src={logoUrl}
                 alt="WSICILY Logo"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
