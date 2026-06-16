@@ -13,6 +13,7 @@ import { db, handleFirestoreError, OperationType, cleanObject } from './firebase
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
 
 const logoUrl = new URL('./assets/images/wsicily_logo_white_bg_1781554165519.jpg', import.meta.url).href;
+const contreraLogoUrl = new URL('./assets/images/regenerated_image_1781554021790.png', import.meta.url).href;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'teams' | 'bracket' | 'standings' | 'notifications' | 'archive' | 'users'>('teams');
@@ -450,6 +451,9 @@ export default function App() {
     maxSets?: 1 | 3;
     sfPointsPerSet?: 15 | 21;
     sfMaxSets?: 1 | 3;
+    include3rd4th?: boolean;
+    breakStart?: string;
+    breakEnd?: string;
   }, teamsToUse: Team[] = teams) => {
     const startHour = '09:00';
     let matchDuration = 40;
@@ -496,7 +500,9 @@ export default function App() {
         config.maxSets,
         config.sfPointsPerSet,
         config.sfMaxSets,
-        config.courtCount
+        config.courtCount,
+        config.breakStart,
+        config.breakEnd
       );
 
       // Remove any group association in play
@@ -524,7 +530,10 @@ export default function App() {
         config.pointsPerSet,
         config.maxSets,
         config.sfPointsPerSet,
-        config.sfMaxSets
+        config.sfMaxSets,
+        config.include3rd4th !== false,
+        config.breakStart,
+        config.breakEnd
       );
       
       generatedMatches = seededMatches.map(m => ({
@@ -587,7 +596,9 @@ export default function App() {
         matchDuration,
         config.courtCount,
         config.pointsPerSet,
-        config.maxSets
+        config.maxSets,
+        config.breakStart,
+        config.breakEnd
       );
 
       initNotif = {
@@ -637,7 +648,9 @@ export default function App() {
         matchDuration,
         config.courtCount,
         config.pointsPerSet,
-        config.maxSets
+        config.maxSets,
+        config.breakStart,
+        config.breakEnd
       );
 
       initNotif = {
@@ -1172,6 +1185,29 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* Powered by Contrera */}
+      <div id="app-powered-by-contrera" className="flex flex-col items-center justify-center gap-1.5 mt-10 -mb-6 select-none animate-in fade-in duration-300">
+        <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+          powered by
+        </span>
+        <div className="flex items-center justify-center">
+          <a
+            href="https://www.contrerasmartphone.it"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="cursor-pointer hover:scale-105 active:scale-95 transition-transform duration-200"
+          >
+            <img
+              id="contrera-powered-logo"
+              src={contreraLogoUrl}
+              alt="Contrera Logo"
+              className="w-[100px] h-[100px] object-contain"
+              referrerPolicy="no-referrer"
+            />
+          </a>
+        </div>
+      </div>
 
       {/* Bottom Ticker */}
       <footer className="mt-12 bg-emerald-500 h-14 flex items-center overflow-hidden whitespace-nowrap shadow-inner border-t-4 border-emerald-600">

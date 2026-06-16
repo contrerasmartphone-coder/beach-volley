@@ -249,6 +249,26 @@ export function formatMinutesToTime(totalMinutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+export function adjustTimeForRest(
+  timeInMinutes: number, 
+  duration: number, 
+  breakStart?: string, 
+  breakEnd?: string
+): number {
+  if (!breakStart || !breakEnd || breakStart === '' || breakEnd === '') return timeInMinutes;
+  const startMins = parseTimeToMinutes(breakStart);
+  const endMins = parseTimeToMinutes(breakEnd);
+  if (endMins <= startMins) return timeInMinutes;
+
+  const matchStart = timeInMinutes;
+  const matchEnd = timeInMinutes + duration;
+
+  if (matchStart < endMins && matchEnd > startMins) {
+    return endMins;
+  }
+  return timeInMinutes;
+}
+
 export function getMatchDuration(pts?: number, sets?: number): number {
   const p = pts || 21;
   const s = sets || 3;
@@ -265,7 +285,9 @@ export function scheduleEliminationRounds(
   roundsMatches: Match[][],
   startHour: string,
   courtCount: number,
-  defaultDuration: number = 40
+  defaultDuration: number = 40,
+  breakStart?: string,
+  breakEnd?: string
 ): Match[] {
   let currentTimeMinutes = parseTimeToMinutes(startHour);
 
@@ -294,11 +316,13 @@ export function scheduleEliminationRounds(
       const matchOffset = slotIndex * duration;
 
       const matchTimeInMinutes = currentTimeMinutes + matchOffset;
-      match.time = formatMinutesToTime(matchTimeInMinutes);
+      const adjustedMatchTime = adjustTimeForRest(matchTimeInMinutes, duration, breakStart, breakEnd);
+      
+      match.time = formatMinutesToTime(adjustedMatchTime);
       match.court = `Campo ${courtNum}`;
       match.position = p + 1; // logical position in sequence
 
-      const matchEndTime = matchOffset + duration;
+      const matchEndTime = (adjustedMatchTime - currentTimeMinutes) + duration;
       if (matchEndTime > maxOffsetInThisRound) {
         maxOffsetInThisRound = matchEndTime;
       }
@@ -323,7 +347,10 @@ export function generateDirectEliminationBracket(
   pointsPerSet?: 15 | 21,
   maxSets?: 1 | 3,
   sfPointsPerSet?: 15 | 21,
-  sfMaxSets?: 1 | 3
+  sfMaxSets?: 1 | 3,
+  include3rd4th: boolean = true,
+  breakStart?: string,
+  breakEnd?: string
 ): Match[] {
   const matches: Match[] = [];
   
@@ -366,7 +393,7 @@ export function generateDirectEliminationBracket(
     else roundLabel = `Turno a ${currentRoundUnits * 2} squadre`;
 
     for (let p = 1; p <= maxPositions; p++) {
-      const isSFOrFinal = roundLabel.includes('Semifinali') || roundLabel.includes('Finale');
+      const isFinal = roundLabel === 'Finale' || roundLabel.startsWith('Finale');
 
       const match: Match = {
         id: `m-${matchIdCounter++}`,
@@ -381,8 +408,8 @@ export function generateDirectEliminationBracket(
         status: 'scheduled',
         court: '',
         time: '',
-        pointsPerSet: isSFOrFinal ? (sfPointsPerSet || pointsPerSet) : pointsPerSet,
-        maxSets: isSFOrFinal ? (sfMaxSets || maxSets) : maxSets,
+        pointsPerSet: isFinal ? (sfPointsPerSet || pointsPerSet) : pointsPerSet,
+        maxSets: isFinal ? (sfMaxSets || maxSets) : maxSets,
       };
 
       roundMatches.push(match);
@@ -442,7 +469,7 @@ export function generateDirectEliminationBracket(
   }
 
   // Insert 3rd/4th place final match if there are at least 2 rounds (e.g. Semifinals and Finals)
-  if (totalRounds >= 2) {
+  if (totalRounds >= 2 && include3rd4th !== false) {
     const finalRoundMatches = roundMatchesByRound[totalRounds - 1];
     const semiRound = roundMatchesByRound[totalRounds - 2];
     const semi1 = semiRound[0];
@@ -481,7 +508,9 @@ export function generateDirectEliminationBracket(
     roundMatchesByRound,
     startHour,
     courtCount,
-    durationMinutes
+    durationMinutes,
+    breakStart,
+    breakEnd
   );
 
   return autoResolveAndPropagate(scheduledFlatMatches);
@@ -918,7 +947,9 @@ export function generateRoundRobinMatches(
   durationMinutes: number = 40,
   courtCount: number = 2,
   pointsPerSet?: 15 | 21,
-  maxSets?: 1 | 3
+  maxSets?: 1 | 3,
+  breakStart?: string,
+  breakEnd?: string
 ): Match[] {
   const groupNames = Object.keys(groups);
   let matchIdCounter = 1001; // Easy ID prefix block for pool matches
@@ -1130,6 +1161,8 @@ export function generateRoundRobinMatches(
 
   // 4. Coordinate assigned courts and match starting times for active (non-BYE) matches
   let globalMatchIndex = 0;
+  let slotStartTimeMinutes = startHr * 60 + startMin;
+
   preResolved.forEach((match) => {
     if (match.status === 'completed' && (isByeTeam(match.team1) || isByeTeam(match.team2))) {
       match.court = '';
@@ -1140,16 +1173,16 @@ export function generateRoundRobinMatches(
     const courtIndex = (globalMatchIndex % courtCount) + 1;
     match.court = `Campo ${courtIndex}`;
 
-    const timeSlotIndex = Math.floor(globalMatchIndex / courtCount);
-    const totalOffsetMinutes = timeSlotIndex * durationMinutes;
+    if (globalMatchIndex > 0 && courtIndex === 1) {
+      slotStartTimeMinutes += durationMinutes;
+    }
 
-    const matchDate = new Date();
-    matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);
+    const adjustedSlotTime = adjustTimeForRest(slotStartTimeMinutes, durationMinutes, breakStart, breakEnd);
+    if (adjustedSlotTime !== slotStartTimeMinutes) {
+      slotStartTimeMinutes = adjustedSlotTime;
+    }
 
-    const hh = String(matchDate.getHours()).padStart(2, '0');
-    const mm = String(matchDate.getMinutes()).padStart(2, '0');
-    match.time = `${hh}:${mm}`;
-
+    match.time = formatMinutesToTime(slotStartTimeMinutes);
     match.position = globalMatchIndex + 1;
     globalMatchIndex++;
   });
@@ -1190,7 +1223,10 @@ export function generatePlayoffsFromGroups(
   sfMaxSets?: 1 | 3,
   qualifiedCount?: number,
   allTeams?: Team[],
-  groupMatches?: Match[]
+  groupMatches?: Match[],
+  include3rd4th: boolean = true,
+  breakStart?: string,
+  breakEnd?: string
 ): Match[] {
   const groupNames = Object.keys(groupsStandings).sort();
   let qualifiers: Team[] = [];
@@ -1289,7 +1325,7 @@ export function generatePlayoffsFromGroups(
     else if (currentRoundUnits === 1) roundLabel = 'Finale';
 
     for (let p = 1; p <= maxPositions; p++) {
-      const isSFOrFinal = roundLabel.includes('Semifinali') || roundLabel.includes('Finale');
+      const isFinal = roundLabel === 'Finale' || roundLabel.startsWith('Finale');
 
       const match: Match = {
         id: `m-p-${matchIdCounter++}`,
@@ -1305,8 +1341,8 @@ export function generatePlayoffsFromGroups(
         court: '',
         time: '',
         phase: 'eliminazione',
-        pointsPerSet: isSFOrFinal ? (sfPointsPerSet || pointsPerSet) : pointsPerSet,
-        maxSets: isSFOrFinal ? (sfMaxSets || maxSets) : maxSets,
+        pointsPerSet: isFinal ? (sfPointsPerSet || pointsPerSet) : pointsPerSet,
+        maxSets: isFinal ? (sfMaxSets || maxSets) : maxSets,
       };
 
       roundMatches.push(match);
@@ -1340,7 +1376,7 @@ export function generatePlayoffsFromGroups(
   }
 
   // Insert 3rd/4th place final match if there are at least 2 rounds (e.g. Semifinals and Finals)
-  if (totalRounds >= 2) {
+  if (totalRounds >= 2 && include3rd4th !== false) {
     const finalRoundMatches = roundMatchesByRound[totalRounds - 1];
     const semiRound = roundMatchesByRound[totalRounds - 2];
     const semi1 = semiRound[0];
@@ -1380,7 +1416,9 @@ export function generatePlayoffsFromGroups(
     roundMatchesByRound,
     startHour,
     courtCount,
-    durationMinutes
+    durationMinutes,
+    breakStart,
+    breakEnd
   );
 
   return autoResolveAndPropagate(scheduledPlayoffMatches);
@@ -1394,7 +1432,9 @@ export function generateDoubleEliminationBracket(
   maxSets?: 1 | 3,
   sfPointsPerSet?: 15 | 21,
   sfMaxSets?: 1 | 3,
-  courtCount: number = 2
+  courtCount: number = 2,
+  breakStart?: string,
+  breakEnd?: string
 ): Match[] {
   const matches: Match[] = [];
   
@@ -1416,17 +1456,25 @@ export function generateDoubleEliminationBracket(
   const [startHr, startMin] = startHour.split(':').map(Number);
 
   // Helper to schedule match time and court
+  const scheduleTimes: number[] = [];
+  let currentSlotTime = startHr * 60 + startMin;
+  for (let i = 0; i < 20; i++) {
+    const courtIndex = (i % courtCount) + 1;
+    if (i > 0 && courtIndex === 1) {
+      currentSlotTime += durationMinutes;
+    }
+    const adjusted = adjustTimeForRest(currentSlotTime, durationMinutes, breakStart, breakEnd);
+    if (adjusted !== currentSlotTime) {
+      currentSlotTime = adjusted;
+    }
+    scheduleTimes.push(currentSlotTime);
+  }
+
   const getScheduledTimeAndCourt = (index: number) => {
     const courtNum = (index % courtCount) + 1;
-    // Sequential blocks of matches (approx 40 minutes each)
-    const block = Math.floor(index / courtCount);
-    const totalOffsetMinutes = block * durationMinutes;
-    const matchDate = new Date();
-    matchDate.setHours(startHr, startMin + totalOffsetMinutes, 0);
-    const hh = String(matchDate.getHours()).padStart(2, '0');
-    const mm = String(matchDate.getMinutes()).padStart(2, '0');
+    const timeMins = scheduleTimes[index] || (startHr * 60 + startMin);
     return {
-      time: `${hh}:${mm}`,
+      time: formatMinutesToTime(timeMins),
       court: `Campo ${courtNum}`
     };
   };
@@ -1524,8 +1572,8 @@ export function generateDoubleEliminationBracket(
       phase: 'eliminazione',
       nextMatchId: 'm-de-11',
       nextMatchSlot: i === 0 ? 'team1' : 'team2',
-      pointsPerSet: sfPointsPerSet || pointsPerSet,
-      maxSets: sfMaxSets || maxSets,
+      pointsPerSet,
+      maxSets,
     });
   }
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
-import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap } from '../utils';
-import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText } from 'lucide-react';
+import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap, parseTimeToMinutes, formatMinutesToTime } from '../utils';
+import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface BracketTabProps {
@@ -19,6 +19,9 @@ interface BracketTabProps {
     sfPointsPerSet?: 15 | 21;
     sfMaxSets?: 1 | 3;
     qualifiedCount?: number;
+    include3rd4th?: boolean;
+    breakStart?: string;
+    breakEnd?: string;
   }) => void;
   onAddNotification: (notification: NotificationLog) => void;
   currentUser?: AppUser | null;
@@ -55,6 +58,9 @@ export default function BracketTab({
   const [maxSets, setMaxSets] = useState<1 | 3>(3);
   const [sfPointsPerSet, setSfPointsPerSet] = useState<15 | 21>(21);
   const [sfMaxSets, setSfMaxSets] = useState<1 | 3>(3);
+  const [include3rd4th, setInclude3rd4th] = useState<boolean>(true);
+  const [breakStart, setBreakStart] = useState<string>('');
+  const [breakEnd, setBreakEnd] = useState<string>('');
 
   // Synchronize teamsCount and groupCount automatically for the 'combined' formula
   useEffect(() => {
@@ -585,7 +591,9 @@ export default function BracketTab({
     currentPointsPerSet: number,
     currentMaxSets: number,
     currentSfPointsPerSet = sfPointsPerSet,
-    currentSfMaxSets = sfMaxSets
+    currentSfMaxSets = sfMaxSets,
+    currentBreakStart = breakStart,
+    currentBreakEnd = breakEnd
   ) => {
     const generalMatchDuration = getSingleMatchDuration(currentPointsPerSet, currentMaxSets);
     const sfMatchDuration = getSingleMatchDuration(currentSfPointsPerSet, currentSfMaxSets);
@@ -608,7 +616,10 @@ export default function BracketTab({
         currentPointsPerSet as 15 | 21,
         currentMaxSets as 1 | 3,
         currentSfPointsPerSet as 15 | 21,
-        currentSfMaxSets as 1 | 3
+        currentSfMaxSets as 1 | 3,
+        include3rd4th,
+        currentBreakStart,
+        currentBreakEnd
       );
     } else if (currentFormula === 'double_elim') {
       mockMatches = generateDoubleEliminationBracket(
@@ -618,7 +629,10 @@ export default function BracketTab({
         currentPointsPerSet as 15 | 21,
         currentMaxSets as 1 | 3,
         currentSfPointsPerSet as 15 | 21,
-        currentSfMaxSets as 1 | 3
+        currentSfMaxSets as 1 | 3,
+        currentCourtCount,
+        currentBreakStart,
+        currentBreakEnd
       );
     } else if (currentFormula === 'pools') {
       const selectedTeams = [...clearedTeamsTemp.slice(0, currentTeamsCount)];
@@ -632,7 +646,16 @@ export default function BracketTab({
         } as Team);
       }
       const groups = splitTeamsIntoGroups(selectedTeams, currentGroupCount);
-      mockMatches = generateRoundRobinMatches(groups, '09:00', generalMatchDuration, currentCourtCount, currentPointsPerSet as 15 | 21, currentMaxSets as 1 | 3);
+      mockMatches = generateRoundRobinMatches(
+        groups,
+        '09:00',
+        generalMatchDuration,
+        currentCourtCount,
+        currentPointsPerSet as 15 | 21,
+        currentMaxSets as 1 | 3,
+        currentBreakStart,
+        currentBreakEnd
+      );
     } else if (currentFormula === 'combined') {
       const selectedTeams = [...clearedTeamsTemp.slice(0, currentTeamsCount)];
       let byeCount = 1;
@@ -645,7 +668,16 @@ export default function BracketTab({
         } as Team);
       }
       const groups = splitTeamsIntoGroups(selectedTeams, currentGroupCount);
-      const groupStageMatches = generateRoundRobinMatches(groups, '09:00', generalMatchDuration, currentCourtCount, currentPointsPerSet as 15 | 21, currentMaxSets as 1 | 3);
+      const groupStageMatches = generateRoundRobinMatches(
+        groups,
+        '09:00',
+        generalMatchDuration,
+        currentCourtCount,
+        currentPointsPerSet as 15 | 21,
+        currentMaxSets as 1 | 3,
+        currentBreakStart,
+        currentBreakEnd
+      );
       mockMatches.push(...groupStageMatches);
 
       const mockStandings = computeGroupStandings(selectedTeams, groupStageMatches);
@@ -680,7 +712,10 @@ export default function BracketTab({
         currentSfMaxSets as 1 | 3,
         combinedQualifiedTeams,
         selectedTeams,
-        groupStageMatches
+        groupStageMatches,
+        include3rd4th,
+        currentBreakStart,
+        currentBreakEnd
       );
       mockMatches.push(...playoffMatches);
     }
@@ -741,13 +776,45 @@ export default function BracketTab({
       totalElapsedMinutes = groupElapsed + playoffElapsed;
     }
 
+    let earliestMinutes = 24 * 60;
+    let latestEndMinutes = 0;
+
+    realMatches.forEach(m => {
+      if (m.time && m.time.includes(':')) {
+        const [h, min] = m.time.split(':').map(Number);
+        const matchStart = h * 60 + min;
+        const matchDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const matchEnd = matchStart + matchDuration;
+
+        if (matchStart < earliestMinutes) earliestMinutes = matchStart;
+        if (matchEnd > latestEndMinutes) latestEndMinutes = matchEnd;
+      }
+    });
+
+    if (realMatchesCount === 0 || latestEndMinutes === 0) {
+      earliestMinutes = 9 * 60;
+      latestEndMinutes = 9 * 60;
+    }
+
+    const breakStartMins = currentBreakStart ? parseTimeToMinutes(currentBreakStart) : 0;
+    const breakEndMins = currentBreakEnd ? parseTimeToMinutes(currentBreakEnd) : 0;
+    const hasBreak = !!(currentBreakStart && currentBreakEnd && breakEndMins > breakStartMins);
+    const breakDuration = hasBreak ? (breakEndMins - breakStartMins) : 0;
+
     return {
       realMatchesCount,
       singleMatchDuration: generalMatchDuration,
       sfMatchDuration,
       hasDifferentSFParams,
       totalElapsedMinutes,
-      totalRawMinutes
+      totalRawMinutes,
+      earliestMinutes,
+      latestEndMinutes,
+      breakStart: currentBreakStart || '',
+      breakEnd: currentBreakEnd || '',
+      hasBreak,
+      breakDuration,
+      endHour: formatMinutesToTime(latestEndMinutes)
     };
   };
 
@@ -835,11 +902,46 @@ export default function BracketTab({
       totalElapsedMinutes = groupElapsed + playoffElapsed;
     }
 
+    const activeBreakStart = activeTournamentConfig?.breakStart || '';
+    const activeBreakEnd = activeTournamentConfig?.breakEnd || '';
+
+    let earliestMinutes = 24 * 60;
+    let latestEndMinutes = 0;
+
+    realMatches.forEach(m => {
+      if (m.time && m.time.includes(':')) {
+        const [h, min] = m.time.split(':').map(Number);
+        const matchStart = h * 60 + min;
+        const matchDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const matchEnd = matchStart + matchDuration;
+
+        if (matchStart < earliestMinutes) earliestMinutes = matchStart;
+        if (matchEnd > latestEndMinutes) latestEndMinutes = matchEnd;
+      }
+    });
+
+    if (realMatchesCount === 0 || latestEndMinutes === 0) {
+      earliestMinutes = 9 * 60;
+      latestEndMinutes = 9 * 60;
+    }
+
+    const breakStartMins = activeBreakStart ? parseTimeToMinutes(activeBreakStart) : 0;
+    const breakEndMins = activeBreakEnd ? parseTimeToMinutes(activeBreakEnd) : 0;
+    const hasBreak = !!(activeBreakStart && activeBreakEnd && breakEndMins > breakStartMins);
+    const breakDuration = hasBreak ? (breakEndMins - breakStartMins) : 0;
+
     return {
       realMatchesCount,
       singleMatchDuration: generalMatchDuration,
       totalElapsedMinutes,
-      totalRawMinutes
+      totalRawMinutes,
+      earliestMinutes,
+      latestEndMinutes,
+      breakStart: activeBreakStart,
+      breakEnd: activeBreakEnd,
+      hasBreak,
+      breakDuration,
+      endHour: formatMinutesToTime(latestEndMinutes)
     };
   };
 
@@ -1692,7 +1794,8 @@ export default function BracketTab({
       activeSfMaxSets,
       resolvedQualifiedCount,
       teams,
-      groupMatches
+      groupMatches,
+      activeTournamentConfig?.include3rd4th !== false
     );
 
     onUpdateMatches([...matches, ...playoffMatches]);
@@ -1725,7 +1828,10 @@ export default function BracketTab({
       maxSets,
       sfPointsPerSet,
       sfMaxSets,
-      qualifiedCount: formula === 'combined' ? combinedQualifiedTeams : undefined
+      qualifiedCount: formula === 'combined' ? combinedQualifiedTeams : undefined,
+      include3rd4th,
+      breakStart: breakStart || undefined,
+      breakEnd: breakEnd || undefined
     });
   };
 
@@ -1969,12 +2075,12 @@ export default function BracketTab({
               </select>
             </div>
 
-            {/* Punti per Set Semifinali e Finali */}
+            {/* Punti per Set Finali */}
             {formula !== 'pools' && (
               <>
                 <div className="space-y-1">
                   <label htmlFor="setup-sf-points-per-set" className="text-xs font-bold text-orange-600 uppercase tracking-wider flex items-center gap-1">
-                    <Trophy className="w-3.5 h-3.5 text-orange-500" /> Punti Set (Semifinali & Finali)
+                    <Trophy className="w-3.5 h-3.5 text-orange-500" /> Punti Set (Finali)
                   </label>
                   <select
                     id="setup-sf-points-per-set"
@@ -1989,7 +2095,7 @@ export default function BracketTab({
 
                 <div className="space-y-1">
                   <label htmlFor="setup-sf-max-sets" className="text-xs font-bold text-orange-600 uppercase tracking-wider flex items-center gap-1">
-                    <Trophy className="w-3.5 h-3.5 text-orange-500" /> Num Set (Semifinali & Finali)
+                    <Trophy className="w-3.5 h-3.5 text-orange-500" /> Num Set (Finali)
                   </label>
                   <select
                     id="setup-sf-max-sets"
@@ -2003,6 +2109,70 @@ export default function BracketTab({
                 </div>
               </>
             )}
+
+            {/* Finale 3° e 4° Posto */}
+            {(formula === 'direct' || formula === 'combined') && (
+              <div className="space-y-1 md:col-span-2">
+                <label htmlFor="setup-include-3rd-4th" className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1">
+                  🥉 Finale 3° e 4° Posto
+                </label>
+                <select
+                  id="setup-include-3rd-4th"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                  value={include3rd4th ? 'true' : 'false'}
+                  onChange={(e) => setInclude3rd4th(e.target.value === 'true')}
+                >
+                  <option value="true">Sì, disputa la finale 3°/4° posto (Medaglia di Bronzo 🥉)</option>
+                  <option value="false">No, non disputare la finale 3°/4° posto</option>
+                </select>
+              </div>
+            )}
+
+            {/* Fascia Oraria di Riposo (Pausa) */}
+            <div className="grid grid-cols-2 gap-4 md:col-span-2 p-4 bg-orange-50/50 border border-orange-200 rounded-2xl">
+              <div className="col-span-2">
+                <h4 className="text-sm font-black text-orange-700 flex items-center gap-1.5">
+                  ☕ Fascia Oraria di Riposo (Pausa pranzo/relax)
+                </h4>
+                <p className="text-[11px] text-slate-500 font-bold leading-tight mt-0.5">
+                  Durante questa fascia oraria non verranno schedulate partite. Riprenderanno regolarmente al suo termine.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="setup-break-start" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                  Ora Inizio Pausa
+                </label>
+                <select
+                  id="setup-break-start"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                  value={breakStart}
+                  onChange={(e) => setBreakStart(e.target.value)}
+                >
+                  <option value="">Nessuna pausa</option>
+                  {["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00"].map((t) => (
+                    <option key={`start-${t}`} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="setup-break-end" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                  Ora Fine Pausa
+                </label>
+                <select
+                  id="setup-break-end"
+                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-sm"
+                  value={breakEnd}
+                  onChange={(e) => setBreakEnd(e.target.value)}
+                >
+                  <option value="">Nessuna pausa</option>
+                  {["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00"].map((t) => (
+                    <option key={`end-${t}`} value={t} disabled={breakStart !== "" && t <= breakStart}>{t}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             {/* Explanatory Info text depending on configuration */}
             <div className="md:col-span-2 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-800 font-semibold space-y-1 leading-relaxed">
@@ -2071,7 +2241,7 @@ export default function BracketTab({
                         Gen: <span className="text-sm font-black text-white">{setupStats.singleMatchDuration}</span> min
                       </div>
                       <div className="text-[11.5px] font-extrabold text-rose-300 leading-tight flex items-center gap-0.5">
-                        SF/F: <span className="text-sm font-black text-white">{setupStats.sfMatchDuration}</span> min
+                        Finali: <span className="text-sm font-black text-white">{setupStats.sfMatchDuration}</span> min
                       </div>
                     </div>
                   ) : (
@@ -2088,9 +2258,19 @@ export default function BracketTab({
                 </div>
                 <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-800/80 flex flex-col justify-between ring-2 ring-orange-500/20">
                   <span className="text-[10px] font-bold text-orange-200 uppercase tracking-widest">Durata Torneo</span>
-                  <span className="text-xl font-black mt-1 text-amber-300">
-                    {Math.floor(setupStats.totalElapsedMinutes / 60)}h {setupStats.totalElapsedMinutes % 60}m
-                  </span>
+                  <div>
+                    <span className="text-xl font-black mt-1 text-amber-300 block">
+                      {Math.floor(setupStats.totalElapsedMinutes / 60)}h {setupStats.totalElapsedMinutes % 60}m
+                    </span>
+                    {setupStats.hasBreak && (
+                      <span className="text-[9.5px] font-bold text-orange-300 mt-1 block leading-tight">
+                        ☕ Pausa: {setupStats.breakStart} - {setupStats.breakEnd} ({setupStats.breakDuration}m)
+                      </span>
+                    )}
+                    <span className="text-[10px] font-black text-emerald-400 mt-1 block leading-tight border-t border-slate-705/30 pt-1">
+                      🏁 Fine: ~{setupStats.endHour}
+                    </span>
+                  </div>
                 </div>
               </div>
               <p className="text-[10.5px] text-slate-400 leading-relaxed font-semibold">
@@ -2101,7 +2281,7 @@ export default function BracketTab({
                 {formula !== 'pools' && (maxSets !== sfMaxSets || pointsPerSet !== sfPointsPerSet) && (
                   <>
                     <br />
-                    <span className="text-orange-300">⚠️ Semifinali & Finali: Set al meglio di <strong className="text-orange-200">{sfMaxSets}</strong>, fino a <strong className="text-orange-200">{sfPointsPerSet}</strong> punti per set ({sfMaxSets === 1 ? (sfPointsPerSet === 15 ? '15 min' : '20 min') : (sfPointsPerSet === 15 ? '45 min' : '50 min')}).</span>
+                    <span className="text-orange-300">⚠️ Finali: Set al meglio di <strong className="text-orange-200">{sfMaxSets}</strong>, fino a <strong className="text-orange-200">{sfPointsPerSet}</strong> punti per set ({sfMaxSets === 1 ? (sfPointsPerSet === 15 ? '15 min' : '20 min') : (sfPointsPerSet === 15 ? '45 min' : '50 min')}).</span>
                   </>
                 )}
               </p>
@@ -2151,6 +2331,16 @@ export default function BracketTab({
                 <span className="inline-flex items-center text-[10px] font-black uppercase text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                   <Sparkles className="w-3 h-3 text-emerald-500 mr-1" />
                   Volume Gioco: {Math.floor(activeStats.totalRawMinutes / 60)}h {activeStats.totalRawMinutes % 60}m
+                </span>
+                {activeStats.hasBreak && (
+                  <span className="inline-flex items-center text-[10px] font-black uppercase text-orange-800 bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-200">
+                    <Coffee className="w-3 h-3 text-orange-500 mr-1" />
+                    Pausa: {activeStats.breakStart} - {activeStats.breakEnd} ({activeStats.breakDuration}m)
+                  </span>
+                )}
+                <span className="inline-flex items-center text-[10px] font-black uppercase text-rose-800 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 animate-pulse">
+                  <Award className="w-3 h-3 text-rose-500 mr-1" />
+                  Ora Fine: ~{activeStats.endHour}
                 </span>
               </div>
             </div>
