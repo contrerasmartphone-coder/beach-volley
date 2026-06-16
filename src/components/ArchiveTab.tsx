@@ -1,30 +1,49 @@
 import React, { useState } from 'react';
-import { Team, Match, ArchivedTournament, AppUser } from '../types';
+import { Team, Match, ArchivedTournament, AppUser, ActiveTournamentSave } from '../types';
 import { db, handleFirestoreError, OperationType, cleanObject } from '../firebase';
 import { getGaraNumbersMap, computeFipavStandings } from '../utils';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save } from 'lucide-react';
+import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save, Undo } from 'lucide-react';
 
 interface ArchiveTabProps {
   currentUser: AppUser | null;
   archives: ArchivedTournament[];
+  saves?: ActiveTournamentSave[];
   activeTeams: Team[];
   activeMatches: Match[];
   activeTournamentConfig: any;
   onClearActiveTournament: () => Promise<void>;
+  onSaveActiveTournament: (name: string) => Promise<void>;
+  onRestoreTournament: (save: ActiveTournamentSave) => Promise<void>;
+  onDeleteSave: (id: string) => Promise<void>;
 }
 
 export default function ArchiveTab({
   currentUser,
   archives,
+  saves = [],
   activeTeams,
   activeMatches,
   activeTournamentConfig,
   onClearActiveTournament,
+  onSaveActiveTournament,
+  onRestoreTournament,
+  onDeleteSave,
 }: ArchiveTabProps) {
   const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
   const [archiveName, setArchiveName] = useState('');
   const [isArchivingModalOpen, setIsArchivingModalOpen] = useState(false);
+  
+  // States for dynamic in-progress tournament saves
+  const [subTab, setSubTab] = useState<'historical' | 'in_progress'>('historical');
+  const [isSavingActiveModalOpen, setIsSavingActiveModalOpen] = useState(false);
+  const [activeSaveName, setActiveSaveName] = useState('');
+  
+  // Custom confirmation states to replace window.confirm (for sandbox iframe compatibility)
+  const [deleteArchiveId, setDeleteArchiveId] = useState<string | null>(null);
+  const [restoreSaveObj, setRestoreSaveObj] = useState<ActiveTournamentSave | null>(null);
+  const [deleteSaveId, setDeleteSaveId] = useState<string | null>(null);
+  
   const [isSuccessMessage, setIsSuccessMessage] = useState<string | null>(null);
 
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
@@ -138,14 +157,47 @@ export default function ArchiveTab({
     }
   };
 
+  const handleSaveActiveSubmit = async () => {
+    const nameToUse = activeSaveName.trim() || activeTournamentConfig?.name || `Torneo del ${new Date().toLocaleDateString()}`;
+    await onSaveActiveTournament(nameToUse);
+    setIsSuccessMessage(`Torneo in corso "${nameToUse}" salvato correttamente! Potrai riprenderlo in qualsiasi momento. 💾`);
+    setIsSavingActiveModalOpen(false);
+    setActiveSaveName('');
+    setTimeout(() => setIsSuccessMessage(null), 5000);
+  };
+
   // Delete archive
-  const handleDeleteArchive = async (id: string) => {
-    if (!confirm('Sei sicuro di voler eliminare questo torneo archiviato in modo permanente?')) return;
+  const handleDeleteArchive = (id: string) => {
+    setDeleteArchiveId(id);
+  };
+
+  const confirmDeleteArchive = async () => {
+    if (!deleteArchiveId) return;
     try {
-      await deleteDoc(doc(db, 'archives', id));
+      await deleteDoc(doc(db, 'archives', deleteArchiveId));
+      setIsSuccessMessage(`Torneo archiviato eliminato con successo. 🗑️`);
+      setTimeout(() => setIsSuccessMessage(null), 4000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `archives/${id}`);
+      handleFirestoreError(err, OperationType.DELETE, `archives/${deleteArchiveId}`);
+    } finally {
+      setDeleteArchiveId(null);
     }
+  };
+
+  const confirmRestoreTournament = async () => {
+    if (!restoreSaveObj) return;
+    await onRestoreTournament(restoreSaveObj);
+    setIsSuccessMessage(`Torneo "${restoreSaveObj.name}" caricato con successo! 🔄`);
+    setTimeout(() => setIsSuccessMessage(null), 5000);
+    setRestoreSaveObj(null);
+  };
+
+  const confirmDeleteSave = async () => {
+    if (!deleteSaveId) return;
+    await onDeleteSave(deleteSaveId);
+    setIsSuccessMessage(`Salvataggio eliminato con successo. 🗑️`);
+    setTimeout(() => setIsSuccessMessage(null), 4000);
+    setDeleteSaveId(null);
   };
 
   // Export functions
@@ -417,20 +469,33 @@ export default function ArchiveTab({
 
           <div className="flex gap-2">
             {canWrite ? (
-              <button
-                id="btn-trigger-archival-modal"
-                onClick={() => {
-                  setArchiveName(activeTournamentConfig?.name || '');
-                  setIsArchivingModalOpen(true);
-                }}
-                className="bg-white hover:bg-orange-50 text-sky-900 border-2 border-white scale-100 hover:scale-105 active:scale-95 py-2.5 px-6 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
-              >
-                <Save className="w-4 h-4 text-orange-500" />
-                Salva in Archivio 💾
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  id="btn-trigger-archival-modal"
+                  onClick={() => {
+                    setArchiveName(activeTournamentConfig?.name || '');
+                    setIsArchivingModalOpen(true);
+                  }}
+                  className="bg-white hover:bg-orange-50 text-sky-900 border-2 border-white scale-100 hover:scale-105 active:scale-95 py-2.5 px-4 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
+                >
+                  <Trophy className="w-4 h-4 text-amber-500" />
+                  Archivia Storico 🏅
+                </button>
+                <button
+                  id="btn-trigger-save-active-modal"
+                  onClick={() => {
+                    setActiveSaveName(activeTournamentConfig?.name ? `${activeTournamentConfig.name} - In Corso` : '');
+                    setIsSavingActiveModalOpen(true);
+                  }}
+                  className="bg-sky-600 hover:bg-sky-700 text-white border-2 border-sky-450 scale-100 hover:scale-105 active:scale-95 py-2.5 px-4 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4 text-sky-200" />
+                  Salva Torneo in Corso 💾
+                </button>
+              </div>
             ) : (
               <div className="text-[10px] bg-black/20 py-2 px-3 rounded-lg text-yellow-300 font-black tracking-wider uppercase max-w-[200px] text-center border border-yellow-400/30">
-                ⚠️ ACCEDI COME ADMIN O COLLABORATORE PER ARCHIVIARE IL TORNEO
+                ⚠️ ACCEDI COME ADMIN O COLLABORATORE PER GESTIRE IL TORNEO
               </div>
             )}
           </div>
@@ -498,18 +563,113 @@ export default function ArchiveTab({
         </div>
       )}
 
+      {/* Saving Active Dynamic Modal */}
+      {isSavingActiveModalOpen && (
+        <div id="save-active-modal-overlay" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div id="save-active-modal-box" className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400">
+            <h3 className="text-xl font-black text-sky-900 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+              <Save className="w-5 h-5 text-sky-500 animate-pulse" />
+              Salva Torneo in Corso
+            </h3>
+            
+            <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+              Il torneo verrà salvato con lo stato attuale delle squadre, dei gironi o dei tabelloni ad eliminazione, incluse tutte le partite live o completate. Potrai riaprirlo e riprendere a giocare dallo stesso punto.
+            </p>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome del Salvataggio</label>
+                <input
+                  type="text"
+                  value={activeSaveName}
+                  onChange={(e) => setActiveSaveName(e.target.value)}
+                  placeholder="E.g., Torneo del Lunedì - Fase Gironi"
+                  className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-black uppercase text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all font-mono"
+                />
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100 text-xs">
+                <div className="py-1.5 flex justify-between">
+                  <span className="text-slate-400 font-bold uppercase text-[9px]">Sotto-titolo / Formula:</span>
+                  <span className="text-sky-650 font-black uppercase">
+                    {activeTournamentConfig?.formula === 'pools' ? 'Solo Gironi' : 
+                     activeTournamentConfig?.formula === 'direct' ? 'Eliminazione Diretta' :
+                     activeTournamentConfig?.formula === 'double_elim' ? 'Doppia Eliminazione' :
+                     activeTournamentConfig?.formula === 'combined' ? 'Fasi Multiple (Gironi + Playoff)' : activeTournamentConfig?.formula || 'In Corso'}
+                  </span>
+                </div>
+                <div className="py-1.5 flex justify-between">
+                  <span className="text-slate-400 font-bold uppercase text-[9px]">Squadre attive:</span>
+                  <span className="text-slate-800 font-black">{activeTeams.length}</span>
+                </div>
+                <div className="py-1.5 flex justify-between">
+                  <span className="text-slate-400 font-bold uppercase text-[9px]">Partite generate/giocate:</span>
+                  <span className="text-slate-800 font-black">{activeMatches.length} Spettate</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                id="modal-btn-cancel-save-active"
+                onClick={() => setIsSavingActiveModalOpen(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
+              >
+                Annulla
+              </button>
+              <button
+                id="modal-btn-confirm-save-active"
+                onClick={handleSaveActiveSubmit}
+                className="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-sky-700"
+              >
+                Salva Stato
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main List Layout */}
       <div id="archives-workspace-grid" className="bg-white rounded-3xl border border-amber-200/60 p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-slate-100 pb-5 mb-6">
-          <div>
-            <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-amber-500" />
-              Tornei Salvati in Cloud ({archives.length})
-            </h2>
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-extrabold mt-1">
-              Archivio generale delle passate edizioni della Beach Cup
-            </p>
-          </div>
+        
+        {/* Toggle Control for subTab selection */}
+        <div className="flex bg-slate-100 p-1 rounded-2xl w-full max-w-md mb-6 shadow-inner border border-slate-200">
+          <button
+            onClick={() => setSubTab('historical')}
+            className={`flex-1 text-center py-2.5 px-4 text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 ${
+              subTab === 'historical'
+                ? 'bg-white text-sky-950 shadow-md border border-slate-150'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Trophy className={`w-4 h-4 ${subTab === 'historical' ? 'text-amber-500' : 'text-slate-400'}`} />
+            Archivio Storico ({archives.length})
+          </button>
+          <button
+            onClick={() => setSubTab('in_progress')}
+            className={`flex-1 text-center py-2.5 px-4 text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 ${
+              subTab === 'in_progress'
+                ? 'bg-white text-sky-950 shadow-md border border-slate-150'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Save className={`w-4 h-4 ${subTab === 'in_progress' ? 'text-sky-500' : 'text-slate-400'}`} />
+            Tornei in Corso ({saves.length})
+          </button>
+        </div>
+
+        {subTab === 'historical' ? (
+          <>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-slate-100 pb-5 mb-6">
+              <div>
+                <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-amber-500" />
+                  Tornei Salvati in Cloud ({archives.length})
+                </h2>
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-extrabold mt-1">
+                  Archivio generale delle passate edizioni della Beach Cup
+                </p>
+              </div>
 
           {archives.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -756,7 +916,198 @@ export default function ArchiveTab({
             })}
           </div>
         )}
+          </>
+        ) : (
+          <div>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-slate-100 pb-5 mb-6">
+              <div>
+                <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                  <Save className="w-5 h-5 text-sky-500" />
+                  Tornei in Corso Salvati ({saves.length})
+                </h2>
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-extrabold mt-1">
+                  Seleziona un salvataggio per ripristinare il torneo esattamente al punto in cui si trovava
+                </p>
+              </div>
+            </div>
+
+            {saves.length === 0 ? (
+              <div id="empty-saves-placeholder" className="py-16 text-center max-w-md mx-auto">
+                <div className="bg-slate-50 p-5 rounded-full inline-block mb-4 text-slate-350 border border-slate-100">
+                  <Save className="w-12 h-12 text-slate-350" />
+                </div>
+                <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">Nessun salvataggio in corso</h3>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                  Non ci sono salvataggi attivi. Usa il pulsante "Salva Torneo in Corso" sopra per memorizzare un torneo attivo!
+                </p>
+              </div>
+            ) : (
+              <div id="save-items-container" className="space-y-4">
+                {saves.map((sv) => {
+                  const formulaLabel = sv.formula === 'pools' ? 'Solo Gironi' : 
+                                      sv.formula === 'direct' ? 'Eliminazione Diretta' :
+                                      sv.formula === 'double_elim' ? 'Doppia Eliminazione' :
+                                      sv.formula === 'combined' ? 'Fasi Multiple (Gironi + Playoff)' : sv.formula;
+
+                  return (
+                    <div
+                      key={sv.id}
+                      id={`save-card-${sv.id}`}
+                      className="border-2 rounded-2xl overflow-hidden border-slate-100 bg-slate-50/10 hover:border-slate-200 transition-all p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="bg-sky-100 text-sky-600 p-2.5 rounded-xl shrink-0 mt-0.5 border border-sky-200">
+                          <Save className="w-4.5 h-4.5" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight line-clamp-1">{sv.name}</h3>
+                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400 uppercase font-bold">
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <Calendar className="w-3.5 h-3.5" />
+                              {sv.date}
+                            </span>
+                            <span className="bg-sky-50 text-sky-600 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-sky-100 uppercase">
+                              {formulaLabel}
+                            </span>
+                            <span className="bg-emerald-50 text-emerald-600 px-2.5 py-0.5 rounded-full text-[9px] font-black border border-emerald-100">
+                              {sv.teamsCount} Squadre
+                            </span>
+                            {sv.savedBy && (
+                              <span className="text-slate-400 font-medium">
+                                Salvato da: <span className="font-bold text-slate-500">{sv.savedBy}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                        <button
+                          onClick={() => {
+                            setRestoreSaveObj(sv);
+                          }}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-wider py-2 px-3.5 rounded-lg shadow-sm border-b-2 border-emerald-700 flex items-center gap-1 transition-all"
+                        >
+                          Carica Torneo 🔄
+                        </button>
+                        
+                        {canWrite && (
+                          <button
+                            onClick={() => {
+                              setDeleteSaveId(sv.id);
+                            }}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-2 rounded-lg transition-all border border-rose-200"
+                            title="Elimina salvataggio"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Custom Confirmation Modal: Delete Archive */}
+      {deleteArchiveId && (
+        <div id="confirm-delete-archive-modal" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-rose-400">
+            <h3 className="text-xl font-black text-rose-900 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+              <Trash2 className="w-5 h-5 text-rose-500" />
+              Elimina dall'Archivio
+            </h3>
+            
+            <p className="text-xs text-slate-500 mt-4 leading-relaxed font-semibold">
+              Sei sicuro di voler eliminare questo torneo archiviato in modo permanente? Questa azione <span className="text-rose-600 font-extrabold uppercase">non può essere annullata</span>.
+            </p>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setDeleteArchiveId(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={confirmDeleteArchive}
+                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-rose-750"
+              >
+                Elimina Definitivamente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal: Restore Tournament Save */}
+      {restoreSaveObj && (
+        <div id="confirm-restore-modal" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-emerald-400">
+            <h3 className="text-xl font-black text-emerald-950 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+              <Undo className="w-5 h-5 text-emerald-500 animate-pulse" />
+              Ripristina Torneo
+            </h3>
+            
+            <p className="text-xs text-slate-500 mt-4 leading-relaxed font-semibold">
+              Sei sicuro di voler CARICARE e RIPRISTINARE il torneo in corso <span className="text-emerald-700 font-extrabold">"{restoreSaveObj.name}"</span>?
+            </p>
+            
+            <p className="text-xs text-amber-600 mt-2 bg-amber-50 p-3 rounded-xl border border-amber-150 font-bold leading-relaxed">
+              ⚠️ ATTENZIONE: Il torneo attualmente in corso verrà completamente sovrascritto e tutti i dati correnti non salvati saranno persi.
+            </p>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setRestoreSaveObj(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={confirmRestoreTournament}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-emerald-750"
+              >
+                Ripristina Stato 🔄
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal: Delete Save */}
+      {deleteSaveId && (
+        <div id="confirm-delete-save-modal" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-rose-400">
+            <h3 className="text-xl font-black text-rose-900 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+              <Trash2 className="w-5 h-5 text-rose-500" />
+              Elimina Salvataggio
+            </h3>
+            
+            <p className="text-xs text-slate-500 mt-4 leading-relaxed font-semibold">
+              Sei sicuro di voler eliminare permanentemente questo salvataggio del torneo? Questa operazione <span className="text-rose-600 font-extrabold uppercase">non può essere annullata</span>.
+            </p>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setDeleteSaveId(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={confirmDeleteSave}
+                className="flex-1 bg-rose-500 hover:bg-rose-100 text-rose-750 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-rose-300"
+              >
+                Elimina Definitivamente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

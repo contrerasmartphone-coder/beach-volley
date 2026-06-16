@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Team, Match, NotificationLog, AppUser, ArchivedTournament } from './types';
+import { Team, Match, NotificationLog, AppUser, ArchivedTournament, ActiveTournamentSave } from './types';
 import { DEMO_TEAMS, getInitialTeamStats, generateDirectEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, generateDoubleEliminationBracket, autoResolveAndPropagate, sortTeamsByEntryList, recalculateTournamentStages, getGaraNumbersMap } from './utils';
 import TeamsTab from './components/TeamsTab';
 import BracketTab from './components/BracketTab';
@@ -29,6 +29,7 @@ export default function App() {
 
   const [users, setUsers] = useState<AppUser[]>([]);
   const [archives, setArchives] = useState<ArchivedTournament[]>([]);
+  const [saves, setSaves] = useState<ActiveTournamentSave[]>([]);
 
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -153,6 +154,17 @@ export default function App() {
       console.error("Firestore sync error (archives):", error);
     });
 
+    const unsubSaves = onSnapshot(collection(db, 'saves'), (snapshot) => {
+      const list: ActiveTournamentSave[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push(docSnap.data() as ActiveTournamentSave);
+      });
+      list.sort((a, b) => b.id.localeCompare(a.id));
+      setSaves(list);
+    }, (error) => {
+      console.error("Firestore sync error (saves):", error);
+    });
+
     return () => {
       unsubTeams();
       unsubMatches();
@@ -160,6 +172,7 @@ export default function App() {
       unsubConfig();
       unsubUsers();
       unsubArchives();
+      unsubSaves();
     };
   }, []);
 
@@ -757,6 +770,73 @@ export default function App() {
     }
   };
 
+  const handleSaveActiveTournament = async (nameToUse: string) => {
+    if (!activeTournamentConfig) return;
+    const saveId = `save-${Date.now()}`;
+    const newSave: ActiveTournamentSave = {
+      id: saveId,
+      name: nameToUse,
+      date: new Date().toLocaleDateString('it-IT', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      formula: activeTournamentConfig?.formula || 'N/A',
+      teamsCount: teams.length,
+      teams: teams,
+      matches: matches,
+      activeTournamentConfig: activeTournamentConfig,
+      admittedTeamsCount: admittedTeamsCount,
+      savedBy: currentUser?.username || 'admin',
+    };
+    try {
+      await setDoc(doc(db, 'saves', saveId), cleanObject(newSave));
+      const saveNotif: NotificationLog = {
+        id: `notif-save-${Date.now()}`,
+        title: `💾 Torneo in Corso Salvato`,
+        message: `Il torneo "${activeTournamentConfig.name}" in corso è stato salvato con successo come "${nameToUse}".`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: 'system',
+      };
+      await setDoc(doc(db, 'notifications', saveNotif.id), cleanObject(saveNotif));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `saves/${saveId}`);
+    }
+  };
+
+  const handleRestoreTournament = async (save: ActiveTournamentSave) => {
+    try {
+      await clearCollection('teams');
+      await clearCollection('matches');
+      
+      const teamPromises = save.teams.map(t => setDoc(doc(db, 'teams', t.id), cleanObject(t)));
+      await Promise.all(teamPromises);
+
+      const matchPromises = save.matches.map(m => setDoc(doc(db, 'matches', m.id), cleanObject(m)));
+      await Promise.all(matchPromises);
+
+      await setDoc(doc(db, 'config', 'settings'), cleanObject({
+        admittedTeamsCount: save.admittedTeamsCount,
+        activeTournamentConfig: save.activeTournamentConfig
+      }));
+
+      const restoreNotif: NotificationLog = {
+        id: `notif-restore-${Date.now()}`,
+        title: `🔄 Ripristino Torneo Completato!`,
+        message: `Fase ripristinata correttamente per "${save.name}" (Formula: ${save.formula.toUpperCase()}), registrata il ${save.date}.`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: 'system',
+      };
+      await setDoc(doc(db, 'notifications', restoreNotif.id), cleanObject(restoreNotif));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `restore/${save.id}`);
+    }
+  };
+
+  const handleDeleteSave = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'saves', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `saves/${id}`);
+    }
+  };
+
   // Counts of pending notifications or live games to show alert counters
   const activeLiveGamesCount = matches.filter((m) => m.status === 'live').length;
 
@@ -1067,10 +1147,14 @@ export default function App() {
               <ArchiveTab
                 currentUser={currentUser}
                 archives={archives}
+                saves={saves}
                 activeTeams={teams}
                 activeMatches={matches}
                 activeTournamentConfig={activeTournamentConfig}
                 onClearActiveTournament={handleClearAllTournamentData}
+                onSaveActiveTournament={handleSaveActiveTournament}
+                onRestoreTournament={handleRestoreTournament}
+                onDeleteSave={handleDeleteSave}
               />
             </motion.div>
           )}

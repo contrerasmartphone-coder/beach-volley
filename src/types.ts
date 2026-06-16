@@ -101,3 +101,17 @@ export interface ArchivedTournament {
     third: Team | null;
   };
 }
+
+export interface ActiveTournamentSave {
+  id: string;
+  name: string;
+  date: string;
+  formula: string;
+  teamsCount: number;
+  teams: Team[];
+  matches: Match[];
+  activeTournamentConfig: any;
+  admittedTeamsCount: number | null;
+  savedBy?: string;
+}
+

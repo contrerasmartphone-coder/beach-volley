@@ -58,6 +58,18 @@ service cloud.firestore {
         && (!('matches' in a) || a.matches is list || a.matches == null);
     }
 
+    function isValidSave(s) {
+      return s.id is string
+        && s.name is string && s.name.size() <= 300
+        && s.date is string
+        && s.formula is string
+        && (s.teamsCount is int || s.teamsCount is float)
+        && s.teams is list
+        && s.matches is list
+        && (!('activeTournamentConfig' in s) || s.activeTournamentConfig is map || s.activeTournamentConfig == null)
+        && (!('admittedTeamsCount' in s) || s.admittedTeamsCount is int || s.admittedTeamsCount is float || s.admittedTeamsCount == null);
+    }
+
     match /teams/{teamId} {
       allow read: if true;
       allow create, update: if isValidId(teamId) && isValidTeam(request.resource.data);
@@ -86,6 +98,12 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isValidId(archiveId) && isValidArchive(request.resource.data);
       allow delete: if isValidId(archiveId);
+    }
+
+    match /saves/{saveId} {
+      allow read: if true;
+      allow create, update: if isValidId(saveId) && isValidSave(request.resource.data);
+      allow delete: if isValidId(saveId);
     }
 
     match /config/settings {
