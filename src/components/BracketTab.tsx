@@ -796,6 +796,10 @@ export default function BracketTab({
       latestEndMinutes = 9 * 60;
     }
 
+    if (latestEndMinutes > earliestMinutes && latestEndMinutes > 0) {
+      totalElapsedMinutes = latestEndMinutes - earliestMinutes;
+    }
+
     const breakStartMins = currentBreakStart ? parseTimeToMinutes(currentBreakStart) : 0;
     const breakEndMins = currentBreakEnd ? parseTimeToMinutes(currentBreakEnd) : 0;
     const hasBreak = !!(currentBreakStart && currentBreakEnd && breakEndMins > breakStartMins);
@@ -923,6 +927,10 @@ export default function BracketTab({
     if (realMatchesCount === 0 || latestEndMinutes === 0) {
       earliestMinutes = 9 * 60;
       latestEndMinutes = 9 * 60;
+    }
+
+    if (latestEndMinutes > earliestMinutes && latestEndMinutes > 0) {
+      totalElapsedMinutes = latestEndMinutes - earliestMinutes;
     }
 
     const breakStartMins = activeBreakStart ? parseTimeToMinutes(activeBreakStart) : 0;
@@ -2141,7 +2149,7 @@ export default function BracketTab({
 
               <div className="space-y-1">
                 <label htmlFor="setup-break-start" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                  Ora Inizio Pausa
+                  ORA INIZIO
                 </label>
                 <select
                   id="setup-break-start"
@@ -2158,7 +2166,7 @@ export default function BracketTab({
 
               <div className="space-y-1">
                 <label htmlFor="setup-break-end" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                  Ora Fine Pausa
+                  ORA FINE
                 </label>
                 <select
                   id="setup-break-end"
@@ -2380,60 +2388,62 @@ export default function BracketTab({
             </div>
           </div>
 
-          {/* Sezione Stampe e Report Ufficiali */}
-          <div className="bg-gradient-to-br from-slate-50 to-slate-100/90 rounded-3xl border-4 border-slate-200/80 p-5 mt-4 shadow-md">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/60 pb-3 mb-4">
-              <div className="flex items-center gap-2">
-                <Printer className="w-5 h-5 text-orange-500 stroke-[2.5]" />
-                <h4 className="font-extrabold text-slate-800 text-xs sm:text-sm uppercase tracking-wider">Area Stampa Documenti & Report Ufficiali 🖨️</h4>
+          {/* Sezione Stampe e Report Ufficiali - Hidden for Spectators (canWrite check) */}
+          {canWrite && (
+            <div className="bg-gradient-to-br from-slate-50 to-slate-100/90 rounded-3xl border-4 border-slate-200/80 p-5 mt-4 shadow-md">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/60 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <Printer className="w-5 h-5 text-orange-500 stroke-[2.5]" />
+                  <h4 className="font-extrabold text-slate-800 text-xs sm:text-sm uppercase tracking-wider">Area Stampa Documenti & Report Ufficiali 🖨️</h4>
+                </div>
+                <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-200/60 px-2.5 py-1 rounded-md">
+                  Torneo Attivo: {tournamentName}
+                </p>
               </div>
-              <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-200/60 px-2.5 py-1 rounded-md">
-                Torneo Attivo: {tournamentName}
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  id="print-btn-entry-list"
+                  onClick={handlePrintEntryList}
+                  className="flex items-center justify-center gap-2 bg-white hover:bg-sky-50 text-sky-900 border-2 border-slate-200 hover:border-sky-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
+                >
+                  <FileText className="w-4 h-4 text-sky-500 stroke-[2.5]" />
+                  Lista d'Ingresso
+                </button>
+                
+                <button
+                  type="button"
+                  id="print-btn-groups-pools"
+                  onClick={handlePrintGroupsAndPools}
+                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
+                    matches.some(m => m.phase === 'gironi')
+                      ? 'bg-white hover:bg-amber-50 text-amber-900 border-2 border-slate-200 hover:border-amber-300 active:translate-y-0.5'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
+                  }`}
+                  disabled={!matches.some(m => m.phase === 'gironi')}
+                  title={!matches.some(m => m.phase === 'gironi') ? "La formula attuale non prevede incontri a gironi" : "Stampa i gironi e i relativi incontri"}
+                >
+                  <ListFilter className={`w-4 h-4 ${matches.some(m => m.phase === 'gironi') ? 'text-amber-500' : 'text-slate-400'} stroke-[2.5]`} />
+                  Composizione & Gare Gironi
+                </button>
+                
+                <button
+                  type="button"
+                  id="print-btn-ordered-matches"
+                  onClick={handlePrintOrderedMatches}
+                  className="flex items-center justify-center gap-2 bg-white hover:bg-orange-50 text-orange-950 border-2 border-slate-200 hover:border-orange-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
+                >
+                  <Clock className="w-4 h-4 text-orange-500 stroke-[2.5]" />
+                  Elenco Ordinato Gare
+                </button>
+              </div>
+              
+              <p className="text-[10px] text-slate-400 mt-3 italic font-medium">
+                * Cliccando sui pulsanti si aprirà una nuova scheda pronta per l'invio alla tua stampante o per essere salvata come file PDF sul tuo dispositivo.
               </p>
             </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <button
-                type="button"
-                id="print-btn-entry-list"
-                onClick={handlePrintEntryList}
-                className="flex items-center justify-center gap-2 bg-white hover:bg-sky-50 text-sky-900 border-2 border-slate-200 hover:border-sky-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
-              >
-                <FileText className="w-4 h-4 text-sky-500 stroke-[2.5]" />
-                Lista d'Ingresso
-              </button>
-              
-              <button
-                type="button"
-                id="print-btn-groups-pools"
-                onClick={handlePrintGroupsAndPools}
-                className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
-                  matches.some(m => m.phase === 'gironi')
-                    ? 'bg-white hover:bg-amber-50 text-amber-900 border-2 border-slate-200 hover:border-amber-300 active:translate-y-0.5'
-                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
-                }`}
-                disabled={!matches.some(m => m.phase === 'gironi')}
-                title={!matches.some(m => m.phase === 'gironi') ? "La formula attuale non prevede incontri a gironi" : "Stampa i gironi e i relativi incontri"}
-              >
-                <ListFilter className={`w-4 h-4 ${matches.some(m => m.phase === 'gironi') ? 'text-amber-500' : 'text-slate-400'} stroke-[2.5]`} />
-                Composizione & Gare Gironi
-              </button>
-              
-              <button
-                type="button"
-                id="print-btn-ordered-matches"
-                onClick={handlePrintOrderedMatches}
-                className="flex items-center justify-center gap-2 bg-white hover:bg-orange-50 text-orange-950 border-2 border-slate-200 hover:border-orange-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
-              >
-                <Clock className="w-4 h-4 text-orange-500 stroke-[2.5]" />
-                Elenco Ordinato Gare
-              </button>
-            </div>
-            
-            <p className="text-[10px] text-slate-400 mt-3 italic font-medium">
-              * Cliccando sui pulsanti si aprirà una nuova scheda pronta per l'invio alla tua stampante o per essere salvata come file PDF sul tuo dispositivo.
-            </p>
-          </div>
+          )}
 
           {/* Phase selector tabs for multi-phase tournaments */}
           {matches.some(m => m.phase === 'gironi') && (

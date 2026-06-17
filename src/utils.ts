@@ -224,6 +224,41 @@ export function autoResolveAndPropagate(matches: Match[]): Match[] {
   return updated;
 }
 
+export function adjustByeMatchesTime(matches: Match[]): Match[] {
+  const all = matches.filter(Boolean);
+  const validTimes = all
+    .filter(m => m.time && m.time !== '' && m.time !== '/' && !isByeTeam(m.team1) && !isByeTeam(m.team2))
+    .map(m => m.time);
+
+  let initialTime = '';
+  if (validTimes.length > 0) {
+    validTimes.sort((a, b) => a.localeCompare(b));
+    initialTime = validTimes[0];
+  } else {
+    const fallbackTimes = all
+      .filter(m => m.time && m.time !== '' && m.time !== '/')
+      .map(m => m.time);
+    if (fallbackTimes.length > 0) {
+      fallbackTimes.sort((a, b) => a.localeCompare(b));
+      initialTime = fallbackTimes[0];
+    }
+  }
+
+  if (!initialTime) {
+    initialTime = '09:00';
+  }
+
+  return all.map(m => {
+    if (isByeTeam(m.team1) || isByeTeam(m.team2)) {
+      return {
+        ...m,
+        time: initialTime
+      };
+    }
+    return m;
+  });
+}
+
 export function getInitialTeamStats(team: Omit<Team, 'wins' | 'losses' | 'setsWon' | 'setsLost' | 'pointsWon' | 'pointsLost' | 'points'>): Team {
   return {
     ...team,
@@ -1164,12 +1199,6 @@ export function generateRoundRobinMatches(
   let slotStartTimeMinutes = startHr * 60 + startMin;
 
   preResolved.forEach((match) => {
-    if (match.status === 'completed' && (isByeTeam(match.team1) || isByeTeam(match.team2))) {
-      match.court = '';
-      match.time = '';
-      return;
-    }
-
     const courtIndex = (globalMatchIndex % courtCount) + 1;
     match.court = `Campo ${courtIndex}`;
 
@@ -1797,36 +1826,92 @@ export function recalculateTournamentStages(allMatches: Match[], teamsList: Team
 }
 
 export function getGaraNumbersMap(matches: Match[]): Record<string, number> {
-  const realMatches = matches.filter(m => {
-    if (!m) return false;
-    return !isByeTeam(m.team1) && !isByeTeam(m.team2);
+  const allMatches = matches.filter(Boolean);
+
+  // Split into gironi (pool play) and eliminazione (brackets)
+  const gironiMatches = allMatches.filter(m => m.phase === 'gironi' || m.id.startsWith('m-g-'));
+  const eliminazioneMatches = allMatches.filter(m => m.phase !== 'gironi' && !m.id.startsWith('m-g-'));
+
+  // 1. Reconstruct initial interleaved chronological order for gironi (pool play) matches
+  const groups: Record<string, Match[]> = {};
+  gironiMatches.forEach(m => {
+    const gName = m.groupName || '';
+    if (!groups[gName]) {
+      groups[gName] = [];
+    }
+    groups[gName].push(m);
   });
 
-  const sortedMatches = [...realMatches].sort((a, b) => {
-    const phaseA = a.phase || 'gironi';
-    const phaseB = b.phase || 'gironi';
-    if (phaseA !== phaseB) {
-      return phaseA === 'gironi' ? -1 : 1;
+  const sortedGroupNames = Object.keys(groups).sort();
+  sortedGroupNames.forEach(gName => {
+    groups[gName].sort((a, b) => {
+      const numA = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(b.id.replace(/\D/g, ''), 10) || 0;
+      return numA - numB;
+    });
+  });
+
+  const sortedGironi: Match[] = [];
+  const maxLen = sortedGroupNames.length > 0
+    ? Math.max(...sortedGroupNames.map(gn => groups[gn].length))
+    : 0;
+
+  for (let j = 0; j < maxLen; j++) {
+    sortedGroupNames.forEach(gn => {
+      const list = groups[gn];
+      if (j < list.length) {
+        sortedGironi.push(list[j]);
+      }
+    });
+  }
+
+  // 2. Sort eliminazione (brackets) matches based on their stable structural properties
+  const sortedEliminazione = [...eliminazioneMatches].sort((a, b) => {
+    // Check if double elimination matches
+    const isDoubleA = a.id.startsWith('m-de-');
+    const isDoubleB = b.id.startsWith('m-de-');
+    if (isDoubleA && isDoubleB) {
+      const numA = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(b.id.replace(/\D/g, ''), 10) || 0;
+      return numA - numB;
+    }
+    if (isDoubleA !== isDoubleB) {
+      return isDoubleA ? 1 : -1;
     }
 
-    const timeA = a.time || '00:00';
-    const timeB = b.time || '00:00';
-    if (timeA !== timeB) {
-      return timeA.localeCompare(timeB);
+    // Single elimination / Playoffs
+    if (a.round !== b.round) {
+      return a.round - b.round;
     }
 
-    const courtA = a.court || '';
-    const courtB = b.court || '';
-    if (courtA !== courtB) {
-      return courtA.localeCompare(courtB);
+    // Finale 3°/4° Posto always scheduled before Finale
+    const labelA = a.roundLabel || '';
+    const labelB = b.roundLabel || '';
+    const is3rdA = labelA.includes('3°/4°');
+    const is3rdB = labelB.includes('3°/4°');
+    if (is3rdA !== is3rdB) {
+      return is3rdA ? -1 : 1;
+    }
+
+    if (a.position !== b.position) {
+      return a.position - b.position;
+    }
+
+    // Stable ID numeric suffix fallback
+    const numA = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
+    const numB = parseInt(b.id.replace(/\D/g, ''), 10) || 0;
+    if (numA !== numB) {
+      return numA - numB;
     }
 
     return a.id.localeCompare(b.id);
   });
 
+  const sortedAll = [...sortedGironi, ...sortedEliminazione];
+
   const map: Record<string, number> = {};
-  sortedMatches.forEach((m, index) => {
-    map[m.id] = index + 1;
+  sortedAll.forEach((m, idx) => {
+    map[m.id] = idx + 1;
   });
 
   return map;

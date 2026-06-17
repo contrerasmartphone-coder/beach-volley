@@ -10,7 +10,7 @@ import UserTab from './components/UserTab';
 import { Sun, Award, Users, Bell, Sparkles, TrendingUp, HelpCircle, Shield, Trophy, Check, Lock, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType, cleanObject } from './firebase';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs, getDoc } from 'firebase/firestore';
 
 const logoUrl = new URL('./assets/images/wsicily_logo_white_bg_1781554165519.jpg', import.meta.url).href;
 const contreraLogoUrl = new URL('./assets/images/regenerated_image_1781554021790.png', import.meta.url).href;
@@ -82,6 +82,14 @@ export default function App() {
     }
   });
 
+  const [loadedSaveName, setLoadedSaveName] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('bv_loaded_save_name') || null;
+    } catch {
+      return null;
+    }
+  });
+
   // Synced from Firestore in real-time for all connected users
   useEffect(() => {
     const unsubTeams = onSnapshot(collection(db, 'teams'), (snapshot) => {
@@ -114,7 +122,12 @@ export default function App() {
       snapshot.forEach((docSnap) => {
         list.push(docSnap.data() as NotificationLog);
       });
-      list.sort((a, b) => b.id.localeCompare(a.id));
+      list.sort((a, b) => {
+        const tA = parseInt(a.id.match(/\d+/)?.at(0) || "0", 10);
+        const tB = parseInt(b.id.match(/\d+/)?.at(0) || "0", 10);
+        if (tA !== tB) return tB - tA;
+        return b.id.localeCompare(a.id);
+      });
       setNotifications(list);
     }, (error) => {
       console.error("Firestore sync error (notifications):", error);
@@ -125,9 +138,12 @@ export default function App() {
         const data = docSnap.data();
         if (data.admittedTeamsCount !== undefined) setAdmittedTeamsCount(data.admittedTeamsCount);
         if (data.activeTournamentConfig !== undefined) setActiveTournamentConfig(data.activeTournamentConfig);
+        if (data.loadedSaveName !== undefined) setLoadedSaveName(data.loadedSaveName);
+        else setLoadedSaveName(null);
       } else {
         setAdmittedTeamsCount(null);
         setActiveTournamentConfig(null);
+        setLoadedSaveName(null);
       }
     }, (error) => {
       console.error("Firestore sync error (config):", error);
@@ -160,7 +176,11 @@ export default function App() {
       snapshot.forEach((docSnap) => {
         list.push(docSnap.data() as ActiveTournamentSave);
       });
-      list.sort((a, b) => b.id.localeCompare(a.id));
+      list.sort((a, b) => {
+        const timeA = a.timestamp || parseInt(a.id.replace('save-', '')) || 0;
+        const timeB = b.timestamp || parseInt(b.id.replace('save-', '')) || 0;
+        return timeB - timeA;
+      });
       setSaves(list);
     }, (error) => {
       console.error("Firestore sync error (saves):", error);
@@ -241,12 +261,25 @@ export default function App() {
   }, [activeTournamentConfig]);
 
   useEffect(() => {
-    if (currentUser && currentUser.role === 'reader') {
-      if (activeTab !== 'teams' && activeTab !== 'bracket' && activeTab !== 'standings' && activeTab !== 'notifications') {
+    if (loadedSaveName !== null) {
+      localStorage.setItem('bv_loaded_save_name', loadedSaveName);
+    } else {
+      localStorage.removeItem('bv_loaded_save_name');
+    }
+  }, [loadedSaveName]);
+
+  useEffect(() => {
+    const isOrganizer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
+    if (!isOrganizer) {
+      const allowedTabs = ['teams', 'standings', 'notifications'];
+      if (matches.length > 0) {
+        allowedTabs.push('bracket');
+      }
+      if (!allowedTabs.includes(activeTab)) {
         setActiveTab('teams');
       }
     }
-  }, [currentUser, activeTab]);
+  }, [currentUser, activeTab, matches.length]);
 
   const clearCollection = async (collectionName: string) => {
     try {
@@ -272,6 +305,17 @@ export default function App() {
     };
 
     try {
+      // Create associated team user with random password
+      const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
+      const newUser: AppUser = {
+        id: `team-user-${newTeam.id}`,
+        username: newTeam.name,
+        password: randomPassword,
+        role: 'reader',
+        createdAt: new Date().toLocaleDateString('it-IT'),
+        isTeamUser: true,
+      };
+      await setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
       await setDoc(doc(db, 'teams', newTeam.id), cleanObject(newTeam));
       await setDoc(doc(db, 'notifications', addedNotif.id), cleanObject(addedNotif));
     } catch (err) {
@@ -287,6 +331,7 @@ export default function App() {
     
     try {
       await deleteDoc(doc(db, 'teams', id));
+      await deleteDoc(doc(db, 'users', `team-user-${id}`));
       const rmNotif: NotificationLog = {
         id: `notif-rm-${Date.now()}`,
         title: 'Iscrizione cancellata 🗑️',
@@ -318,6 +363,28 @@ export default function App() {
     };
 
     try {
+      // Sync the automatic team user with the updated name
+      const userRef = doc(db, 'users', `team-user-${updatedTeam.id}`);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const existingData = userSnap.data();
+        await setDoc(userRef, cleanObject({
+          ...existingData,
+          username: updatedTeam.name
+        }));
+      } else {
+        const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
+        const newUser: AppUser = {
+          id: `team-user-${updatedTeam.id}`,
+          username: updatedTeam.name,
+          password: randomPassword,
+          role: 'reader',
+          createdAt: new Date().toLocaleDateString('it-IT'),
+          isTeamUser: true,
+        };
+        await setDoc(userRef, cleanObject(newUser));
+      }
+
       await setDoc(doc(db, 'teams', updatedTeam.id), cleanObject(updatedTeam));
       await setDoc(doc(db, 'notifications', updateNotif.id), cleanObject(updateNotif));
 
@@ -421,6 +488,31 @@ export default function App() {
       await clearCollection('notifications');
       await deleteDoc(doc(db, 'config', 'settings'));
 
+      // Delete any existing team credentials to avoid orphans
+      const userSnap = await getDocs(collection(db, 'users'));
+      const deletePromisesArr: Promise<void>[] = [];
+      userSnap.forEach((docDoc) => {
+        if (docDoc.data().isTeamUser === true) {
+          deletePromisesArr.push(deleteDoc(doc(db, 'users', docDoc.id)));
+        }
+      });
+      await Promise.all(deletePromisesArr);
+
+      // Generate automatically a team spectating user for each of the new teams
+      const teamUserPromises = selectedDemos.map((team) => {
+        const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
+        const newUser: AppUser = {
+          id: `team-user-${team.id}`,
+          username: team.name,
+          password: randomPassword,
+          role: 'reader',
+          createdAt: new Date().toLocaleDateString('it-IT'),
+          isTeamUser: true,
+        };
+        return setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
+      });
+      await Promise.all(teamUserPromises);
+
       const teamPromises = selectedDemos.map((team) => setDoc(doc(db, 'teams', team.id), cleanObject(team)));
       await Promise.all(teamPromises);
       await setDoc(doc(db, 'notifications', demNotif.id), cleanObject(demNotif));
@@ -435,6 +527,16 @@ export default function App() {
       await clearCollection('matches');
       await clearCollection('notifications');
       await deleteDoc(doc(db, 'config', 'settings'));
+
+      // Delete team credentials in sync with teams teardown
+      const userSnap = await getDocs(collection(db, 'users'));
+      const deletePromisesArr: Promise<void>[] = [];
+      userSnap.forEach((docDoc) => {
+        if (docDoc.data().isTeamUser === true) {
+          deletePromisesArr.push(deleteDoc(doc(db, 'users', docDoc.id)));
+        }
+      });
+      await Promise.all(deletePromisesArr);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'all');
     }
@@ -783,9 +885,9 @@ export default function App() {
     }
   };
 
-  const handleSaveActiveTournament = async (nameToUse: string) => {
-    if (!activeTournamentConfig) return;
-    const saveId = `save-${Date.now()}`;
+  const handleSaveActiveTournament = async (nameToUse: string, overwriteSaveId?: string) => {
+    const saveId = overwriteSaveId || `save-${Date.now()}`;
+    const liveTeamUsers = users.filter((u) => u.isTeamUser === true);
     const newSave: ActiveTournamentSave = {
       id: saveId,
       name: nameToUse,
@@ -794,20 +896,21 @@ export default function App() {
       teamsCount: teams.length,
       teams: teams,
       matches: matches,
-      activeTournamentConfig: activeTournamentConfig,
+      activeTournamentConfig: activeTournamentConfig || { name: nameToUse, formula: 'N/A' },
       admittedTeamsCount: admittedTeamsCount,
       savedBy: currentUser?.username || 'admin',
+      notifications: notifications,
+      timestamp: Date.now(),
+      teamUsers: liveTeamUsers,
     };
     try {
       await setDoc(doc(db, 'saves', saveId), cleanObject(newSave));
-      const saveNotif: NotificationLog = {
-        id: `notif-save-${Date.now()}`,
-        title: `💾 Torneo in Corso Salvato`,
-        message: `Il torneo "${activeTournamentConfig.name}" in corso è stato salvato con successo come "${nameToUse}".`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: 'system',
-      };
-      await setDoc(doc(db, 'notifications', saveNotif.id), cleanObject(saveNotif));
+      // Also update the loaded save name configuration in setting doc
+      await setDoc(doc(db, 'config', 'settings'), cleanObject({
+        admittedTeamsCount: admittedTeamsCount,
+        activeTournamentConfig: activeTournamentConfig || { name: nameToUse, formula: 'N/A' },
+        loadedSaveName: nameToUse
+      }));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `saves/${saveId}`);
     }
@@ -817,6 +920,38 @@ export default function App() {
     try {
       await clearCollection('teams');
       await clearCollection('matches');
+      await clearCollection('notifications');
+
+      // Purge current team credentials
+      const userSnap = await getDocs(collection(db, 'users'));
+      const deletePromisesArr: Promise<void>[] = [];
+      userSnap.forEach((docDoc) => {
+        if (docDoc.data().isTeamUser === true) {
+          deletePromisesArr.push(deleteDoc(doc(db, 'users', docDoc.id)));
+        }
+      });
+      await Promise.all(deletePromisesArr);
+
+      // Restore saved credentials or auto-generate on-demand for older backup files
+      const restoredUsers: AppUser[] = [];
+      if (save.teamUsers && save.teamUsers.length > 0) {
+        restoredUsers.push(...save.teamUsers);
+      } else {
+        save.teams.forEach((team) => {
+          const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
+          restoredUsers.push({
+            id: `team-user-${team.id}`,
+            username: team.name,
+            password: randomPassword,
+            role: 'reader',
+            createdAt: new Date().toLocaleDateString('it-IT'),
+            isTeamUser: true,
+          });
+        });
+      }
+
+      const userPromises = restoredUsers.map(u => setDoc(doc(db, 'users', u.id), cleanObject(u)));
+      await Promise.all(userPromises);
       
       const teamPromises = save.teams.map(t => setDoc(doc(db, 'teams', t.id), cleanObject(t)));
       await Promise.all(teamPromises);
@@ -824,19 +959,16 @@ export default function App() {
       const matchPromises = save.matches.map(m => setDoc(doc(db, 'matches', m.id), cleanObject(m)));
       await Promise.all(matchPromises);
 
+      if (save.notifications && save.notifications.length > 0) {
+        const notifPromises = save.notifications.map(n => setDoc(doc(db, 'notifications', n.id), cleanObject(n)));
+        await Promise.all(notifPromises);
+      }
+
       await setDoc(doc(db, 'config', 'settings'), cleanObject({
         admittedTeamsCount: save.admittedTeamsCount,
-        activeTournamentConfig: save.activeTournamentConfig
+        activeTournamentConfig: save.activeTournamentConfig,
+        loadedSaveName: save.name
       }));
-
-      const restoreNotif: NotificationLog = {
-        id: `notif-restore-${Date.now()}`,
-        title: `🔄 Ripristino Torneo Completato!`,
-        message: `Fase ripristinata correttamente per "${save.name}" (Formula: ${save.formula.toUpperCase()}), registrata il ${save.date}.`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type: 'system',
-      };
-      await setDoc(doc(db, 'notifications', restoreNotif.id), cleanObject(restoreNotif));
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `restore/${save.id}`);
     }
@@ -891,14 +1023,45 @@ export default function App() {
               e.preventDefault();
               setLoginError(null);
               
-              const found = users.find(u => u.username.trim().toLowerCase() === loginUsername.trim().toLowerCase());
-              
-              if (found && found.password === loginPassword.trim()) {
-                setCurrentUser(found);
-                setLoginUsername('');
-                setLoginPassword('');
-              } else {
+              const typedUser = loginUsername.trim().toLowerCase();
+              const typedPass = loginPassword.trim();
+
+              // 1. Search in active users
+              const activeUser = users.find(u => u.username.trim().toLowerCase() === typedUser);
+
+              // 2. Search in all saved tournaments (which are not currently active)
+              let savedUser: AppUser | undefined = undefined;
+              for (const save of saves) {
+                if (save.teamUsers) {
+                  const found = save.teamUsers.find(u => u.username.trim().toLowerCase() === typedUser);
+                  if (found) {
+                    savedUser = found;
+                    break;
+                  }
+                }
+              }
+
+              // 3. Evaluate matching cases
+              if (!activeUser && !savedUser) {
+                // If username is not found anywhere
                 setLoginError('Credenziali non corrette o utente non autorizzato.');
+              } else {
+                // User exists either in active or saved
+                const isActivePassCorrect = activeUser && activeUser.password === typedPass;
+                const isSavedPassCorrect = savedUser && savedUser.password === typedPass;
+
+                if (isActivePassCorrect) {
+                  // The user exists and is in the active tournament, and correct password: allow access
+                  setCurrentUser(activeUser);
+                  setLoginUsername('');
+                  setLoginPassword('');
+                } else if (isSavedPassCorrect) {
+                  // Correct password but associated with an inactive saved tournament: return inactive tournament error
+                  setLoginError('Torneo richiesto non attivo.');
+                } else {
+                  // Incorrect password
+                  setLoginError('Credenziali non corrette o utente non autorizzato.');
+                }
               }
             }}
             className="space-y-4 text-slate-800"
@@ -947,6 +1110,11 @@ export default function App() {
       </div>
     );
   }
+
+  const isTeamUser = currentUser?.isTeamUser === true;
+  const isTeamAuthorized = isTeamUser
+    ? teams.some((t) => t.name.trim().toLowerCase() === currentUser.username.trim().toLowerCase())
+    : true;
 
   return (
     <div id="main-beach-app-shell" className="min-h-screen bg-amber-50 text-slate-800 font-sans antialiased pb-0 border-0 md:border-8 border-sky-400 flex flex-col selection:bg-orange-200">
@@ -1007,7 +1175,7 @@ export default function App() {
                     <div className="font-extrabold text-amber-300 max-w-[120px] truncate">{currentUser.username}</div>
                     <div className="text-[8px] text-sky-300 font-black mt-0.5 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                      {currentUser.role === 'admin' ? '🛡️ Amministratore' : currentUser.role === 'collaborator' ? '💼 Collaboratore' : '👁️ Lettore Spec.'}
+                      {currentUser.role === 'admin' ? '🛡️ Amministratore' : currentUser.role === 'collaborator' ? '💼 Collaboratore' : '👁️ LETTORE'}
                     </div>
                   </div>
                   <button
@@ -1029,53 +1197,81 @@ export default function App() {
         </div>
 
         {/* Dynamic Tab Controls Layout */}
-        <div className="bg-sky-600/30 border-t border-sky-400/30 py-2.5 md:py-3">
-          <div className="max-w-7xl mx-auto px-4 md:px-6">
-            <nav id="app-nav-row" className="flex overflow-x-auto gap-2 md:gap-3 py-1 no-scrollbar [-ms-overflow-style:none] [scrollbar-width:none]">
-              {(() => {
-                let navItems = [
-                  { id: 'teams', label: 'Lista Ingresso', count: teams.length, icon: <Users className="w-3.5 h-3.5" /> },
-                  { id: 'bracket', label: 'Tabellone', count: matches.length, icon: <Award className="w-3.5 h-3.5" /> },
-                  { id: 'standings', label: 'Classifiche', icon: <TrendingUp className="w-3.5 h-3.5" /> },
-                  { id: 'notifications', label: 'Notifiche', count: notifications.length, icon: <Bell className="w-3.5 h-3.5" /> }
-                ];
-                if (currentUser && currentUser.role === 'admin') {
-                  navItems.push({ id: 'archive', label: 'Archivio Tornei', count: archives.length, icon: <Trophy className="w-3.5 h-3.5" /> });
-                  navItems.push({ id: 'users', label: 'Gestione Utenti', count: users.length, icon: <Shield className="w-3.5 h-3.5" /> });
-                }
-                return navItems;
-              })().map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    id={`nav-tab-${tab.id}`}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    className={`py-1.5 px-3.5 md:py-2 md:px-6 text-[11px] md:text-xs font-black uppercase tracking-wider rounded-full border-b-2 md:border-b-4 transition-all duration-150 flex items-center gap-1.5 shrink-0 ${
-                      isActive
-                        ? 'bg-orange-400 hover:bg-orange-500 text-white border-orange-600 shadow-md scale-105 active:translate-y-0.5'
-                        : 'bg-white hover:bg-amber-100 text-sky-900 border-sky-300 hover:border-sky-400 shadow-sm'
-                    }`}
-                  >
-                    {tab.icon}
-                    <span>{tab.label}</span>
-                    {tab.count !== undefined && (
-                      <span className={`text-[9px] md:text-[10px] px-1 py-0.1 rounded-md font-black ${isActive ? 'bg-orange-700 text-white' : 'bg-sky-100 text-sky-850'}`}>
-                        {tab.count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
+        {(!isTeamUser || isTeamAuthorized) && (
+          <div className="bg-sky-600/30 border-t border-sky-400/30 py-2.5 md:py-3">
+            <div className="max-w-7xl mx-auto px-4 md:px-6">
+              <nav id="app-nav-row" className="flex overflow-x-auto gap-2 md:gap-3 py-1 no-scrollbar [-ms-overflow-style:none] [scrollbar-width:none]">
+                {(() => {
+                  const isOrganizer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
+                  let navItems = [
+                    { id: 'teams', label: 'Lista Ingresso', count: teams.length, icon: <Users className="w-3.5 h-3.5" /> },
+                    ...(isOrganizer || matches.length > 0 ? [
+                      { id: 'bracket', label: 'Tabellone', count: matches.length, icon: <Award className="w-3.5 h-3.5" /> }
+                    ] : []),
+                    { id: 'standings', label: 'Classifiche', icon: <TrendingUp className="w-3.5 h-3.5" /> },
+                    { id: 'notifications', label: 'Notifiche', count: notifications.length, icon: <Bell className="w-3.5 h-3.5" /> }
+                  ];
+                  if (currentUser && currentUser.role === 'admin') {
+                    navItems.push({ id: 'archive', label: 'Archivio Tornei', count: archives.length, icon: <Trophy className="w-3.5 h-3.5" /> });
+                    navItems.push({ id: 'users', label: 'Gestione Utenti', count: users.length, icon: <Shield className="w-3.5 h-3.5" /> });
+                  }
+                  return navItems;
+                })().map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      id={`nav-tab-${tab.id}`}
+                      onClick={() => setActiveTab(tab.id as any)}
+                      className={`py-1.5 px-3.5 md:py-2 md:px-6 text-[11px] md:text-xs font-black uppercase tracking-wider rounded-full border-b-2 md:border-b-4 transition-all duration-150 flex items-center gap-1.5 shrink-0 ${
+                        isActive
+                          ? 'bg-orange-400 hover:bg-orange-500 text-white border-orange-600 shadow-md scale-105 active:translate-y-0.5'
+                          : 'bg-white hover:bg-amber-100 text-sky-900 border-sky-300 hover:border-sky-400 shadow-sm'
+                      }`}
+                    >
+                      {tab.icon}
+                      <span>{tab.label}</span>
+                      {tab.count !== undefined && (
+                        <span className={`text-[9px] md:text-[10px] px-1 py-0.1 rounded-md font-black ${isActive ? 'bg-orange-700 text-white' : 'bg-sky-100 text-sky-850'}`}>
+                          {tab.count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
           </div>
-        </div>
+        )}
       </header>
 
       {/* Main Sandbox Workspace Frame */}
-      <main className="max-w-7xl mx-auto px-3 py-4 md:px-6 md:py-8 flex-1 w-full">
-        <AnimatePresence mode="wait">
-          {activeTab === 'teams' && (
+      <main className="max-w-7xl mx-auto px-3 py-4 md:px-6 md:py-8 flex-1 w-full font-sans">
+        {isTeamUser && !isTeamAuthorized ? (
+          <div id="team-unauthorized-card" className="bg-white rounded-3xl p-8 md:p-12 border-4 border-rose-400 text-center max-w-xl mx-auto shadow-xl mt-12 animate-in zoom-in-95 duration-200">
+            <Lock className="w-16 h-16 text-rose-500 mx-auto animate-pulse mb-6" />
+            <h3 className="text-xl md:text-2xl font-black text-rose-950 uppercase tracking-tight">Torneo richiesto non attivo ⚠️</h3>
+            <p className="text-sm text-slate-500 mt-4 leading-relaxed font-bold">
+              L'account della squadra <span className="text-sky-600 font-mono">"{currentUser?.username}"</span> è autorizzato ad accedere esclusivamente ai tornei in cui risulta regolarmente iscritta.
+            </p>
+            <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 mt-6 text-xs text-rose-800 leading-relaxed font-semibold">
+              Al momento, il torneo attivo caricato nel sistema non include la tua squadra, oppure non vi è alcun torneo attivo configurato. Si prega di attendere che l'organizzatore carichi il relativo torneo.
+            </div>
+            <div className="mt-8">
+              <button
+                id="btn-unauth-logout"
+                onClick={() => {
+                  setCurrentUser(null);
+                }}
+                className="bg-slate-800 hover:bg-slate-900 text-white font-black uppercase text-xs tracking-wider py-3.5 px-6 rounded-xl shadow-md transition-all border-b-4 border-slate-950 hover:scale-105 active:scale-95 cursor-pointer"
+              >
+                Torna al Login / Cambia Account 🔄
+              </button>
+            </div>
+          </div>
+        ) : (
+          <AnimatePresence mode="wait">
+            {activeTab === 'teams' && (
             <motion.div
               key="teams"
               initial={{ opacity: 0, y: 15 }}
@@ -1095,6 +1291,7 @@ export default function App() {
                 isTournamentStarted={matches.some(m => m.status === 'completed' || m.status === 'live' || m.sets.length > 0)}
                 onSubstituteTeam={handleSubstituteTeam}
                 currentUser={currentUser}
+                users={users}
               />
             </motion.div>
           )}
@@ -1164,6 +1361,7 @@ export default function App() {
                 activeTeams={teams}
                 activeMatches={matches}
                 activeTournamentConfig={activeTournamentConfig}
+                loadedSaveName={loadedSaveName}
                 onClearActiveTournament={handleClearAllTournamentData}
                 onSaveActiveTournament={handleSaveActiveTournament}
                 onRestoreTournament={handleRestoreTournament}
@@ -1184,7 +1382,8 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
-      </main>
+      )}
+    </main>
 
       {/* Powered by Contrera */}
       <div id="app-powered-by-contrera" className="flex flex-col items-center justify-center gap-1.5 mt-10 -mb-6 select-none animate-in fade-in duration-300">

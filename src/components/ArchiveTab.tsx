@@ -3,7 +3,7 @@ import { Team, Match, ArchivedTournament, AppUser, ActiveTournamentSave } from '
 import { db, handleFirestoreError, OperationType, cleanObject } from '../firebase';
 import { getGaraNumbersMap, computeFipavStandings } from '../utils';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save, Undo } from 'lucide-react';
+import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save, Undo, AlertTriangle, RefreshCw, Plus } from 'lucide-react';
 
 interface ArchiveTabProps {
   currentUser: AppUser | null;
@@ -12,8 +12,9 @@ interface ArchiveTabProps {
   activeTeams: Team[];
   activeMatches: Match[];
   activeTournamentConfig: any;
+  loadedSaveName?: string | null;
   onClearActiveTournament: () => Promise<void>;
-  onSaveActiveTournament: (name: string) => Promise<void>;
+  onSaveActiveTournament: (name: string, overwriteId?: string) => Promise<void>;
   onRestoreTournament: (save: ActiveTournamentSave) => Promise<void>;
   onDeleteSave: (id: string) => Promise<void>;
 }
@@ -25,6 +26,7 @@ export default function ArchiveTab({
   activeTeams,
   activeMatches,
   activeTournamentConfig,
+  loadedSaveName = null,
   onClearActiveTournament,
   onSaveActiveTournament,
   onRestoreTournament,
@@ -38,6 +40,7 @@ export default function ArchiveTab({
   const [subTab, setSubTab] = useState<'historical' | 'in_progress'>('historical');
   const [isSavingActiveModalOpen, setIsSavingActiveModalOpen] = useState(false);
   const [activeSaveName, setActiveSaveName] = useState('');
+  const [conflictSave, setConflictSave] = useState<ActiveTournamentSave | null>(null);
   
   // Custom confirmation states to replace window.confirm (for sandbox iframe compatibility)
   const [deleteArchiveId, setDeleteArchiveId] = useState<string | null>(null);
@@ -159,6 +162,13 @@ export default function ArchiveTab({
 
   const handleSaveActiveSubmit = async () => {
     const nameToUse = activeSaveName.trim() || activeTournamentConfig?.name || `Torneo del ${new Date().toLocaleDateString()}`;
+    const existing = saves.find(s => s.name.trim().toLowerCase() === nameToUse.trim().toLowerCase());
+    
+    if (existing) {
+      setConflictSave(existing);
+      return;
+    }
+
     await onSaveActiveTournament(nameToUse);
     setIsSuccessMessage(`Torneo in corso "${nameToUse}" salvato correttamente! Potrai riprenderlo in qualsiasi momento. 💾`);
     setIsSavingActiveModalOpen(false);
@@ -453,16 +463,23 @@ export default function ArchiveTab({
       )}
 
       {/* Active Tournament Action Card */}
-      {activeMatches.length > 0 && (
+      {(activeMatches.length > 0 || activeTeams.length > 0) && (
         <div id="active-tournament-archive-panel" className="bg-gradient-to-br from-sky-400 to-indigo-500 rounded-3xl p-6 text-white shadow-xl border-4 border-sky-300 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="bg-white/20 p-3.5 rounded-2xl shrink-0 border border-white/30 shadow-inner">
               <Archive className="w-8 h-8 text-white animate-pulse" />
             </div>
             <div>
-              <h3 className="text-xl font-black uppercase tracking-tight leading-none">Archivia Campionato Corrente</h3>
+              <h3 className="text-xl font-black uppercase tracking-tight leading-none">
+                {activeMatches.length > 0 ? 'Salva / Archivia Torneo' : 'Salva Torneo / Lista Iscritti'}
+              </h3>
               <p className="text-xs text-sky-100 mt-2 font-bold uppercase tracking-wider">
-                Fase Attiva: {activeTournamentConfig?.name || 'In Corso'} • {activeTeams.length} Squadre • Campione Provvisorio: <span className="text-amber-300 font-extrabold">{getPotentialWinner()}</span>
+                Fase Attiva: {activeTournamentConfig?.name || 'In Corso'} • {activeTeams.length} Squadre 
+                {activeMatches.length > 0 ? (
+                  <> • Campione Provvisorio: <span className="text-amber-300 font-extrabold">{getPotentialWinner()}</span></>
+                ) : (
+                  <> • <span className="text-amber-200 font-extrabold">Tabellone in attesa di generazione</span></>
+                )}
               </p>
             </div>
           </div>
@@ -470,21 +487,29 @@ export default function ArchiveTab({
           <div className="flex gap-2">
             {canWrite ? (
               <div className="flex flex-col sm:flex-row gap-2">
-                <button
-                  id="btn-trigger-archival-modal"
-                  onClick={() => {
-                    setArchiveName(activeTournamentConfig?.name || '');
-                    setIsArchivingModalOpen(true);
-                  }}
-                  className="bg-white hover:bg-orange-50 text-sky-900 border-2 border-white scale-100 hover:scale-105 active:scale-95 py-2.5 px-4 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
-                >
-                  <Trophy className="w-4 h-4 text-amber-500" />
-                  Archivia Storico 🏅
-                </button>
+                {activeMatches.length > 0 && (
+                  <button
+                    id="btn-trigger-archival-modal"
+                    onClick={() => {
+                      setArchiveName(activeTournamentConfig?.name || '');
+                      setIsArchivingModalOpen(true);
+                    }}
+                    className="bg-white hover:bg-orange-50 text-sky-900 border-2 border-white scale-100 hover:scale-105 active:scale-95 py-2.5 px-4 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
+                  >
+                    <Trophy className="w-4 h-4 text-amber-500" />
+                    Archivia Storico 🏅
+                  </button>
+                )}
                 <button
                   id="btn-trigger-save-active-modal"
                   onClick={() => {
-                    setActiveSaveName(activeTournamentConfig?.name ? `${activeTournamentConfig.name} - In Corso` : '');
+                    if (loadedSaveName) {
+                      setActiveSaveName(loadedSaveName);
+                    } else if (activeTournamentConfig?.name) {
+                      setActiveSaveName(activeTournamentConfig.name);
+                    } else {
+                      setActiveSaveName('');
+                    }
                     setIsSavingActiveModalOpen(true);
                   }}
                   className="bg-sky-600 hover:bg-sky-700 text-white border-2 border-sky-450 scale-100 hover:scale-105 active:scale-95 py-2.5 px-4 font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-2"
@@ -565,66 +590,146 @@ export default function ArchiveTab({
 
       {/* Saving Active Dynamic Modal */}
       {isSavingActiveModalOpen && (
-        <div id="save-active-modal-overlay" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div id="save-active-modal-box" className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400">
-            <h3 className="text-xl font-black text-sky-900 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
-              <Save className="w-5 h-5 text-sky-500 animate-pulse" />
-              Salva Torneo in Corso
-            </h3>
-            
-            <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-              Il torneo verrà salvato con lo stato attuale delle squadre, dei gironi o dei tabelloni ad eliminazione, incluse tutte le partite live o completate. Potrai riaprirlo e riprendere a giocare dallo stesso punto.
-            </p>
+        <div id="save-active-modal-overlay" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div id="save-active-modal-box" className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400 animate-in zoom-in-95 duration-200">
+            {conflictSave ? (
+              <div className="space-y-4">
+                <h3 className="text-xl font-black text-amber-600 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 animate-bounce" />
+                  Nome già utilizzato! ⚠️
+                </h3>
+                
+                <p className="text-xs text-slate-600 font-bold leading-relaxed">
+                  Esiste già un salvataggio con il nome <strong className="text-slate-900 font-extrabold uppercase">"{conflictSave.name}"</strong>.
+                </p>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                  Cosa desideri fare? Puoi sovrascrivere il salvataggio esistente oppure creare una copia come nuova versione indipendente.
+                </p>
 
-            <div className="mt-5 space-y-4">
-              <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome del Salvataggio</label>
-                <input
-                  type="text"
-                  value={activeSaveName}
-                  onChange={(e) => setActiveSaveName(e.target.value)}
-                  placeholder="E.g., Torneo del Lunedì - Fase Gironi"
-                  className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-black uppercase text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all font-mono"
-                />
+                <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-3.5 text-xs text-amber-800 space-y-1">
+                  <div className="font-extrabold flex justify-between">
+                    <span>Partita precedente salvata:</span>
+                    <span>{conflictSave.teamsCount} Squadre</span>
+                  </div>
+                  <div className="text-[10px] text-amber-600 font-semibold">
+                    Data: {conflictSave.date} • Formula: {conflictSave.formula.toUpperCase()}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-2">
+                  <button
+                    id="conflict-btn-overwrite"
+                    onClick={async () => {
+                      const nameToUse = activeSaveName.trim() || activeTournamentConfig?.name || `Torneo del ${new Date().toLocaleDateString()}`;
+                      await onSaveActiveTournament(nameToUse, conflictSave.id);
+                      setIsSuccessMessage(`Torneo "${nameToUse}" sovrascritto e salvato correttamente! 💾`);
+                      setIsSavingActiveModalOpen(false);
+                      setActiveSaveName('');
+                      setConflictSave(null);
+                      setTimeout(() => setIsSuccessMessage(null), 5000);
+                    }}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-emerald-700 flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                    Sovrascrivi Precedente
+                  </button>
+                  
+                  <button
+                    id="conflict-btn-new-version"
+                    onClick={async () => {
+                      const baseName = activeSaveName.trim() || activeTournamentConfig?.name || `Torneo del ${new Date().toLocaleDateString()}`;
+                      
+                      let counter = 1;
+                      let newName = `${baseName} (v${counter + 1})`;
+                      while (saves.some(s => s.name.toLowerCase() === newName.toLowerCase())) {
+                        counter++;
+                        newName = `${baseName} (v${counter + 1})`;
+                      }
+
+                      await onSaveActiveTournament(newName);
+                      setIsSuccessMessage(`Torneo salvato come nuova versione: "${newName}"! 💾`);
+                      setIsSavingActiveModalOpen(false);
+                      setActiveSaveName('');
+                      setConflictSave(null);
+                      setTimeout(() => setIsSuccessMessage(null), 5000);
+                    }}
+                    className="w-full bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-sky-700 flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-3.5 h-3.5 shrink-0" />
+                    Salva Nuova Versione
+                  </button>
+                  
+                  <button
+                    id="conflict-btn-cancel"
+                    onClick={() => setConflictSave(null)}
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-extrabold uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
+                  >
+                    Annulla
+                  </button>
+                </div>
               </div>
+            ) : (
+              <>
+                <h3 className="text-xl font-black text-sky-900 uppercase tracking-tight flex items-center gap-2 border-b-2 border-slate-100 pb-3">
+                  <Save className="w-5 h-5 text-sky-500 animate-pulse" />
+                  Salva Torneo in Corso
+                </h3>
+                
+                <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+                  Il torneo verrà salvato con lo stato attuale delle squadre, dei gironi o dei tabelloni ad eliminazione, incluse tutte le partite live o completate. Potrai riaprirlo e riprendere a giocare dallo stesso punto.
+                </p>
 
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100 text-xs">
-                <div className="py-1.5 flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase text-[9px]">Sotto-titolo / Formula:</span>
-                  <span className="text-sky-650 font-black uppercase">
-                    {activeTournamentConfig?.formula === 'pools' ? 'Solo Gironi' : 
-                     activeTournamentConfig?.formula === 'direct' ? 'Eliminazione Diretta' :
-                     activeTournamentConfig?.formula === 'double_elim' ? 'Doppia Eliminazione' :
-                     activeTournamentConfig?.formula === 'combined' ? 'Fasi Multiple (Gironi + Playoff)' : activeTournamentConfig?.formula || 'In Corso'}
-                  </span>
-                </div>
-                <div className="py-1.5 flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase text-[9px]">Squadre attive:</span>
-                  <span className="text-slate-800 font-black">{activeTeams.length}</span>
-                </div>
-                <div className="py-1.5 flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase text-[9px]">Partite generate/giocate:</span>
-                  <span className="text-slate-800 font-black">{activeMatches.length} Spettate</span>
-                </div>
-              </div>
-            </div>
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome del Salvataggio</label>
+                    <input
+                      type="text"
+                      value={activeSaveName}
+                      onChange={(e) => setActiveSaveName(e.target.value)}
+                      placeholder="E.g., Torneo del Lunedì - Fase Gironi"
+                      className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-black uppercase text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all font-mono"
+                    />
+                  </div>
 
-            <div className="mt-6 flex gap-2">
-              <button
-                id="modal-btn-cancel-save-active"
-                onClick={() => setIsSavingActiveModalOpen(false)}
-                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
-              >
-                Annulla
-              </button>
-              <button
-                id="modal-btn-confirm-save-active"
-                onClick={handleSaveActiveSubmit}
-                className="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-sky-700"
-              >
-                Salva Stato
-              </button>
-            </div>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 divide-y divide-slate-100 text-xs">
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-slate-400 font-bold uppercase text-[9px]">Sotto-titolo / Formula:</span>
+                      <span className="text-sky-650 font-black uppercase">
+                        {activeTournamentConfig?.formula === 'pools' ? 'Solo Gironi' : 
+                         activeTournamentConfig?.formula === 'direct' ? 'Eliminazione Diretta' :
+                         activeTournamentConfig?.formula === 'double_elim' ? 'Doppia Eliminazione' :
+                         activeTournamentConfig?.formula === 'combined' ? 'Fasi Multiple (Gironi + Playoff)' : activeTournamentConfig?.formula || 'In Corso'}
+                      </span>
+                    </div>
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-slate-400 font-bold uppercase text-[9px]">Squadre attive:</span>
+                      <span className="text-slate-800 font-black">{activeTeams.length}</span>
+                    </div>
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-slate-400 font-bold uppercase text-[9px]">Partite generate/giocate:</span>
+                      <span className="text-slate-800 font-black">{activeMatches.length} Spettate</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex gap-2">
+                  <button
+                    id="modal-btn-cancel-save-active"
+                    onClick={() => setIsSavingActiveModalOpen(false)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase text-[10px] tracking-wider py-3 rounded-xl transition-all"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    id="modal-btn-confirm-save-active"
+                    onClick={handleSaveActiveSubmit}
+                    className="flex-1 bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-[10px] tracking-wider py-3 rounded-xl shadow-md transition-all border-b-4 border-sky-700"
+                  >
+                    Salva Stato
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -722,8 +827,8 @@ export default function ArchiveTab({
                         <Trophy className="w-4.5 h-4.5" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight line-clamp-1">{arc.name}</h3>
-                        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-450 uppercase font-bold">
+                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight break-words whitespace-normal">{arc.name}</h3>
+                        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-455 uppercase font-bold">
                           <span className="flex items-center gap-1 text-slate-500">
                             <Calendar className="w-3.5 h-3.5" />
                             {arc.date}
@@ -960,8 +1065,8 @@ export default function ArchiveTab({
                           <Save className="w-4.5 h-4.5" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight line-clamp-1">{sv.name}</h3>
-                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400 uppercase font-bold">
+                          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight break-words whitespace-normal">{sv.name}</h3>
+                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-405 uppercase font-bold">
                             <span className="flex items-center gap-1 text-slate-500">
                               <Calendar className="w-3.5 h-3.5" />
                               {sv.date}

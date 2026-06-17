@@ -200,12 +200,6 @@ export default function StandingsTab({ teams, matches, activeTournamentConfig, c
             <h3 className="text-lg font-black text-sky-950 uppercase italic tracking-wide">
               {isCombined ? 'Classifica Avulsa Gironi' : 'Classifica Avulsa'}
             </h3>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">
-              {isCombined 
-                ? 'I punteggi si riferiscono esclusivamente alla fase a gironi e non includono i playoffs' 
-                : 'I punteggi teorici si calcolano in base ai set conquistati sul campo sabbioso'
-              }
-            </p>
           </div>
         </div>
 

@@ -16,6 +16,7 @@ interface TeamsTabProps {
   isTournamentStarted?: boolean;
   onSubstituteTeam?: (withdrawnId: string, promotedId: string) => void;
   currentUser?: AppUser | null;
+  users?: AppUser[];
 }
 
 const getWhatsAppUrl = (phone: string) => {
@@ -38,6 +39,7 @@ export default function TeamsTab({
   isTournamentStarted = false,
   onSubstituteTeam,
   currentUser = null,
+  users = [],
 }: TeamsTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
@@ -55,6 +57,7 @@ export default function TeamsTab({
   const [copiedIdField, setCopiedIdField] = useState<string | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState<number | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
+  const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
   const handleCopy = (text: string, idField: string) => {
     navigator.clipboard.writeText(text);
     setCopiedIdField(idField);
@@ -274,29 +277,25 @@ export default function TeamsTab({
               <button
                 id={`delete-team-btn-${team.id}`}
                 onClick={() => {
-                  if (window.confirm(`Sei sicuro di voler effettuare il ritiro o cancellazione della squadra "${team.name}"?` + (isLocked ? " Questo ricalcolerà immediatamente il tabellone." : ""))) {
-                    onDeleteTeam(team.id);
-                  }
+                  setTeamToDelete(team);
                 }}
                 className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
                 title={isLocked ? "Ritira questa squadra dal torneo" : "Elimina squadra"}
               >
                 <Trash2 className="w-4 h-4 text-rose-500" />
               </button>
-            ) : (
+            ) : (isWithdrawn || isReserve) ? (
               <div className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-xl border select-none cursor-not-allowed ${
                 isWithdrawn
                   ? 'bg-rose-50 border-rose-100 text-rose-500'
-                  : isReserve 
-                    ? 'bg-orange-50 border-orange-250 text-orange-600' 
-                    : 'bg-slate-100 border-slate-200 text-slate-500'
-              }`} title={isWithdrawn ? "Squadre ritirata dal torneo" : isReserve ? "Riserva nel torneo attivo" : "Iscritta nel torneo attivo"}>
+                  : 'bg-orange-50 border-orange-250 text-orange-600'
+              }`} title={isWithdrawn ? "Squadre ritirata dal torneo" : "Riserva nel torneo attivo"}>
                 <Lock className="w-3 h-3 text-current" />
                 <span className="text-[9px] font-black uppercase tracking-wider">
-                  {isWithdrawn ? 'Ritirata' : isReserve ? 'Riserva' : 'Rank'}
+                  {isWithdrawn ? 'Ritirata' : 'Riserva'}
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -361,7 +360,7 @@ export default function TeamsTab({
                 return team.registeredAt;
               })()}
             </span>
-            <span className="text-[9px] text-slate-400/80 font-mono">ID: {team.id.substring(0, 8)}</span>
+
           </div>
           {!isWithdrawn && team.subenteredForTeamName && (
             <span className="text-[9px] text-emerald-600 font-extrabold uppercase tracking-wide flex items-center gap-1 mt-1">
@@ -692,52 +691,97 @@ export default function TeamsTab({
       {/* Roster / Directory Column */}
       <div id="roster-panel" className={`${canWrite ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6 ${isLocked ? 'order-1 lg:order-none' : 'order-2 lg:order-none'}`}>
         {/* Statistics headers */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <div className="col-span-2 lg:col-span-1 bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-orange-400 shadow-md flex items-center gap-3">
-            <div className="p-2 bg-orange-100 rounded-full text-orange-600 border border-orange-200 shrink-0">
-              <Users className="w-4 h-4 md:w-5 md:h-5" />
+        <div className="flex flex-col items-center justify-center w-full py-4 text-center gap-4">
+          {/* Centered Total Teams Badge/Button */}
+          {!isLocked ? (
+            <div className="relative group overflow-hidden bg-gradient-to-br from-orange-400 via-amber-500 to-orange-500 text-white px-6 py-3.5 rounded-full border-4 border-amber-300 shadow-[0_10px_35px_-8px_rgba(249,115,22,0.3)] flex items-center gap-4 hover:scale-104 active:scale-98 transition-all duration-300 select-none max-w-xs w-full justify-center">
+              {/* Highlight background glow */}
+              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-full" />
+              
+              <div className="p-2.5 bg-white/20 backdrop-blur-md rounded-full text-white border border-white/40 shrink-0 shadow-[inset_0_2px_4px_rgba(255,255,255,0.3)] animate-pulse">
+                <Users className="w-5.5 h-5.5 md:w-6 md:h-6 stroke-[2.5]" />
+              </div>
+              <div className="flex flex-col items-start text-left">
+                <div id="stat-total-teams" className="text-2xl md:text-3xl font-black font-mono leading-none tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.15)] flex items-baseline gap-1.5 align-middle">
+                  {teams.length}
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-orange-100">Squadre</span>
+                </div>
+                <div className="text-[9px] md:text-[10px] uppercase font-black text-orange-55 tracking-wider mt-0.5 italic flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span>Iscrizioni Aperte</span>
+                </div>
+              </div>
             </div>
-            <div>
-              <div id="stat-total-teams" className="text-xl md:text-2xl font-black text-slate-800 font-mono leading-none">{teams.length}</div>
-              <div className="text-[9px] md:text-[10px] uppercase font-black text-slate-400 tracking-wider mt-0.5">Iscritti</div>
+          ) : (
+            <div className="relative group overflow-hidden bg-gradient-to-br from-slate-600 via-zinc-800 to-slate-700 text-white px-6 py-3.5 rounded-full border-4 border-slate-500 shadow-[0_10px_30px_-8px_rgba(71,85,105,0.25)] flex items-center gap-4 hover:scale-104 active:scale-98 transition-all duration-300 select-none max-w-xs w-full justify-center">
+              {/* Highlight background glow */}
+              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-full" />
+              
+              <div className="p-2.5 bg-slate-800/60 backdrop-blur-md rounded-full text-slate-350 border border-slate-605 shrink-0 shadow-[inset_0_2px_4px_rgba(255,255,255,0.15)]">
+                <Lock className="w-5.5 h-5.5 md:w-6 md:h-6 stroke-[2.5]" />
+              </div>
+              <div className="flex flex-col items-start text-left">
+                <div id="stat-total-teams" className="text-2xl md:text-3xl font-black font-mono leading-none tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.15)] text-slate-200 flex items-baseline gap-1.5 align-middle">
+                  {teams.length}
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Squadre</span>
+                </div>
+                <div className="text-[9px] md:text-[10px] uppercase font-black text-rose-350 tracking-wider mt-0.5 italic flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                  </span>
+                  <span>Iscrizioni Chiuse</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-amber-500 shadow-md flex items-center gap-3">
-            <div className="p-2 bg-amber-100 rounded-full text-amber-600 border border-amber-200 shrink-0">
-              <Award className="w-4 h-4 md:w-5 md:h-5 animate-pulse" />
+          )}
+
+          {/* Level Statistics Grid for CanWrite */}
+          {canWrite && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-2xl mt-1">
+              <div className="bg-white p-3 rounded-2xl border-2 border-amber-500 shadow-sm flex items-center gap-2.5">
+                <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600 border border-amber-200 shrink-0">
+                  <Award className="w-4 h-4 animate-pulse" />
+                </div>
+                <div className="text-left">
+                  <div id="stat-gold-teams" className="text-base font-black text-slate-800 font-mono leading-none">{goldCount}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider mt-0.5">Gold</div>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl border-2 border-slate-300 shadow-sm flex items-center gap-2.5">
+                <div className="p-1.5 bg-slate-100 rounded-lg text-slate-600 border border-slate-200 shrink-0">
+                  <Award className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <div id="stat-silver-teams" className="text-base font-black text-slate-800 font-mono leading-none">{silverCount}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider mt-0.5">Silver</div>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl border-2 border-amber-700 shadow-sm flex items-center gap-2.5">
+                <div className="p-1.5 bg-amber-50 rounded-lg text-amber-800 border border-amber-500 shrink-0">
+                  <Award className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <div id="stat-bronze-teams" className="text-base font-black text-slate-800 font-mono leading-none">{bronzeCount}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider mt-0.5">Bronze</div>
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl border-2 border-emerald-400 shadow-sm flex items-center gap-2.5">
+                <div className="p-1.5 bg-emerald-100 rounded-lg text-emerald-600 border border-emerald-200 shrink-0">
+                  <Award className="w-4 h-4" />
+                </div>
+                <div className="text-left">
+                  <div id="stat-beginner-teams" className="text-base font-black text-slate-800 font-mono leading-none">{beginnerCount}</div>
+                  <div className="text-[9px] uppercase font-bold text-slate-400 tracking-wider mt-0.5">Beginner</div>
+                </div>
+              </div>
             </div>
-            <div>
-              <div id="stat-gold-teams" className="text-xl md:text-2xl font-black text-slate-800 font-mono leading-none">{goldCount}</div>
-              <div className="text-[9px] md:text-[10px] uppercase font-black text-slate-400 tracking-wider mt-0.5">Gold</div>
-            </div>
-          </div>
-          <div className="bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-slate-400 shadow-md flex items-center gap-3">
-            <div className="p-2 bg-slate-100 rounded-full text-slate-600 border border-slate-200 shrink-0">
-              <Award className="w-4 h-4 md:w-5 md:h-5" />
-            </div>
-            <div>
-              <div id="stat-silver-teams" className="text-xl md:text-2xl font-black text-slate-800 font-mono leading-none">{silverCount}</div>
-              <div className="text-[9px] md:text-[10px] uppercase font-black text-slate-400 tracking-wider mt-0.5">Silver</div>
-            </div>
-          </div>
-          <div className="bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-amber-700 shadow-md flex items-center gap-3">
-            <div className="p-2 bg-amber-50 rounded-full text-amber-800 border border-amber-600 shrink-0">
-              <Award className="w-4 h-4 md:w-5 md:h-5" />
-            </div>
-            <div>
-              <div id="stat-bronze-teams" className="text-xl md:text-2xl font-black text-slate-800 font-mono leading-none">{bronzeCount}</div>
-              <div className="text-[9px] md:text-[10px] uppercase font-black text-slate-400 tracking-wider mt-0.5">Bronze</div>
-            </div>
-          </div>
-          <div className="bg-white p-3 md:p-4 rounded-3xl border-2 md:border-4 border-emerald-400 shadow-md flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 rounded-full text-emerald-600 border border-emerald-250 shrink-0">
-              <Award className="w-4 h-4 md:w-5 md:h-5" />
-            </div>
-            <div>
-              <div id="stat-beginner-teams" className="text-xl md:text-2xl font-black text-slate-800 font-mono leading-none">{beginnerCount}</div>
-              <div className="text-[9px] md:text-[10px] uppercase font-black text-slate-400 tracking-wider mt-0.5">Beginner</div>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Directory header and search */}
@@ -745,7 +789,9 @@ export default function TeamsTab({
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
             <div>
               <h3 className="font-black text-sky-850 text-xl uppercase italic pb-1">Lista d'Ingresso</h3>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Graduatoria basata sul livello di gioco (Gold, Silver, Bronze, Beginner) e ordine d'iscrizione</p>
+              {canWrite && (
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Graduatoria basata sul livello di gioco (Gold, Silver, Bronze, Beginner) e ordine d'iscrizione</p>
+              )}
             </div>
             <div className="relative w-full md:w-64">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -761,22 +807,24 @@ export default function TeamsTab({
           </div>
 
           {/* Informative Rule Banner */}
-          <div className="bg-gradient-to-r from-sky-50 to-blue-50/50 border-l-4 border-sky-500 p-4 rounded-r-2xl mb-6 text-slate-700 text-xs font-semibold leading-relaxed flex gap-3">
-            <div className="p-1.5 bg-sky-100 rounded-xl text-sky-600 shrink-0 self-start">
-              <Sparkles className="w-4 h-4" />
+          {canWrite && (
+            <div className="bg-gradient-to-r from-sky-50 to-blue-50/50 border-l-4 border-sky-500 p-4 rounded-r-2xl mb-6 text-slate-700 text-xs font-semibold leading-relaxed flex gap-3">
+              <div className="p-1.5 bg-sky-100 rounded-xl text-sky-600 shrink-0 self-start">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h5 className="font-extrabold text-sky-950 text-[11px] uppercase tracking-wider mb-1 font-sans">
+                  Regolamento Lista d'Ingresso & Riserve
+                </h5>
+                <p className="mb-1.5">
+                  La <strong>Lista d'Ingresso</strong> viene ordinata per <strong>livello di gioco</strong> (Gold, Silver, Bronze, Beginner) e, a parità di livello, per <strong>ordine cronologico di iscrizione</strong>.
+                </p>
+                <p>
+                  Tuttavia, in caso di superamento della capienza massima stabilita per la formula del torneo, le eventuali esclusioni (riserve) sono decretate <strong>esclusivamente in ordine cronologico di iscrizione</strong> (le squadre registrate per ultime saranno escluse per prime, a prescindere dal livello). Le riserve subentreranno in caso di ritiri seguendo rigorosamente l'ordine cronologico di iscrizione.
+                </p>
+              </div>
             </div>
-            <div>
-              <h5 className="font-extrabold text-sky-950 text-[11px] uppercase tracking-wider mb-1 font-sans">
-                Regolamento Lista d'Ingresso & Riserve
-              </h5>
-              <p className="mb-1.5">
-                La <strong>Lista d'Ingresso</strong> viene ordinata per <strong>livello di gioco</strong> (Gold, Silver, Bronze, Beginner) e, a parità di livello, per <strong>ordine cronologico di iscrizione</strong>.
-              </p>
-              <p>
-                Tuttavia, in caso di superamento della capienza massima stabilita per la formula del torneo, le eventuali esclusioni (riserve) sono decretate <strong>esclusivamente in ordine cronologico di iscrizione</strong> (le squadre registrate per ultime saranno escluse per prime, a prescindere dal livello). Le riserve subentreranno in caso di ritiri seguendo rigorosamente l'ordine cronologico di iscrizione.
-              </p>
-            </div>
-          </div>
+          )}
 
           {hasExclusions ? (
             filteredAdmitted.length === 0 && filteredReserves.length === 0 ? (
@@ -1117,6 +1165,75 @@ export default function TeamsTab({
                           )}
                         </div>
                       </div>
+
+                      {/* Credenziali della Squadra */}
+                      {(() => {
+                        const teamUserObj = users.find(u => u.id === `team-user-${selectedDetailsTeam.id}`);
+                        const fallbackUserObj = !teamUserObj ? users.find(u => u.isTeamUser && u.username.trim().toLowerCase() === selectedDetailsTeam.name.trim().toLowerCase()) : null;
+                        const finalUserObj = teamUserObj || fallbackUserObj;
+
+                        if (!finalUserObj) {
+                          return (
+                            <div className="bg-amber-55/40 border border-amber-250 rounded-xl p-3 text-center text-xs text-amber-800 font-bold mt-2.5">
+                              ⚠️ Nessun account associato trovato per questa squadra nel database.
+                            </div>
+                          );
+                        }
+
+                        const inviteMsg = `Ciao,  
+Per seguire in tempo reale il torneo Wsicily al quale sei iscritto collegati alla nostra web app all'indirizzo wsicily.vercel.app ed effettua il login con le tue credenziali di squadra:
+
+Username: ${finalUserObj.username}
+Password: ${finalUserObj.password}
+
+Buon Divertimento!
+
+Lo staff Wsicily!`;
+
+                        const hasPhone = selectedDetailsTeam.phone && selectedDetailsTeam.phone !== 'Non specificato';
+                        const p1PhoneTemp = hasPhone ? selectedDetailsTeam.phone : '';
+                        const wpInviteUrl = getWhatsAppUrl(p1PhoneTemp) + `?text=${encodeURIComponent(inviteMsg)}`;
+
+                        return (
+                          <div className="bg-sky-50 border-2 border-sky-200 rounded-xl p-3.5 mt-2.5 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black uppercase text-sky-700 tracking-wider flex items-center gap-1.5">
+                                <Lock className="w-3.5 h-3.5 text-sky-600" />
+                                Credenziali di Accesso Squadra 🔐
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2 text-xs font-semibold bg-white p-2.5 rounded-lg border border-sky-100">
+                              <div>
+                                <div className="text-[9px] text-slate-400 uppercase font-bold">Username</div>
+                                <div className="font-mono text-xs text-sky-950 truncate select-all">{finalUserObj.username}</div>
+                              </div>
+                              <div>
+                                <div className="text-[9px] text-slate-400 uppercase font-bold">Password</div>
+                                <div className="font-mono text-xs text-orange-600 font-extrabold tracking-wider select-all">{finalUserObj.password}</div>
+                              </div>
+                            </div>
+
+                            <div className="pt-1">
+                              <a
+                                href={wpInviteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 text-[11px] font-black uppercase tracking-wide bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-lg transition-all shadow-md cursor-pointer text-center"
+                                id={`send-wp-creds-${selectedDetailsTeam.id}`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                Invia Credenziali via WhatsApp 💬
+                              </a>
+                              {!hasPhone && (
+                                <p className="text-[8px] md:text-[9px] text-orange-650 font-bold mt-1 text-center leading-tight">
+                                  * Nota: Numero di Player 1 mancante. WhatsApp richiederà di selezionare il contatto manualmente.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Player 2 Details / Edit */}
@@ -1456,6 +1573,48 @@ export default function TeamsTab({
                 className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm font-sans cursor-pointer"
               >
                 Sì, Elimina tutto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {teamToDelete !== null && (
+        <div id="delete-team-confirm-modal" className="fixed inset-0 bg-sky-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border-4 border-rose-450 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-200 text-slate-800">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-rose-50 border-2 border-rose-300 rounded-full flex items-center justify-center mx-auto text-rose-500 shadow-xs mb-1">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="font-black text-rose-750 uppercase italic text-lg leading-tight">Elimina / Ritira Squadra?</h3>
+              <p className="text-xs text-slate-550 font-semibold leading-relaxed">
+                Sei sicuro di voler effettuare il ritiro o la cancellazione della squadra <strong className="text-slate-850 font-black">"{teamToDelete.name}"</strong>?
+                {isLocked && (
+                  <span className="block mt-1.5 text-rose-600 font-extrabold">
+                    ⚠️ Nota: Il torneo è bloccato. Questa operazione ricalcolerà immediatamente il tabellone.
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex gap-2 font-sans">
+              <button
+                id="delete-team-modal-cancel"
+                type="button"
+                onClick={() => setTeamToDelete(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black uppercase tracking-wider py-2.5 rounded-xl border border-slate-350 transition-all cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                id="delete-team-modal-ok"
+                type="button"
+                onClick={() => {
+                  onDeleteTeam(teamToDelete.id);
+                  setTeamToDelete(null);
+                }}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                Sì, Ritiro / Elimina
               </button>
             </div>
           </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AppUser } from '../types';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { Shield, UserPlus, Trash2, Edit3, Key, Plus, Lock, Check, Eye, EyeOff, X } from 'lucide-react';
+import { Shield, UserPlus, Trash2, Edit3, Key, Plus, Lock, Check, Eye, EyeOff, X, Copy, Trophy } from 'lucide-react';
 
 interface UserTabProps {
   currentUser: AppUser | null;
@@ -12,6 +12,7 @@ interface UserTabProps {
 export default function UserTab({ currentUser, users }: UserTabProps) {
   const [isAddFormOpen, setIsAddFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+  const [userToDeleteState, setUserToDeleteState] = useState<AppUser | null>(null);
 
   // New user credentials state
   const [newUsername, setNewUsername] = useState('');
@@ -37,8 +38,20 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
     );
   }
 
+  const adminUsers = users.filter((u) => u.isTeamUser !== true);
+  const teamUsers = users.filter((u) => u.isTeamUser === true);
+
   const togglePasswordVisibility = (id: string) => {
     setPasswordsShown(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleCopyCredentials = (u: AppUser) => {
+    const textToCopy = `Username: ${u.username}\nPassword: ${u.password}`;
+    navigator.clipboard.writeText(textToCopy);
+    setSuccessText(`Credenziali per la squadra "${u.username}" copiate negli appunti! 📋`);
+    setTimeout(() => {
+      setSuccessText(null);
+    }, 4500);
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -102,20 +115,26 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
     }
   };
 
-  const handleDeleteUser = async (userToDelete: AppUser) => {
-    if (userToDelete.username === currentUser.username) {
-      alert('Non puoi rimuovere la tua stessa utenza amministratore attiva!');
+  const handleDeleteUser = (userToDelete: AppUser) => {
+    if (currentUser && userToDelete.username === currentUser.username) {
+      setErrorText('Non puoi rimuovere la tua stessa utenza amministratore attiva!');
+      setTimeout(() => setErrorText(null), 4500);
       return;
     }
 
-    if (!confirm(`Sei sicuro di voler revocare l'accesso e cancellare l'utente "${userToDelete.username}"?`)) return;
+    setUserToDeleteState(userToDelete);
+  };
 
+  const confirmDeleteUser = async () => {
+    if (!userToDeleteState) return;
     try {
-      await deleteDoc(doc(db, 'users', userToDelete.id));
-      setSuccessText(`Accesso rimosso per "${userToDelete.username}".`);
+      await deleteDoc(doc(db, 'users', userToDeleteState.id));
+      setSuccessText(`Accesso rimosso per "${userToDeleteState.username}".`);
       setTimeout(() => setSuccessText(null), 4000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `users/${userToDelete.id}`);
+      handleFirestoreError(err, OperationType.DELETE, `users/${userToDeleteState.id}`);
+    } finally {
+      setUserToDeleteState(null);
     }
   };
 
@@ -143,7 +162,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
           <div>
             <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
               <Shield className="w-5 h-5 text-sky-500" />
-              Gestione Privilegi Utente ({users.length})
+              Gestione Privilegi Utente Operatori ({adminUsers.length})
             </h2>
             <p className="text-xs text-slate-400 font-extrabold uppercase tracking-wider mt-1">
               Consolle per la regolazione e l'impostazione degli accessi al software
@@ -176,7 +195,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {users.map((u) => {
+              {adminUsers.map((u) => {
                 const isSelf = u.username === (currentUser?.username);
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/50">
@@ -258,6 +277,93 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Section 2: Team Access Credentials List */}
+      <div id="team-users-workspace-card" className="bg-white rounded-3xl border border-emerald-200/60 p-6 shadow-sm mt-8 animate-in fade-in slide-in duration-300">
+        <div className="border-b-2 border-slate-100 pb-5 mb-6">
+          <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-emerald-500" />
+            Accessi Automatici Squadre Torneo ({teamUsers.length})
+          </h2>
+          <p className="text-xs text-slate-400 font-extrabold uppercase tracking-wider mt-1 leading-relaxed">
+            Profili da lettore generati automaticamente all'iscrizione della squadra. Le squadre inserite possono usare queste credenziali per accedere in sola lettura al loro torneo.
+          </p>
+        </div>
+
+        {teamUsers.length === 0 ? (
+          <div className="bg-emerald-50/40 rounded-2xl py-8 px-4 text-center border border-dashed border-emerald-200">
+            <Trophy className="w-8 h-8 text-emerald-450 mx-auto opacity-50 mb-2" />
+            <span className="text-xs text-emerald-800 font-extrabold uppercase tracking-wider block">Nessuna squadra ancora registrata</span>
+            <p className="text-[11px] text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
+              Registra delle squadre nel tab principale per generare automaticamente i loro account spettatore!
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto border border-slate-100 rounded-2xl bg-slate-50/25">
+            <table className="w-full text-xs font-sans">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200">
+                  <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Nome Squadra (Username)</th>
+                  <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Ruolo Assegnato</th>
+                  <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Password</th>
+                  <th className="p-3.5 text-center font-black text-slate-500 uppercase tracking-wider">Data Iscrizione</th>
+                  <th className="p-3.5 text-right font-black text-slate-500 uppercase tracking-wider">Azioni Rapide</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {teamUsers.map((u) => {
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50/50">
+                      <td className="p-3.5">
+                        <div className="font-extrabold text-slate-800 font-mono">
+                          {u.username}
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <span className="text-[9px] font-black uppercase tracking-wider py-1 px-3 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                          🌊 Lettore Spettatore
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type={passwordsShown[u.id] ? 'text' : 'password'}
+                            value={u.password || ''}
+                            readOnly
+                            className="bg-transparent text-[11px] font-mono outline-none border-none py-0.5 max-w-[100px]"
+                          />
+                          <button
+                            id={`btn-toggle-team-pass-vis-${u.id}`}
+                            onClick={() => togglePasswordVisibility(u.id)}
+                            className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-all"
+                            title="Mostra / Nascondi password"
+                          >
+                            {passwordsShown[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="p-3.5 text-center font-bold text-slate-400 font-mono">
+                        {u.createdAt}
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <button
+                          id={`btn-copy-team-creds-${u.id}`}
+                          onClick={() => handleCopyCredentials(u)}
+                          className="bg-emerald-50 hover:bg-emerald-100 text-emerald-750 font-black uppercase text-[9px] tracking-wider py-1.5 px-3 rounded-xl transition-all border border-emerald-250 flex items-center gap-1.5 ml-auto shadow-sm"
+                          title="Copia credenziali negli appunti"
+                        >
+                          <Copy className="w-3 h-3" />
+                          Copia Credenziali
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Slide / Modal: Add User Form */}
@@ -420,6 +526,40 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {userToDeleteState !== null && (
+        <div id="delete-user-confirm-modal" className="fixed inset-0 bg-sky-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border-4 border-rose-450 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-200 text-slate-800">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-rose-50 border-2 border-rose-300 rounded-full flex items-center justify-center mx-auto text-rose-500 shadow-xs mb-1">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="font-black text-rose-750 uppercase italic text-lg leading-tight">Revocare Accesso?</h3>
+              <p className="text-xs text-slate-550 font-semibold leading-relaxed">
+                Sei sicuro di voler revocare l'accesso e cancellare l'utente <strong className="text-slate-850 font-black">"{userToDeleteState.username}"</strong>? Questa operazione eliminerà definitivamente le sue credenziali di operatore.
+              </p>
+            </div>
+            <div className="flex gap-2 font-sans">
+              <button
+                id="delete-user-modal-cancel"
+                type="button"
+                onClick={() => setUserToDeleteState(null)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black uppercase tracking-wider py-2.5 rounded-xl border border-slate-350 transition-all cursor-pointer"
+              >
+                Annulla
+              </button>
+              <button
+                id="delete-user-modal-ok"
+                type="button"
+                onClick={confirmDeleteUser}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider py-2.5 rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                Sì, Elimina
+              </button>
+            </div>
           </div>
         </div>
       )}

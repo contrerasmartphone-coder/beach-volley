@@ -11,6 +11,30 @@ interface NotificationCenterProps {
   onClearNotifications: () => void;
 }
 
+// Helper to get formatted date and time from notification log
+const getNotificationDateTime = (notif: NotificationLog) => {
+  // Try to parse 13-digit millisecond timestamp from id
+  const stampMatch = notif.id.match(/\d+/);
+  const timestamp = stampMatch ? parseInt(stampMatch[0], 10) : null;
+  
+  let formattedDate = "";
+  let formattedTime = notif.time;
+
+  if (timestamp && timestamp > 1000000000000) {
+    const d = new Date(timestamp);
+    formattedDate = d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    // Keep of original time if match schedule change edit was explicit, otherwise use the precise date time
+    if (!notif.time || notif.time.includes(':')) {
+      formattedTime = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    }
+  } else {
+    const d = new Date();
+    formattedDate = d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  return { date: formattedDate, time: formattedTime };
+};
+
 export default function NotificationCenter({
   currentUser = null,
   notifications,
@@ -319,11 +343,18 @@ export default function NotificationCenter({
                     </div>
                     
                     <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
                           {getBadgeLabelType(notif.type)}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-extrabold font-mono">{notif.time}</span>
+                        {(() => {
+                          const { date, time } = getNotificationDateTime(notif);
+                          return (
+                            <span className="text-[10px] text-slate-500 font-extrabold font-mono bg-slate-100/70 border border-slate-200/60 rounded-full px-2.5 py-0.5 shrink-0 whitespace-nowrap">
+                              {date} &bull; {time}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <h4 id={`notif-title-${notif.id}`} className="font-extrabold text-slate-800 text-sm leading-tight pt-0.5">{notif.title}</h4>
                       <p id={`notif-body-${notif.id}`} className="text-xs font-semibold text-slate-600 leading-relaxed pt-1 whitespace-pre-line">{notif.message}</p>

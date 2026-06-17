@@ -84,6 +84,7 @@ export interface AppUser {
   password?: string;
   role: 'admin' | 'collaborator' | 'reader';
   createdAt: string;
+  isTeamUser?: boolean;
 }
 
 export interface ArchivedTournament {
@@ -113,5 +114,8 @@ export interface ActiveTournamentSave {
   activeTournamentConfig: any;
   admittedTeamsCount: number | null;
   savedBy?: string;
+  notifications?: NotificationLog[];
+  timestamp?: number;
+  teamUsers?: AppUser[];
 }
 
