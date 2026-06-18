@@ -1195,6 +1195,314 @@ export default function BracketTab({
     setEditingMatch(null);
   };
 
+  const handlePrintTournamentInfo = () => {
+    const activeFormula = activeTournamentConfig?.formula || formula || 'combined';
+    const activeTeamsCount = activeTournamentConfig?.teamsCount || teamsCount || teams.length;
+    const activeGroupCount = activeTournamentConfig?.groupCount || groupCount || 1;
+    const activeCourtCount = activeTournamentConfig?.courtCount || courtCount || 1;
+    const activePointsPerSet = activeTournamentConfig?.pointsPerSet || pointsPerSet || 21;
+    const activeMaxSets = activeTournamentConfig?.maxSets || maxSets || 3;
+    const activeSfPointsPerSet = activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet || 21;
+    const activeSfMaxSets = activeTournamentConfig?.sfMaxSets || sfMaxSets || 3;
+    const activeQualifiedCount = activeTournamentConfig?.qualifiedCount || combinedQualifiedTeams || 4;
+    const activeInclude3rd4th = activeTournamentConfig?.include3rd4th !== undefined 
+      ? activeTournamentConfig.include3rd4th 
+      : include3rd4th;
+    const activeBreakStart = activeTournamentConfig?.breakStart || breakStart || '';
+    const activeBreakEnd = activeTournamentConfig?.breakEnd || breakEnd || '';
+
+    let formulaName = '';
+    let formulaDescription = '';
+    if (activeFormula === 'direct') {
+      formulaName = "Eliminazione Diretta 🏆";
+      formulaDescription = "Tabellone classico a eliminazione diretta. Chi perde è eliminato, chi vince prosegue il cammino verso la finale.";
+    } else if (activeFormula === 'pools') {
+      formulaName = "Solo Gironi all'Italiana 🏐";
+      formulaDescription = "Campionato lineare con scontri diretti organizzati in gironi (Round Robin). Vince chi accumula più vittorie/punti al termine delle gare.";
+    } else if (activeFormula === 'combined') {
+      formulaName = "Fasi Multiple: Gironi + Playoff 🥇";
+      formulaDescription = "Fase 1 a gironi all'italiana per determinare i piazzamenti. Fase 2 ad eliminazione diretta (Playoff) tra le squadre qualificate.";
+    } else if (activeFormula === 'double_elim') {
+      formulaName = "Vincenti e Perdenti (Double Elimination) 🔄";
+      formulaDescription = "Tabellone a doppia eliminazione. Una squadra viene eliminata solo dopo aver perso 2 incontri, con due tabelloni distinti (Vincenti e Perdenti).";
+    }
+
+    const regSetsLabel = activeMaxSets === 1 
+      ? `Set Singolo a ${activePointsPerSet} punti` 
+      : `Al meglio di 3 set a ${activePointsPerSet} punti (eventuale tie-break al 3° set a 15 punti)`;
+
+    const sfSetsLabel = activeSfMaxSets === 1 
+      ? `Set Singolo a ${activeSfPointsPerSet} punti` 
+      : `Al meglio di 3 set a ${activeSfPointsPerSet} punti (eventuale tie-break al 3° set a 15 punti)`;
+
+    const breakText = (activeBreakStart && activeBreakEnd)
+      ? `Sì &bull; Dalle <strong>${activeBreakStart}</strong> alle <strong>${activeBreakEnd}</strong>`
+      : `Nessuna pausa programmata (orari continui)`;
+
+    const playoffQualsHTML = activeFormula === 'combined' ? `
+      <div class="info-card">
+        <div class="card-title">🎖️ Accoppiamenti e Qualificazione Playoff</div>
+        <p style="font-size: 13px; font-weight: bold; color: #1e3a8a; margin: 0 0 8px 0;">
+          Squadre qualificate ai Playoff: ${activeQualifiedCount}
+        </p>
+        <p style="font-size: 12px; color: #1e293b; line-height: 1.5; margin: 0;">
+          ${getCombinedQualificationExplanation(activeGroupCount, Math.ceil(activeTeamsCount / activeGroupCount), activeQualifiedCount)}
+        </p>
+      </div>
+    ` : '';
+
+    printHTML(`
+      <html>
+        <head>
+          <title>Scheda Tecnica & Configurazione Torneo - ${tournamentName}</title>
+          <style>
+            @media print {
+              body { padding: 10px; }
+              button { display: none; }
+            }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+              padding: 30px; 
+              color: #1e293b; 
+              line-height: 1.5; 
+              background-color: #ffffff;
+            }
+            .header { 
+              text-align: center; 
+              border-bottom: 3px solid #f97316; 
+              padding-bottom: 12px; 
+              margin-bottom: 25px; 
+            }
+            h1 { 
+              margin: 0; 
+              color: #0c4a6e; 
+              font-size: 24px; 
+              text-transform: uppercase; 
+              font-weight: 800; 
+              letter-spacing: -0.5px; 
+            }
+            .subtitle { 
+              margin: 5px 0 0; 
+              color: #f97316; 
+              font-size: 14px; 
+              font-weight: bold; 
+              text-transform: uppercase; 
+              letter-spacing: 1px; 
+            }
+            .meta-info { 
+              display: flex; 
+              justify-content: space-between; 
+              font-size: 10px; 
+              color: #64748b; 
+              margin-bottom: 25px; 
+              font-weight: bold; 
+              text-transform: uppercase; 
+              border-bottom: 1px solid #e2e8f0;
+              padding-bottom: 8px;
+            }
+            .section-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 25px;
+            }
+            @media (max-width: 600px) {
+              .section-grid {
+                grid-template-columns: 1fr;
+              }
+            }
+            .info-card {
+              background: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 12px;
+              padding: 15px;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            }
+            .card-title {
+              font-size: 12px;
+              font-weight: 800;
+              text-transform: uppercase;
+              color: #0f172a;
+              border-bottom: 2px solid #e2e8f0;
+              padding-bottom: 6px;
+              margin-bottom: 10px;
+              letter-spacing: 0.5px;
+            }
+            .config-item {
+              display: flex;
+              justify-content: space-between;
+              padding: 8px 0;
+              border-bottom: 1px dashed #e2e8f0;
+              font-size: 13px;
+            }
+            .config-item:last-child {
+              border-bottom: none;
+            }
+            .config-label {
+              font-weight: 600;
+              color: #475569;
+            }
+            .config-value {
+              font-weight: bold;
+              color: #0f172a;
+              text-align: right;
+            }
+            .badge {
+              background: #ffedd5;
+              color: #ea580c;
+              padding: 2px 8px;
+              border-radius: 6px;
+              font-size: 11px;
+              font-weight: 800;
+              text-transform: uppercase;
+            }
+            .criteria-list {
+              font-size: 12px; 
+              color: #334155; 
+              padding-left: 20px; 
+              line-height: 1.6;
+              margin: 8px 0 0 0;
+            }
+            .criteria-list li {
+              margin-bottom: 6px;
+            }
+            .footer { 
+              margin-top: 40px; 
+              text-align: center; 
+              font-size: 10px; 
+              color: #94a3b8; 
+              border-top: 1px solid #e2e8f0; 
+              padding-top: 15px; 
+              text-transform: uppercase; 
+              font-weight: bold; 
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Scheda Configurazione Torneo</h1>
+            <div class="subtitle">${tournamentName}</div>
+          </div>
+          <div class="meta-info">
+            <span>Beach Volley Hub &bull; Documento Tecnico</span>
+            <span>Generato il: ${new Date().toLocaleDateString('it-IT')} ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+
+          <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 15px; margin-bottom: 25px;">
+            <div style="font-weight: 800; text-transform: uppercase; font-size: 11px; color: #b45309; letter-spacing: 0.5px; margin-bottom: 4px;">Formula Attiva</div>
+            <div style="font-size: 16px; font-weight: 800; color: #78350f;">${formulaName}</div>
+            <div style="font-size: 13px; color: #92400e; margin-top: 4px; font-weight: 500;">${formulaDescription}</div>
+          </div>
+
+          <div class="section-grid">
+            <!-- Struttura e Dimensioni -->
+            <div class="info-card">
+              <div class="card-title">🧱 Struttura ed Organizzazione</div>
+              <div class="config-item">
+                <span class="config-label">Numero Squadre Iscritte:</span>
+                <span class="config-value">${teams.length} Coppie</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Posti Totali Previsti:</span>
+                <span class="config-value">${activeTeamsCount} Squadre</span>
+              </div>
+              ${activeFormula === 'pools' || activeFormula === 'combined' ? `
+              <div class="config-item">
+                <span class="config-label">Numero Gironi Generati:</span>
+                <span class="config-value">${activeGroupCount} ${activeGroupCount === 1 ? 'Girone' : 'Gironi'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Media Squadre per Girone:</span>
+                <span class="config-value">${Math.round(activeTeamsCount / activeGroupCount)} coppie</span>
+              </div>
+              ` : ''}
+              <div class="config-item">
+                <span class="config-label">Campi da Gioco Attivi:</span>
+                <span class="config-value">${activeCourtCount} ${activeCourtCount === 1 ? 'Campo' : 'Campi'}</span>
+              </div>
+            </div>
+
+            <!-- Formato di Gioco -->
+            <div class="info-card">
+              <div class="card-title">⏱️ Formato Gara e Forfait</div>
+              <div class="config-item">
+                <span class="config-label">Incontri del Torneo / Gironi:</span>
+                <span class="config-value">${regSetsLabel}</span>
+              </div>
+              ${activeFormula !== 'pools' ? `
+              <div class="config-item">
+                <span class="config-label">Incontri di Fase Finale:</span>
+                <span class="config-value">${sfSetsLabel}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Finale 3°/4° Posto:</span>
+                <span class="config-value">${activeInclude3rd4th ? 'Disputata (Bronzo 🥉)' : 'Non prevista'}</span>
+              </div>
+              ` : ''}
+              <div class="config-item">
+                <span class="config-label">Fascia Oraria di Pausa:</span>
+                <span class="config-value">${breakText}</span>
+              </div>
+            </div>
+          </div>
+
+          ${playoffQualsHTML}
+
+          <!-- Statistiche dello Stato Corrente -->
+          <div class="info-card" style="margin-bottom: 25px;">
+            <div class="card-title">📈 Stato Avanzamento Torneo</div>
+            <div style="display: flex; justify-content: space-around; text-align: center; padding: 10px 0;">
+              <div>
+                <div style="font-size: 20px; font-weight: 800; color: #0284c7;">${matches.length}</div>
+                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">Pianificate</div>
+              </div>
+              <div style="border-left: 1px solid #e2e8f0;"></div>
+              <div>
+                <div style="font-size: 20px; font-weight: 800; color: #16a34a;">${matches.filter(m => m.status === 'completed').length}</div>
+                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">Giocate</div>
+              </div>
+              <div style="border-left: 1px solid #e2e8f0;"></div>
+              <div>
+                <div style="font-size: 20px; font-weight: 800; color: #ea580c;">${matches.filter(m => m.status === 'live').length}</div>
+                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">In Corso</div>
+              </div>
+              <div style="border-left: 1px solid #e2e8f0;"></div>
+              <div>
+                <div style="font-size: 20px; font-weight: 800; color: #64748b;">${matches.filter(m => m.status === 'scheduled').length}</div>
+                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">In Attesa</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Criteri di Classificazione -->
+          <div class="info-card">
+            <div class="card-title">📊 Regolamento &amp; Criteri Classifica Gironi (FIPAV)</div>
+            <p style="font-size: 12px; color: #475569; margin: 0 0 10px 0; line-height: 1.5;">
+              La classifica dei gironi e i relativi passaggi del turno in caso di parità di punti vengono determinati matematicamente applicando i regolamenti ufficiali FIPAV Beach Volley nell'ordine sotto riportato:
+            </p>
+            <ol class="criteria-list">
+              <li><strong>Maggior numero di gare vinte:</strong> Conta il numero complessivo di vittorie conseguite nel girone.</li>
+              <li><strong>Punti di Classifica Risultato Gara:</strong> 
+                <span class="badge" style="background: #e0f2fe; color: #0369a1; vertical-align: middle;">3-Pt System</span>
+                Vengono assegnati 3 punti per vittorie 2-0 o 2-1; 1 punto per la sconfitta al tie-break (1-2); 0 punti per sconfitte 0-2. (In caso di set singolo, vittoria = 3 punti, sconfitta = 0).
+              </li>
+              <li><strong>Quoziente Set (Set Ratio):</strong> Rapporto matematico tra set vinti e set persi in tutta la fase a gironi (Set Vinti / Set Persi).</li>
+              <li><strong>Quoziente Punti (Points Ratio):</strong> Rapporto matematico tra la somma dei punti fatti e la somma dei punti subiti in tutti i set (Punti Fatti / Punti Subiti).</li>
+              <li><strong>Scontro Diretto:</strong> Risultato della partita giocata tra i due concorrenti a pari merito (valevole per parità unicamente tra 2 squadre).</li>
+            </ol>
+          </div>
+
+          <div class="footer">
+            Beach Volley Hub &bull; Generato da Amministratore &bull; Campionato in Corso
+          </div>
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `);
+  };
+
   const handlePrintEntryList = () => {
     const sortedTeams = [...teams].sort((a, b) => {
       const levelOrder = { Gold: 4, Silver: 3, Bronze: 2, Beginner: 1 };
@@ -2589,7 +2897,17 @@ export default function BracketTab({
                 </p>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <button
+                  type="button"
+                  id="print-btn-tournament-info"
+                  onClick={handlePrintTournamentInfo}
+                  className="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-slate-350 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
+                >
+                  <Info className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
+                  Info & Formula Torneo
+                </button>
+
                 <button
                   type="button"
                   id="print-btn-entry-list"
