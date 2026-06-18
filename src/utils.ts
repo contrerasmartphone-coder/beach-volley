@@ -339,32 +339,43 @@ export function scheduleEliminationRounds(
       }
     }
 
-    // Now, schedule all matches in this round sequentially using the available courts
-    let maxOffsetInThisRound = 0;
+    // Now, schedule all matches in this round using a court-by-court timeline tracking
+    const courtNextTime = Array(courtCount).fill(currentTimeMinutes);
 
     for (let p = 0; p < roundMatches.length; p++) {
       const match = roundMatches[p];
       const duration = getMatchDuration(match.pointsPerSet, match.maxSets) || defaultDuration;
       
       const courtNum = (p % courtCount) + 1;
-      const slotIndex = Math.floor(p / courtCount);
-      const matchOffset = slotIndex * duration;
+      const courtIdx = courtNum - 1;
 
-      const matchTimeInMinutes = currentTimeMinutes + matchOffset;
-      const adjustedMatchTime = adjustTimeForRest(matchTimeInMinutes, duration, breakStart, breakEnd);
-      
-      match.time = formatMinutesToTime(adjustedMatchTime);
-      match.court = `Campo ${courtNum}`;
-      match.position = p + 1; // logical position in sequence
+      if ((match.isManuallyScheduled || match.status === 'completed') && match.time && match.court) {
+        // Extract court index if available
+        const mCourtNum = match.court.match(/\d+/);
+        const resolvedCourtIdx = mCourtNum ? (parseInt(mCourtNum[0], 10) - 1) : courtIdx;
+        const boundedCourtIdx = Math.max(0, Math.min(resolvedCourtIdx, courtCount - 1));
+        
+        const mStartMins = parseTimeToMinutes(match.time);
+        
+        // Update the timeline for that court with the end minutes of this manual match
+        courtNextTime[boundedCourtIdx] = Math.max(courtNextTime[boundedCourtIdx], mStartMins + duration);
+        match.position = p + 1;
+      } else {
+        // The baseline start time for this match on its court is the court's current timeline
+        const matchStart = courtNextTime[courtIdx];
+        const adjustedMatchTime = adjustTimeForRest(matchStart, duration, breakStart, breakEnd);
+        
+        match.time = formatMinutesToTime(adjustedMatchTime);
+        match.court = `Campo ${courtNum}`;
+        match.position = p + 1;
 
-      const matchEndTime = (adjustedMatchTime - currentTimeMinutes) + duration;
-      if (matchEndTime > maxOffsetInThisRound) {
-        maxOffsetInThisRound = matchEndTime;
+        // Update the court's next available time to be the end of this match
+        courtNextTime[courtIdx] = adjustedMatchTime + duration;
       }
     }
 
     // Round r is completed. The next round r+1 can only start after the entire round r completes.
-    currentTimeMinutes += maxOffsetInThisRound;
+    currentTimeMinutes = Math.max(...courtNextTime);
   }
 
   // Flatten the array and return
@@ -1629,7 +1640,12 @@ export function generateDoubleEliminationBracket(
   return autoResolveAndPropagate(matches);
 }
 
-export function recalculateTournamentStages(allMatches: Match[], teamsList: Team[]): Match[] {
+export function recalculateTournamentStages(
+  allMatches: Match[], 
+  teamsList: Team[],
+  breakStart?: string,
+  breakEnd?: string
+): Match[] {
   let updated = allMatches.map(m => ({ ...m }));
   let changed = true;
   let iterations = 0;
@@ -1725,6 +1741,65 @@ export function recalculateTournamentStages(allMatches: Match[], teamsList: Team
           updated[matchInUpdatedIdx].status = 'scheduled';
           updated[matchInUpdatedIdx].winnerId = undefined;
         }
+      }
+    }
+
+    // 1.5 Reschedule playoff matches dynamically if we have a shift in group stage end time
+    let latestGroupEndMinutes = 0;
+    groupMatches.forEach(m => {
+      if (m.time && m.time.includes(':')) {
+        const matchDuration = getMatchDuration(m.pointsPerSet, m.maxSets);
+        const [h, min] = m.time.split(':').map(Number);
+        const endMins = h * 60 + min + matchDuration;
+        if (endMins > latestGroupEndMinutes) {
+          latestGroupEndMinutes = endMins;
+        }
+      }
+    });
+
+    if (latestGroupEndMinutes > 0) {
+      const playoffStartHour = formatMinutesToTime(latestGroupEndMinutes);
+      
+      // Determine max court used in any match to estimate the courtCount
+      let maxCourtNum = 1;
+      updated.forEach(m => {
+        if (m.court) {
+          const mNum = m.court.match(/\d+/);
+          if (mNum) {
+            const num = parseInt(mNum[0], 10);
+            if (num > maxCourtNum) maxCourtNum = num;
+          }
+        }
+      });
+      
+      const playoffMatches = updated.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p-'));
+      if (playoffMatches.length > 0) {
+        // Group playoff matches by round
+        const roundsMap: Record<number, Match[]> = {};
+        playoffMatches.forEach(m => {
+          const r = m.round || 1;
+          if (!roundsMap[r]) {
+            roundsMap[r] = [];
+          }
+          roundsMap[r].push(m);
+        });
+
+        const sortedRoundNumbers = Object.keys(roundsMap).map(Number).sort((a, b) => a - b);
+        const roundMatchesArr: Match[][] = [];
+        sortedRoundNumbers.forEach(r => {
+          const sMatches = roundsMap[r].sort((a, b) => a.position - b.position);
+          roundMatchesArr.push(sMatches);
+        });
+
+        // Use the existing function to schedule. Since they are passed by reference, objects in updated are modified.
+        scheduleEliminationRounds(
+          roundMatchesArr,
+          playoffStartHour,
+          maxCourtNum,
+          40,
+          breakStart,
+          breakEnd
+        );
       }
     }
   }
@@ -1916,3 +1991,85 @@ export function getGaraNumbersMap(matches: Match[]): Record<string, number> {
 
   return map;
 }
+
+/**
+ * Robust print helper designed to work on both mobile devices (bypassing pop-up blockers)
+ * and desktops by dynamically injecting a temporary print iframe.
+ */
+export function printHTML(htmlContent: string) {
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.id = 'print-iframe';
+
+    // Cleanup previous iframe if exists
+    const oldIframe = document.getElementById('print-iframe');
+    if (oldIframe) {
+      oldIframe.parentNode?.removeChild(oldIframe);
+    }
+
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (doc) {
+      doc.open();
+      doc.write(htmlContent);
+      doc.close();
+
+      const runPrint = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (printErr) {
+          console.error('Inner iframe printing failed. Falling back to window.open...', printErr);
+          const fallbackWindow = window.open('', '_blank');
+          if (fallbackWindow) {
+            fallbackWindow.document.write(htmlContent);
+            fallbackWindow.document.close();
+            fallbackWindow.onload = () => {
+              fallbackWindow.print();
+              fallbackWindow.close();
+            };
+          } else {
+            alert('Errore: Impossibile avviare la stampa. Consenti i popup nel browser.');
+          }
+        }
+        // Safely remove the print iframe after some delay
+        setTimeout(() => {
+          if (iframe.parentNode) {
+            document.body.removeChild(iframe);
+          }
+        }, 8000);
+      };
+
+      if (iframe.contentWindow) {
+        iframe.contentWindow.onload = runPrint;
+        // Fallback sleep call if onload isn't captured
+        setTimeout(runPrint, 800);
+      } else {
+        setTimeout(runPrint, 400);
+      }
+    } else {
+      throw new Error('Access denied to iframe document.');
+    }
+  } catch (err) {
+    console.error('Iframe printing process threw error. Using generic window.open:', err);
+    const fallbackWindow = window.open('', '_blank');
+    if (fallbackWindow) {
+      fallbackWindow.document.write(htmlContent);
+      fallbackWindow.document.close();
+      fallbackWindow.onload = () => {
+        fallbackWindow.print();
+        fallbackWindow.close();
+      };
+    } else {
+      alert('Impossibile stampare. Consenti i popup o prova da desktop.');
+    }
+  }
+}
+

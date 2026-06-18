@@ -849,7 +849,12 @@ export default function App() {
         await deleteDoc(doc(db, 'config', 'settings'));
         await clearCollection('matches');
       } else {
-        const resolved = recalculateTournamentStages(newMatches, teams);
+        const resolved = recalculateTournamentStages(
+          newMatches, 
+          teams, 
+          activeTournamentConfig?.breakStart, 
+          activeTournamentConfig?.breakEnd
+        );
         const promises = resolved.map(m => setDoc(doc(db, 'matches', m.id), cleanObject(m)));
         await Promise.all(promises);
       }
@@ -1312,6 +1317,7 @@ export default function App() {
                 onAddNotification={handleAddNotification}
                 currentUser={currentUser}
                 activeTournamentConfig={activeTournamentConfig}
+                loadedSaveName={loadedSaveName}
               />
             </motion.div>
           )}

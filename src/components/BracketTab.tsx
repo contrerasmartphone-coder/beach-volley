@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
-import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap, parseTimeToMinutes, formatMinutesToTime } from '../utils';
+import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap, parseTimeToMinutes, formatMinutesToTime, printHTML } from '../utils';
 import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -26,6 +26,7 @@ interface BracketTabProps {
   onAddNotification: (notification: NotificationLog) => void;
   currentUser?: AppUser | null;
   activeTournamentConfig?: any;
+  loadedSaveName?: string | null;
 }
 
 export default function BracketTab({
@@ -36,6 +37,7 @@ export default function BracketTab({
   onAddNotification,
   currentUser = null,
   activeTournamentConfig = null,
+  loadedSaveName = null,
 }: BracketTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
@@ -70,6 +72,18 @@ export default function BracketTab({
       setGroupCount(combinedGroups);
     }
   }, [combinedGroups, combinedTeamsPerGroup, formula]);
+
+  // Synchronize tournament name when loading a saved tournament that hasn't created the bracket yet
+  useEffect(() => {
+    if (matches.length === 0) {
+      const rawName = loadedSaveName || activeTournamentConfig?.name;
+      if (rawName) {
+        // Strip out versioning suffixes like " (v2)", " (v3)", etc.
+        const cleanedName = rawName.replace(/\s*\(v\d+\)$/gi, '').trim();
+        setTournamentName(cleanedName);
+      }
+    }
+  }, [loadedSaveName, activeTournamentConfig?.name, matches.length]);
 
   const getRoundName = (q: number) => {
     if (q === 16) return 'Ottavi di finale 🎯';
@@ -289,6 +303,14 @@ export default function BracketTab({
   const [viewMode, setViewMode] = useState<'visual' | 'cards'>('visual');
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
+  const [conflictData, setConflictData] = useState<{
+    targetMatch: Match;
+    conflictingMatch: Match;
+    newCourt: string;
+    newTime: string;
+    isSavingScore: boolean;
+    scoreData?: any;
+  } | null>(null);
 
   // Excluded teams (reserves) are strictly the latest ones registered (chronological cutoff)
   const chronologicallySortedForCutoff = [...teams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
@@ -992,13 +1014,170 @@ export default function BracketTab({
     }
   };
 
+  const findSchedulingConflict = (matchId: string, court: string, time: string, pointsPerSet?: number, maxSets?: number) => {
+    if (!court || !time) return null;
+    
+    const startMins = parseTimeToMinutes(time);
+    const duration = getSingleMatchDuration(pointsPerSet, maxSets);
+    const endMins = startMins + duration;
+    
+    for (const m of matches) {
+      if (m.id === matchId) continue;
+      if (m.court === court && m.time) {
+        const mStart = parseTimeToMinutes(m.time);
+        const mDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const mEnd = mStart + mDuration;
+        
+        // Overlap/Conflict check condition
+        if (mStart < endMins && startMins < mEnd) {
+          return m; // Return the conflicting match
+        }
+      }
+    }
+    return null;
+  };
+
+  const resolveConflictWithShift = (targetId: string, newCourt: string, newTime: string, scoreData?: any) => {
+    const originalTarget = matches.find(m => m.id === targetId);
+    if (!originalTarget) return;
+
+    const updatedTarget: Match = {
+      ...originalTarget,
+      court: newCourt,
+      time: newTime,
+      isManuallyScheduled: true,
+      ...(scoreData || {}),
+    };
+
+    const startMins = parseTimeToMinutes(newTime);
+    const duration = getSingleMatchDuration(updatedTarget.pointsPerSet, updatedTarget.maxSets);
+    const endMins = startMins + duration;
+
+    let otherMatchesOnCourt = matches.filter(m => m.id !== targetId && m.court === newCourt && m.time);
+    
+    const unaffected = otherMatchesOnCourt.filter(m => {
+      const mStart = parseTimeToMinutes(m.time!);
+      const mDur = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+      const mEnd = mStart + mDur;
+      return mEnd <= startMins; 
+    });
+
+    const affected = otherMatchesOnCourt.filter(m => {
+      const mStart = parseTimeToMinutes(m.time!);
+      const mDur = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+      const mEnd = mStart + mDur;
+      return mEnd > startMins; 
+    }).sort((a, b) => parseTimeToMinutes(a.time!) - parseTimeToMinutes(b.time!));
+
+    let nextAvailable = endMins;
+    const shiftedMatches = affected.map(m => {
+      const mStart = parseTimeToMinutes(m.time!);
+      let actualStart = mStart;
+      if (mStart < nextAvailable) {
+        actualStart = nextAvailable;
+      }
+      const updatedM: Match = {
+        ...m,
+        time: formatMinutesToTime(actualStart),
+        isManuallyScheduled: true,
+      };
+      const mDur = getSingleMatchDuration(updatedM.pointsPerSet, updatedM.maxSets);
+      nextAvailable = actualStart + mDur;
+      return updatedM;
+    });
+
+    const shiftedIds = new Set(shiftedMatches.map(m => m.id));
+    let finalMatchesList = matches.map(m => {
+      if (m.id === targetId) return updatedTarget;
+      if (shiftedIds.has(m.id)) {
+        return shiftedMatches.find(sm => sm.id === m.id)!;
+      }
+      return m;
+    });
+
+    onUpdateMatches(finalMatchesList);
+    setConflictData(null);
+    setEditingMatch(null);
+
+    onAddNotification({
+      id: `notif-${Date.now()}-shifted`,
+      title: 'Slittamento Orari Effettuato ⏰',
+      message: `Il conflitto sul ${newCourt} è stato risolto slittando le gare a seguire a partire dalle ${formatMinutesToTime(endMins)}.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'live_update',
+    });
+  };
+
+  const resolveConflictWithInversion = (targetId: string, conflictingId: string, scoreData?: any) => {
+    const target = matches.find(m => m.id === targetId);
+    const conflicting = matches.find(m => m.id === conflictingId);
+    
+    if (!target || !conflicting) return;
+
+    const originalTargetCourt = target.court;
+    const originalTargetTime = target.time;
+
+    const updatedTarget: Match = {
+      ...target,
+      court: conflicting.court,
+      time: conflicting.time,
+      isManuallyScheduled: true,
+      ...(scoreData || {}),
+    };
+
+    const updatedConflicting: Match = {
+      ...conflicting,
+      court: originalTargetCourt,
+      time: originalTargetTime,
+      isManuallyScheduled: true,
+    };
+
+    let finalMatchesList = matches.map(m => {
+      if (m.id === targetId) return updatedTarget;
+      if (m.id === conflictingId) return updatedConflicting;
+      return m;
+    });
+
+    onUpdateMatches(finalMatchesList);
+    setConflictData(null);
+    setEditingMatch(null);
+
+    onAddNotification({
+      id: `notif-${Date.now()}-inverted`,
+      title: 'Inversione Gare Completata 🔄',
+      message: `Incontro ${target.team1?.name || '?'} vs ${target.team2?.name || '?'} invertito con ${conflicting.team1?.name || '?'} vs ${conflicting.team2?.name || '?'}.`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'live_update',
+    });
+  };
+
   const handleSaveScheduleOnly = () => {
     if (!editingMatch) return;
+
+    const conflict = findSchedulingConflict(
+      editingMatch.id,
+      editCourt,
+      editTime,
+      editingMatch.pointsPerSet,
+      editingMatch.maxSets
+    );
+
+    if (conflict) {
+      setConflictData({
+        targetMatch: editingMatch,
+        conflictingMatch: conflict,
+        newCourt: editCourt,
+        newTime: editTime,
+        isSavingScore: false,
+      });
+      return;
+    }
 
     const updatedMatch: Match = {
       ...editingMatch,
       court: editCourt,
       time: editTime,
+      isManuallyScheduled: true,
     };
 
     let updated = matches.map(m => m.id === updatedMatch.id ? updatedMatch : m);
@@ -1017,12 +1196,6 @@ export default function BracketTab({
   };
 
   const handlePrintEntryList = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
-      return;
-    }
-
     const sortedTeams = [...teams].sort((a, b) => {
       const levelOrder = { Gold: 4, Silver: 3, Bronze: 2, Beginner: 1 };
       const levelDiff = (levelOrder[b.level] || 0) - (levelOrder[a.level] || 0);
@@ -1059,7 +1232,7 @@ export default function BracketTab({
       </tr>
     `).join('');
 
-    printWindow.document.write(`
+    printHTML(`
       <html>
         <head>
           <title>Lista di Ingresso - ${tournamentName}</title>
@@ -1107,36 +1280,27 @@ export default function BracketTab({
             Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
           </div>
           <script>
-            window.onload = function() { window.print(); window.close(); }
+            window.onload = function() { window.print(); }
           </script>
         </body>
       </html>
     `);
-    printWindow.document.close();
   };
 
   const handlePrintGroupsAndPools = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
-      return;
-    }
-
     const gironiMatches = matches.filter(m => m.phase === 'gironi');
     const teamsWithGroup = teams.filter(t => t.group);
     
     if (teamsWithGroup.length === 0 && gironiMatches.length === 0) {
-      printWindow.document.write(`
+      printHTML(`
         <html>
           <head><title>Fase a Gironi - Errore</title></head>
           <body style="font-family: sans-serif; text-align: center; padding: 50px; color: #333;">
             <h2>Nessuna Fase a Gironi rilevata per il torneo corrente.</h2>
             <p>Assicurati che la formula del torneo includa i gironi (es. "Fase a Gironi" o "Gironi + Playoff") e che i gironi siano generati.</p>
-            <button onclick="window.close()" style="padding: 10px 20px; font-weight: bold; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer;">Chiudi Finestra</button>
           </body>
         </html>
       `);
-      printWindow.document.close();
       return;
     }
 
@@ -1240,7 +1404,7 @@ export default function BracketTab({
       `;
     }).join('');
 
-    printWindow.document.write(`
+    printHTML(`
       <html>
         <head>
           <title>Composizione e Gare Gironi - ${tournamentName}</title>
@@ -1276,21 +1440,14 @@ export default function BracketTab({
             Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
           </div>
           <script>
-            window.onload = function() { window.print(); window.close(); }
+            window.onload = function() { window.print(); }
           </script>
         </body>
       </html>
     `);
-    printWindow.document.close();
   };
 
   const handlePrintOrderedMatches = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
-      return;
-    }
-
     const sortedMatches = [...matches].sort((a, b) => {
       const numA = garaNumbersMap[a.id] || 999999;
       const numB = garaNumbersMap[b.id] || 999999;
@@ -1346,7 +1503,7 @@ export default function BracketTab({
       `;
     }).join('');
 
-    printWindow.document.write(`
+    printHTML(`
       <html>
         <head>
           <title>Elenco Ordinato Gare - ${tournamentName}</title>
@@ -1395,12 +1552,11 @@ export default function BracketTab({
             Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
           </div>
           <script>
-            window.onload = function() { window.print(); window.close(); }
+            window.onload = function() { window.print(); }
           </script>
         </body>
       </html>
     `);
-    printWindow.document.close();
   };
 
   const handleSaveScoreManual = () => {
@@ -1478,17 +1634,42 @@ export default function BracketTab({
       }
     }
 
+    const scoreData = {
+      sets,
+      team1Score: manualT1Sets,
+      team2Score: manualT2Sets,
+      status: isFinished ? ('completed' as const) : editingMatch.status,
+      winnerId,
+      outcomeType,
+      retiredTeamId: outcomeType !== 'normal' ? retiredTeamId : undefined,
+      isManuallyScheduled: true,
+    };
+
+    const conflict = findSchedulingConflict(
+      editingMatch.id,
+      editCourt,
+      editTime,
+      editingMatch.pointsPerSet,
+      editingMatch.maxSets
+    );
+
+    if (conflict) {
+      setConflictData({
+        targetMatch: editingMatch,
+        conflictingMatch: conflict,
+        newCourt: editCourt,
+        newTime: editTime,
+        isSavingScore: true,
+        scoreData,
+      });
+      return;
+    }
+
     const updatedMatch: Match = {
       ...editingMatch,
       court: editCourt,
       time: editTime,
-      sets,
-      team1Score: manualT1Sets,
-      team2Score: manualT2Sets,
-      status: isFinished ? 'completed' : editingMatch.status,
-      winnerId,
-      outcomeType,
-      retiredTeamId: outcomeType !== 'normal' ? retiredTeamId : undefined,
+      ...scoreData,
     };
 
     propagateWinner(updatedMatch);
@@ -1803,7 +1984,9 @@ export default function BracketTab({
       resolvedQualifiedCount,
       teams,
       groupMatches,
-      activeTournamentConfig?.include3rd4th !== false
+      activeTournamentConfig?.include3rd4th !== false,
+      activeTournamentConfig?.breakStart,
+      activeTournamentConfig?.breakEnd
     );
 
     onUpdateMatches([...matches, ...playoffMatches]);
@@ -1852,7 +2035,34 @@ export default function BracketTab({
     return acc;
   }, {} as Record<number, Match[]>);
 
+  // Always keep playoff matches sorted chronologically by start time, and then by court to maintain consistent order
+  Object.keys(roundsMap).forEach((rKey) => {
+    const rNum = Number(rKey);
+    roundsMap[rNum] = roundsMap[rNum].sort((a, b) => {
+      const aTime = a.time ? parseTimeToMinutes(a.time) : 0;
+      const bTime = b.time ? parseTimeToMinutes(b.time) : 0;
+      if (aTime !== bTime) {
+        return aTime - bTime;
+      }
+      return (a.court || '').localeCompare(b.court || '');
+    });
+  });
+
   const totalRoundsCount = Object.keys(roundsMap).length;
+
+  // Helper to get the correct label for a round group of playoff matches
+  const getRoundDisplayLabel = (roundNum: number, roundMatches: Match[]) => {
+    if (!roundMatches || roundMatches.length === 0) return `Turno ${roundNum}`;
+    
+    // Check if the round matches include both a 3rd/4th final and a Grand Final, or if any match is for 3rd/4th place
+    const has3rdPlace = roundMatches.some(m => m.roundLabel && (m.roundLabel.toLowerCase().includes('3°') || m.roundLabel.toLowerCase().includes('3rd')));
+    
+    if (has3rdPlace) {
+      return 'Finali';
+    }
+    
+    return roundMatches[0]?.roundLabel || `Turno ${roundNum}`;
+  };
 
   return (
     <div id="bracket-page-root" className="space-y-8">
@@ -2352,30 +2562,8 @@ export default function BracketTab({
                 </span>
               </div>
             </div>
-            {/* View selectors (Eliminazione Phase only) */}
+            {/* Header controls (Azzera Torneo button) */}
             <div className="flex flex-wrap items-center gap-3">
-              {activePhaseTab === 'eliminazione' && (
-                <div className="flex bg-slate-100 p-1.5 rounded-full border-2 border-slate-200 gap-1">
-                  <button
-                    id="toggle-view-visual"
-                    onClick={() => setViewMode('visual')}
-                    className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                      viewMode === 'visual' ? 'bg-orange-400 border-orange-600 text-white shadow-md' : 'text-slate-500'
-                    }`}
-                  >
-                    Tabellone Visivo
-                  </button>
-                  <button
-                    id="toggle-view-cards"
-                    onClick={() => setViewMode('cards')}
-                    className={`px-4 py-1.5 text-xs font-black uppercase tracking-wider rounded-full border-b-2 transition-all ${
-                      viewMode === 'cards' ? 'bg-orange-400 border-orange-600 text-white shadow-md' : 'text-slate-500'
-                    }`}
-                  >
-                    Elenco Gare
-                  </button>
-                </div>
-              )}
               {isAdmin && (
                 <button
                   id="reset-tournament-btn"
@@ -2511,33 +2699,39 @@ export default function BracketTab({
           {activePhaseTab === 'gironi' ? (
             /* PHASE 1: GIRONI (POOL PLAYSTAGE) VIEW */
             <div id="gironi-phase-view" className="space-y-6">
-              {/* Toggle Mode: View by Group / List of All Matches */}
-              <div className="flex justify-center items-center gap-4 bg-slate-100 p-1.5 rounded-3xl w-full max-w-md mx-auto border-2 border-slate-200 shadow-inner">
+              {/* Toggle Mode: View by Group / List of All Matches (2-line unified layout) */}
+              <div className="flex justify-center items-stretch gap-4 bg-slate-100 p-1.5 rounded-3xl w-full max-w-sm mx-auto border-2 border-slate-200 shadow-inner">
                 <button
                   type="button"
                   id="toggle-view-pools"
                   onClick={() => setGroupViewMode('by-group')}
-                  className={`flex-1 py-2 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                  className={`flex-1 py-1 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 ${
                     groupViewMode === 'by-group'
                       ? 'bg-white text-slate-900 shadow-md border border-slate-200'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  <Trophy className="w-4 h-4 text-orange-400" />
-                  Classifiche e Gironi
+                  <Trophy className="w-4 h-4 text-orange-400 shrink-0" />
+                  <span className="flex flex-col items-center leading-tight">
+                    <span>Classifiche</span>
+                    <span>e Gironi</span>
+                  </span>
                 </button>
                 <button
                   type="button"
                   id="toggle-view-all-list"
                   onClick={() => setGroupViewMode('all-list')}
-                  className={`flex-1 py-2 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                  className={`flex-1 py-1 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 ${
                     groupViewMode === 'all-list'
                       ? 'bg-white text-slate-900 shadow-md border border-slate-200'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  <ListFilter className="w-4 h-4 text-sky-500" />
-                  Lista Ordinata Gare
+                  <ListFilter className="w-4 h-4 text-sky-500" shrink-0 />
+                  <span className="flex flex-col items-center leading-tight">
+                    <span>Elenco</span>
+                    <span>Gare</span>
+                  </span>
                 </button>
               </div>
 
@@ -2745,7 +2939,42 @@ export default function BracketTab({
             </div>
           ) : (
             /* PHASE 2: ELIMINAZIONE DIRETTA (PLAYOFF BRACKET) VIEW */
-            <>
+            <div id="playoff-phase-view" className="space-y-6">
+              {/* Toggle Mode: Tabellone Visivo / Elenco Gare (2-line unified layout) */}
+              <div className="flex justify-center items-stretch gap-4 bg-slate-100 p-1.5 rounded-3xl w-full max-w-sm mx-auto border-2 border-slate-200 shadow-inner">
+                <button
+                  type="button"
+                  id="toggle-view-visual"
+                  onClick={() => setViewMode('visual')}
+                  className={`flex-1 py-1 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 ${
+                    viewMode === 'visual'
+                      ? 'bg-white text-slate-900 shadow-md border border-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4 text-orange-400 shrink-0" />
+                  <span className="flex flex-col items-center leading-tight">
+                    <span>Tabellone</span>
+                    <span>Visivo</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  id="toggle-view-cards"
+                  onClick={() => setViewMode('cards')}
+                  className={`flex-1 py-1 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 ${
+                    viewMode === 'cards'
+                      ? 'bg-white text-slate-900 shadow-md border border-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <ListFilter className="w-4 h-4 text-sky-500 shrink-0" />
+                  <span className="flex flex-col items-center leading-tight">
+                    <span>Elenco</span>
+                    <span>Gare</span>
+                  </span>
+                </button>
+              </div>
               {/* VIEW: VISUAL BRACKET FLOW */}
               {viewMode === 'visual' && (
                 <div id="visual-bracket-container" className="space-y-2">
@@ -2757,7 +2986,7 @@ export default function BracketTab({
                     {Object.keys(roundsMap).map((roundKey) => {
                       const rNum = Number(roundKey);
                       const roundMatches = roundsMap[rNum] || [];
-                      const label = rNum === 2 ? "FINALI" : (roundMatches[0]?.roundLabel || `Turno ${rNum}`);
+                      const label = getRoundDisplayLabel(rNum, roundMatches);
 
                       return (
                         <div key={rNum} className="flex-1 flex flex-col justify-around space-y-6">
@@ -2930,10 +3159,7 @@ export default function BracketTab({
                   <div className="flex gap-2 overflow-x-auto pb-1.5 pt-1">
                     {Object.keys(roundsMap).map((roundKey) => {
                       const rNum = Number(roundKey);
-                      let roundLabel = roundsMap[rNum]?.[0]?.roundLabel || `Turno ${rNum}`;
-                      if (rNum === 2) {
-                        roundLabel = "FINALI";
-                      }
+                      const roundLabel = getRoundDisplayLabel(rNum, roundsMap[rNum] || []);
                       return (
                         <button
                           key={rNum}
@@ -2957,7 +3183,7 @@ export default function BracketTab({
                   </div>
                 </div>
               )}
-            </>
+            </div>
           )}
         </>
       )}
@@ -3386,6 +3612,110 @@ export default function BracketTab({
           </div>
         </div>
       )}
+
+      {/* Custom Conflict Resolution Modal */}
+      {conflictData && (
+        <div id="conflict-resolution-modal" className="fixed inset-0 z-55 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" style={{ zIndex: 100 }}>
+          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl overflow-hidden border-4 border-amber-400 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[95vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 p-5 text-white border-b-4 border-amber-600 flex justify-between items-center shrink-0">
+              <div>
+                <h4 className="font-black text-lg italic uppercase tracking-tight flex items-center gap-2">
+                  <AlertCircle className="w-6 h-6 text-yellow-100 animate-pulse" />
+                  Rilevato Conflitto Orario/Campo!
+                </h4>
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-100 mt-0.5">Gestione Sovrapposizioni Gare</p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setConflictData(null)}
+                className="text-white hover:text-amber-100 font-extrabold text-2xl p-1 px-2.5 rounded-lg border border-white/20 hover:bg-white/10 transition-colors"
+                title="Chiudi"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh] bg-slate-50">
+              
+              <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-xl text-slate-700 text-xs font-semibold leading-relaxed">
+                <p className="font-bold text-amber-950 text-[11px] uppercase tracking-wider mb-1">Dettaglio Sovrapposizione</p>
+                Hai selezionato il <span className="font-black text-amber-900">{conflictData.newCourt}</span> alle <span className="font-black text-amber-900">{conflictData.newTime}</span>. In questa fascia oraria il campo è già occupato da un'altra gara. Scegli come risolvere il conflitto:
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Proposed/Target Match */}
+                <div className="bg-white p-4 rounded-2xl border-2 border-sky-200 shadow-sm space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="bg-sky-100 text-sky-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md">Gara Spostata</span>
+                    <span className="text-slate-400 font-mono text-[10px]">Durata: {getSingleMatchDuration(conflictData.targetMatch.pointsPerSet, conflictData.targetMatch.maxSets)} min</span>
+                  </div>
+                  <div className="font-black text-xs text-slate-800 leading-tight">
+                    {conflictData.targetMatch.team1?.name} vs {conflictData.targetMatch.team2?.name}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-bold space-y-0.5">
+                    <p>Fase: <span className="uppercase text-slate-700">{conflictData.targetMatch.phase}</span></p>
+                    <p className="text-sky-600 font-black">Nuovo Orario: {conflictData.newTime} ({conflictData.newCourt})</p>
+                    <p className="text-slate-400 font-normal">Originale: {conflictData.targetMatch.time} ({conflictData.targetMatch.court})</p>
+                  </div>
+                </div>
+
+                {/* Conflicting Match */}
+                <div className="bg-white p-4 rounded-2xl border-2 border-amber-200 shadow-sm space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="bg-amber-100 text-amber-800 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md text-nowrap">Gara in Conflitto</span>
+                    <span className="text-slate-400 font-mono text-[10px]">Durata: {getSingleMatchDuration(conflictData.conflictingMatch.pointsPerSet, conflictData.conflictingMatch.maxSets)} min</span>
+                  </div>
+                  <div className="font-black text-xs text-slate-800 leading-tight">
+                    {conflictData.conflictingMatch.team1?.name} vs {conflictData.conflictingMatch.team2?.name}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-bold space-y-0.5">
+                    <p>Fase: <span className="uppercase text-slate-700">{conflictData.conflictingMatch.phase}</span></p>
+                    <p className="text-amber-600 font-black">Orario programmato: {conflictData.conflictingMatch.time} ({conflictData.conflictingMatch.court})</p>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Modal Footer (Controls) */}
+            <div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2 shrink-0">
+              
+              <button
+                type="button"
+                className="w-full bg-sky-500 hover:bg-sky-600 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md hover:shadow-lg transition-all border-b-4 border-sky-700"
+                onClick={() => resolveConflictWithShift(conflictData.targetMatch.id, conflictData.newCourt, conflictData.newTime, conflictData.scoreData)}
+              >
+                <Clock className="w-4 h-4 stroke-[2.5]" />
+                1. Slitta questa gara e tutte le successive
+              </button>
+
+              <button
+                type="button"
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md hover:shadow-lg transition-all border-b-4 border-amber-700"
+                onClick={() => resolveConflictWithInversion(conflictData.targetMatch.id, conflictData.conflictingMatch.id, conflictData.scoreData)}
+              >
+                <Shuffle className="w-4 h-4 stroke-[2.5]" />
+                2. Inverti orari delle due gare
+              </button>
+
+              <button
+                type="button"
+                className="w-full bg-slate-100 border-2 border-slate-200 text-slate-700 hover:bg-slate-200 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all text-center"
+                onClick={() => setConflictData(null)}
+              >
+                3. Annulla e Risolvi Manualmente
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Custom Confirmation Dialog for Resetting Tournament */}
       {showResetConfirmModal && (
         <div id="reset-confirm-modal" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">

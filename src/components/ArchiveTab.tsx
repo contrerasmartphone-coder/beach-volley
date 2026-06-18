@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Team, Match, ArchivedTournament, AppUser, ActiveTournamentSave } from '../types';
 import { db, handleFirestoreError, OperationType, cleanObject } from '../firebase';
-import { getGaraNumbersMap, computeFipavStandings } from '../utils';
+import { getGaraNumbersMap, computeFipavStandings, printHTML } from '../utils';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { FileText, Download, Printer, Trash2, Archive, Trophy, Calendar, Award, Eye, EyeOff, FileSpreadsheet, ChevronDown, ChevronUp, Save, Undo, AlertTriangle, RefreshCw, Plus } from 'lucide-react';
 
@@ -274,12 +274,6 @@ export default function ArchiveTab({
 
   // Printing functions
   const handlePrintSingle = (arc: ArchivedTournament) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
-      return;
-    }
-
     const podiumHTML = arc.podium ? `
       <div style="display: flex; justify-content: center; gap: 20px; text-align: center; margin-bottom: 40px; font-family: sans-serif; padding: 15px; background: #fffdf5; border: 2px solid #fef3c7; border-radius: 16px;">
         ${arc.podium.second ? `
@@ -331,7 +325,7 @@ export default function ArchiveTab({
       </tr>
     `).join('');
 
-    printWindow.document.write(`
+    printHTML(`
       <html>
         <head>
           <title>Report Ufficiale Torneo Beach Volley: ${arc.name}</title>
@@ -383,21 +377,15 @@ export default function ArchiveTab({
             Beach Volley Hub - Report generato il ${new Date().toLocaleString()}
           </footer>
           <script>
-            window.onload = function() { window.print(); window.close(); }
+            window.onload = function() { window.print(); }
           </script>
         </body>
       </html>
     `);
-    printWindow.document.close();
   };
 
   const handlePrintAllSummary = () => {
     if (archives.length === 0) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Impossibile aprire la finestra di stampa. Abilita i popup nel browser.');
-      return;
-    }
 
     const rowsHTML = archives.map((arc, i) => `
       <tr style="border-bottom: 1px solid #ddd;">
@@ -410,7 +398,7 @@ export default function ArchiveTab({
       </tr>
     `).join('');
 
-    printWindow.document.write(`
+    printHTML(`
       <html>
         <head>
           <title>Archivio Storico Tornei Beach Volley</title>
@@ -443,12 +431,11 @@ export default function ArchiveTab({
             Beach Volley Hub - Report Archivio generato il ${new Date().toLocaleString()}
           </footer>
           <script>
-            window.onload = function() { window.print(); window.close(); }
+            window.onload = function() { window.print(); }
           </script>
         </body>
       </html>
     `);
-    printWindow.document.close();
   };
 
   return (

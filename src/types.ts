@@ -59,6 +59,7 @@ export interface Match {
   maxSets?: 1 | 3; // Number of sets (e.g., best of 3 or 1 set)
   outcomeType?: 'normal' | 'injury_during' | 'injury_before' | 'forfeit';
   retiredTeamId?: string; // ID of the team that retired/injured/absent
+  isManuallyScheduled?: boolean; // If schedule was modified manually or shifted
 }
 
 export interface NotificationLog {
