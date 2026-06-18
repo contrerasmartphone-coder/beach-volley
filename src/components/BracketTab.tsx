@@ -73,17 +73,15 @@ export default function BracketTab({
     }
   }, [combinedGroups, combinedTeamsPerGroup, formula]);
 
-  // Synchronize tournament name when loading a saved tournament that hasn't created the bracket yet
+  // Synchronize tournament name when loading a saved tournament
   useEffect(() => {
-    if (matches.length === 0) {
-      const rawName = loadedSaveName || activeTournamentConfig?.name;
-      if (rawName) {
-        // Strip out versioning suffixes like " (v2)", " (v3)", etc.
-        const cleanedName = rawName.replace(/\s*\(v\d+\)$/gi, '').trim();
-        setTournamentName(cleanedName);
-      }
+    const rawName = loadedSaveName || activeTournamentConfig?.name;
+    if (rawName) {
+      // Strip out versioning suffixes like " (v2)", " (v3)", etc.
+      const cleanedName = rawName.replace(/\s*\(v\d+\)$/gi, '').trim();
+      setTournamentName(cleanedName);
     }
-  }, [loadedSaveName, activeTournamentConfig?.name, matches.length]);
+  }, [loadedSaveName, activeTournamentConfig?.name]);
 
   const getRoundName = (q: number) => {
     if (q === 16) return 'Ottavi di finale 🎯';
@@ -1196,20 +1194,83 @@ export default function BracketTab({
   };
 
   const handlePrintTournamentInfo = () => {
-    const activeFormula = activeTournamentConfig?.formula || formula || 'combined';
+    const hasMatches = matches.length > 0;
+    const activeFirstMatch = matches[0];
+    const activeFormula = hasMatches 
+      ? (matches.some(m => m.phase === 'gironi')
+        ? (matches.some(m => m.phase === 'eliminazione' || m.id.startsWith('m-p')) ? 'combined' : 'pools')
+        : (matches.some(m => m.id.startsWith('m-de')) ? 'double_elim' : 'direct'))
+      : (activeTournamentConfig?.formula || formula || 'combined');
+
     const activeTeamsCount = activeTournamentConfig?.teamsCount || teamsCount || teams.length;
-    const activeGroupCount = activeTournamentConfig?.groupCount || groupCount || 1;
-    const activeCourtCount = activeTournamentConfig?.courtCount || courtCount || 1;
-    const activePointsPerSet = activeTournamentConfig?.pointsPerSet || pointsPerSet || 21;
-    const activeMaxSets = activeTournamentConfig?.maxSets || maxSets || 3;
-    const activeSfPointsPerSet = activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet || 21;
-    const activeSfMaxSets = activeTournamentConfig?.sfMaxSets || sfMaxSets || 3;
-    const activeQualifiedCount = activeTournamentConfig?.qualifiedCount || combinedQualifiedTeams || 4;
+
+    // Determine group count dynamically if we have matches
+    let activeGroupCount = 1;
+    if (hasMatches) {
+      const groups = new Set<string>();
+      matches.forEach(m => {
+        if (m.phase === 'gironi' && m.groupName) {
+          groups.add(m.groupName);
+        }
+      });
+      activeGroupCount = groups.size > 0 ? groups.size : (activeTournamentConfig?.groupCount || groupCount || 1);
+    } else {
+      activeGroupCount = (activeFormula === 'combined') 
+        ? combinedGroups 
+        : (activeFormula === 'pools' ? groupCount : 1);
+    }
+
+    // Determine court count dynamically if we have matches
+    let activeCourtCount = 1;
+    if (hasMatches) {
+      const courts = new Set<string>();
+      matches.forEach(m => {
+        if (m.court) {
+          courts.add(m.court);
+        }
+      });
+      activeCourtCount = courts.size > 0 ? courts.size : (activeTournamentConfig?.courtCount || courtCount || 1);
+    } else {
+      activeCourtCount = activeTournamentConfig?.courtCount || courtCount || 1;
+    }
+
+    // Determine points and sets format
+    const activePointsPerSet = hasMatches 
+      ? (activeFirstMatch?.pointsPerSet || 21) 
+      : (activeTournamentConfig?.pointsPerSet || pointsPerSet || 21);
+    const activeMaxSets = hasMatches 
+      ? (activeFirstMatch?.maxSets || 3) 
+      : (activeTournamentConfig?.maxSets || maxSets || 3);
+
+    // Determine playoff semifinal/final params
+    const activePlayoffMatch = matches.find(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
+    const activeSfPointsPerSet = activePlayoffMatch
+      ? (activePlayoffMatch.pointsPerSet || 21)
+      : (activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet || 21);
+    const activeSfMaxSets = activePlayoffMatch
+      ? (activePlayoffMatch.maxSets || 3)
+      : (activeTournamentConfig?.sfMaxSets || sfMaxSets || 3);
+
+    // Determine playoff qualification count
+    const activePlayoffMatches = matches.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p'));
+    let activeQualifiedCount = 4;
+    if (hasMatches && activePlayoffMatches.length > 0) {
+      const firstPlayoffRound = activePlayoffMatches.reduce((min, m) => m.round < min ? m.round : min, 9999);
+      const firstRoundMatches = activePlayoffMatches.filter(m => m.round === firstPlayoffRound);
+      activeQualifiedCount = firstRoundMatches.length * 2;
+    } else {
+      activeQualifiedCount = activeTournamentConfig?.qualifiedCount || combinedQualifiedTeams || 4;
+    }
+
     const activeInclude3rd4th = activeTournamentConfig?.include3rd4th !== undefined 
       ? activeTournamentConfig.include3rd4th 
       : include3rd4th;
+
     const activeBreakStart = activeTournamentConfig?.breakStart || breakStart || '';
     const activeBreakEnd = activeTournamentConfig?.breakEnd || breakEnd || '';
+
+    // Get current time estimates based on active/setup stats
+    const currentStats = hasMatches ? activeStats : setupStats;
 
     let formulaName = '';
     let formulaDescription = '';
@@ -1444,6 +1505,44 @@ export default function BracketTab({
                 <span class="config-value">${breakText}</span>
               </div>
             </div>
+          </div>
+
+          <!-- Tempi e Carico Orario -->
+          <div class="info-card" style="margin-bottom: 25px;">
+            <div class="card-title">🕒 Stima Tempi, Campi e Carico Ore</div>
+            <div class="section-grid" style="margin-bottom: 0;">
+              <div>
+                <div class="config-item">
+                  <span class="config-label">Incontri Effettivi:</span>
+                  <span class="config-value">${currentStats.realMatchesCount} partite reali</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Volume di Gioco Totale:</span>
+                  <span class="config-value">${Math.floor(currentStats.totalRawMinutes / 60)}h ${currentStats.totalRawMinutes % 60}m</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Durata Stimata:</span>
+                  <span class="config-value" style="color: #d97706; font-weight: 800;">${Math.floor(currentStats.totalElapsedMinutes / 60)}h ${currentStats.totalElapsedMinutes % 60}m</span>
+                </div>
+              </div>
+              <div>
+                <div class="config-item">
+                  <span class="config-label">Fascia di Riposo (Pausa):</span>
+                  <span class="config-value">${currentStats.hasBreak ? `☕ ${currentStats.breakStart} - ${currentStats.breakEnd} (${currentStats.breakDuration} min)` : 'No'}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Orario Inizio Previsto:</span>
+                  <span class="config-value">${hasMatches && currentStats.earliestMinutes !== undefined ? formatMinutesToTime(currentStats.earliestMinutes) : '09:00'}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-label">Orario Fine Stimato:</span>
+                  <span class="config-value" style="color: #dc2626; font-weight: 800;">~${currentStats.endHour || 'Finita'}</span>
+                </div>
+              </div>
+            </div>
+            <p style="font-size: 11px; color: #64748b; margin: 8px 0 0 0; line-height: 1.4; font-weight: 500;">
+              *La stima oraria tiene conto della disponibilità di <strong>${activeCourtCount} ${activeCourtCount === 1 ? 'campo' : 'campi'}</strong> attivi contemporaneamente ed esclude i match con posizionamenti automatici di riposo (BYE). Durata match basata sul formato di gioco impostato.
+            </p>
           </div>
 
           ${playoffQualsHTML}
