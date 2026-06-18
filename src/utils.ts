@@ -2039,12 +2039,8 @@ export function printHTML(htmlContent: string) {
             alert('Errore: Impossibile avviare la stampa. Consenti i popup nel browser.');
           }
         }
-        // Safely remove the print iframe after some delay
-        setTimeout(() => {
-          if (iframe.parentNode) {
-            document.body.removeChild(iframe);
-          }
-        }, 8000);
+        // Keep the print iframe in the DOM so that the browser can render/save the PDF correctly.
+        // It will be cleaned up on the next print call by looking up the ID.
       };
 
       if (iframe.contentWindow) {
