@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
 import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap, parseTimeToMinutes, formatMinutesToTime, printHTML } from '../utils';
-import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee } from 'lucide-react';
+import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+const logoUrl = new URL('../assets/images/wsicily_logo_white_bg_1781554165519.jpg', import.meta.url).href;
+const contreraLogoUrl = new URL('../assets/images/regenerated_image_1781554021790.png', import.meta.url).href;
 
 interface BracketTabProps {
   teams: Team[];
@@ -88,23 +91,23 @@ export default function BracketTab({
     if (q === 8) return 'Quarti di finale 🥇';
     if (q === 4) return 'Semifinali 🥈';
     if (q === 2) return 'Finale 🏆';
-    return `${q} squadre`;
+    return `${q} coppie`;
   };
 
   const getCombinedQualificationExplanation = (groups: number, teamsPerGroup: number, qualified: number) => {
     const total = groups * teamsPerGroup;
     if (qualified > total) {
-      return `⚠️ Attenzione: Il numero di squadre qualificate (${qualified}) non può essere maggiore del totale delle squadre partecipanti (${total}). Riduci le qualificate o aumenta il numero di squadre per girone/gironi.`;
+      return `⚠️ Attenzione: Il numero di coppie qualificate (${qualified}) non può essere maggiore del totale delle coppie partecipanti (${total}). Riduci le qualificate o aumenta il numero di coppie per girone/gironi.`;
     }
     
     const roundName = getRoundName(qualified);
     
     // Custom smart cases
     if (groups === 3 && qualified === 8) {
-      return `🏆 Soluzione ottimale: Le prime 2 di ogni girone (6 squadre in totale) e le 2 migliori terze classificate del torneo (in base alla classifica avulsa) si qualificheranno per i ${roundName}.`;
+      return `🏆 Soluzione ottimale: Le prime 2 di ogni girone (6 coppie in totale) e le 2 migliori terze classificate del torneo (in base alla classifica avulsa) si qualificheranno per i ${roundName}.`;
     }
     if (groups === 3 && qualified === 4) {
-      return `🏆 Soluzione ottimale: Le prime classificate di ciascuno dei 3 gironi (3 squadre) e la migliore seconda classificata si qualificheranno per le ${roundName}.`;
+      return `🏆 Soluzione ottimale: Le prime classificate di ciascuno dei 3 gironi (3 coppie) e la migliore seconda classificata si qualificheranno per le ${roundName}.`;
     }
     if (groups === 2 && qualified === 4) {
       return `🏆 Soluzione ottimale: Le prime 2 classificate di ciascun girone si qualificheranno direttamente per le ${roundName}.`;
@@ -130,16 +133,18 @@ export default function BracketTab({
     const extraQualifiers = qualified % groups;
     if (baseQualifiers > 0) {
       if (extraQualifiers > 0) {
-        return `📊 Soluzione: Si qualificheranno le prime ${baseQualifiers} di ciascun girone, più le migliori ${extraQualifiers} ${extraQualifiers === 1 ? 'squadra' : 'squadre'} tra le successive classificate (in base alla classifica avulsa), per un totale di ${qualified} squadre che accederanno ai ${roundName}.`;
+        return `📊 Soluzione: Si qualificheranno le prime ${baseQualifiers} di ciascun girone, più le migliori ${extraQualifiers} ${extraQualifiers === 1 ? 'coppia' : 'coppie'} tra le successive classificate (in base alla classifica avulsa), per un totale di ${qualified} coppie che accederanno ai ${roundName}.`;
       } else {
-        return `📊 Soluzione: Si qualificheranno esattamente le prime ${baseQualifiers} di ciascun girone per un totale di ${qualified} squadre che accederanno ai ${roundName}.`;
+        return `📊 Soluzione: Si qualificheranno esattamente le prime ${baseQualifiers} di ciascun girone per un totale di ${qualified} coppie che accederanno ai ${roundName}.`;
       }
     } else {
-      return `📊 Soluzione: Si qualificheranno le migliori ${qualified} squadre assolute della classifica avulsa per farle accedere ai ${roundName}.`;
+      return `📊 Soluzione: Si qualificheranno le migliori ${qualified} coppie assolute della classifica avulsa per farle accedere ai ${roundName}.`;
     }
   };
 
   // Active Phase View States
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
+  const [isPrintExpanded, setIsPrintExpanded] = useState(true);
   const [activePhaseTab, setActivePhaseTab] = useState<'gironi' | 'eliminazione'>('gironi');
   const [selectedGroupTab, setSelectedGroupTab] = useState<string>('');
   const [groupViewMode, setGroupViewMode] = useState<'by-group' | 'all-list'>('by-group');
@@ -864,9 +869,11 @@ export default function BracketTab({
   const getActiveTournamentStats = () => {
     if (matches.length === 0) return { realMatchesCount: 0, singleMatchDuration: 0, totalElapsedMinutes: 0, totalRawMinutes: 0 };
     
-    const activeFormula = matches.some(m => m.phase === 'gironi')
-      ? (matches.some(m => m.phase === 'eliminazione') ? 'combined' as const : 'pools' as const)
-      : (matches.some(m => m.id.startsWith('m-de')) ? 'double_elim' as const : 'direct' as const);
+    const activeFormula = (activeTournamentConfig?.formula && activeTournamentConfig?.formula !== 'N/A')
+      ? activeTournamentConfig.formula
+      : (matches.some(m => m.phase === 'gironi')
+        ? (matches.some(m => m.phase === 'eliminazione' || m.id.startsWith('m-p')) ? 'combined' as const : 'pools' as const)
+        : (matches.some(m => m.id.startsWith('m-de')) ? 'double_elim' as const : 'direct' as const));
     
     const activeFirstMatch = matches[0];
     const activePointsPerSet = activeFirstMatch?.pointsPerSet || 21;
@@ -874,7 +881,66 @@ export default function BracketTab({
     const generalMatchDuration = getSingleMatchDuration(activePointsPerSet, activeMaxSets);
     const activeCourtCount = activeTournamentConfig?.courtCount || courtCount;
 
-    const realMatches = matches.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
+    const activeBreakStart = activeTournamentConfig?.breakStart || '';
+    const activeBreakEnd = activeTournamentConfig?.breakEnd || '';
+
+    let realMatches = matches.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
+
+    // If combined and playoff matches haven't been generated yet, append mock playoffs!
+    if (activeFormula === 'combined') {
+      const hasPlayoffs = realMatches.some(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
+      if (!hasPlayoffs) {
+        const groupMatches = realMatches.filter(m => m.phase === 'gironi' || m.id.startsWith('m-1') || !m.phase);
+        
+        const mockStandings = computeGroupStandings(teams, groupMatches);
+        
+        let mockPlayoffStartHour = '15:00';
+        if (groupMatches.length > 0) {
+          let latestEndMinutes = 9 * 60; // 09:00
+          groupMatches.forEach(m => {
+            if (m.time && m.time.includes(':')) {
+              const matchDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+              const [h, min] = m.time.split(':').map(Number);
+              const endMins = h * 60 + min + matchDuration;
+              if (endMins > latestEndMinutes) {
+                latestEndMinutes = endMins;
+              }
+            }
+          });
+          const hStr = String(Math.floor(latestEndMinutes / 60) % 24).padStart(2, '0');
+          const mStr = String(latestEndMinutes % 60).padStart(2, '0');
+          mockPlayoffStartHour = `${hStr}:${mStr}`;
+        }
+
+        const activeSfPointsPerSet = activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet;
+        const activeSfMaxSets = activeTournamentConfig?.sfMaxSets || sfMaxSets;
+        const activeQualifiedCount = activeTournamentConfig?.qualifiedCount || combinedQualifiedTeams || 4;
+        const activeInclude3rd4th = activeTournamentConfig?.include3rd4th !== undefined 
+          ? activeTournamentConfig.include3rd4th 
+          : include3rd4th;
+
+        const mockPlayoffs = generatePlayoffsFromGroups(
+          mockStandings,
+          mockPlayoffStartHour,
+          generalMatchDuration,
+          activeCourtCount,
+          activePointsPerSet as 15 | 21,
+          activeMaxSets as 1 | 3,
+          activeSfPointsPerSet as 15 | 21,
+          activeSfMaxSets as 1 | 3,
+          activeQualifiedCount,
+          teams,
+          groupMatches,
+          activeInclude3rd4th,
+          activeBreakStart,
+          activeBreakEnd
+        );
+
+        const realMockPlayoffs = mockPlayoffs.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
+        realMatches = [...realMatches, ...realMockPlayoffs];
+      }
+    }
+
     const realMatchesCount = realMatches.length;
 
     const totalRawMinutes = realMatches.reduce((acc, m) => {
@@ -926,9 +992,6 @@ export default function BracketTab({
       totalElapsedMinutes = groupElapsed + playoffElapsed;
     }
 
-    const activeBreakStart = activeTournamentConfig?.breakStart || '';
-    const activeBreakEnd = activeTournamentConfig?.breakEnd || '';
-
     let earliestMinutes = 24 * 60;
     let latestEndMinutes = 0;
 
@@ -974,6 +1037,114 @@ export default function BracketTab({
   };
 
   const activeStats = getActiveTournamentStats();
+
+  const hasActiveMatches = matches.length > 0;
+  const activeFirstMatch = matches[0];
+  const activeFormula = (activeTournamentConfig?.formula && activeTournamentConfig?.formula !== 'N/A')
+    ? activeTournamentConfig.formula
+    : (hasActiveMatches 
+      ? (matches.some(m => m.phase === 'gironi')
+        ? (matches.some(m => m.phase === 'eliminazione' || m.id.startsWith('m-p')) ? 'combined' : 'pools')
+        : (matches.some(m => m.id.startsWith('m-de')) ? 'double_elim' : 'direct'))
+      : (activeTournamentConfig?.formula || formula || 'combined'));
+
+  const activeTeamsCount = activeTournamentConfig?.teamsCount || teamsCount || teams.length;
+
+  // Determine group count dynamically if we have matches
+  let activeGroupCount = 1;
+  if (hasActiveMatches) {
+    const groups = new Set<string>();
+    matches.forEach(m => {
+      if (m.phase === 'gironi' && m.groupName) {
+        groups.add(m.groupName);
+      }
+    });
+    activeGroupCount = groups.size > 0 ? groups.size : (activeTournamentConfig?.groupCount || groupCount || 1);
+  } else {
+    activeGroupCount = (activeFormula === 'combined') 
+      ? combinedGroups 
+      : (activeFormula === 'pools' ? groupCount : 1);
+  }
+
+  // Determine court count dynamically if we have matches
+  let activeCourtCount = 1;
+  if (hasActiveMatches) {
+    const courts = new Set<string>();
+    matches.forEach(m => {
+      if (m.court) {
+        courts.add(m.court);
+      }
+    });
+    activeCourtCount = courts.size > 0 ? courts.size : (activeTournamentConfig?.courtCount || courtCount || 1);
+  } else {
+    activeCourtCount = activeTournamentConfig?.courtCount || courtCount || 1;
+  }
+
+  // Determine points and sets format
+  const activePointsPerSet = hasActiveMatches 
+    ? (activeFirstMatch?.pointsPerSet || 21) 
+    : (activeTournamentConfig?.pointsPerSet || pointsPerSet || 21);
+  const activeMaxSets = hasActiveMatches 
+    ? (activeFirstMatch?.maxSets || 3) 
+    : (activeTournamentConfig?.maxSets || maxSets || 3);
+
+  // Determine playoff semifinal/final params
+  const activePlayoffMatch = matches.find(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
+  const activeSfPointsPerSet = activePlayoffMatch
+    ? (activePlayoffMatch.pointsPerSet || 21)
+    : (activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet || 21);
+  const activeSfMaxSets = activePlayoffMatch
+    ? (activePlayoffMatch.maxSets || 3)
+    : (activeTournamentConfig?.sfMaxSets || sfMaxSets || 3);
+
+  const generalMatchDuration = getSingleMatchDuration(activePointsPerSet, activeMaxSets);
+  const sfMatchDuration = getSingleMatchDuration(activeSfPointsPerSet, activeSfMaxSets);
+
+  // Determine playoff qualification count
+  const activePlayoffMatches = matches.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p'));
+  let activeQualifiedCount = 4;
+  if (hasActiveMatches && activePlayoffMatches.length > 0) {
+    const firstPlayoffRound = activePlayoffMatches.reduce((min, m) => m.round < min ? m.round : min, 9999);
+    const firstRoundMatches = activePlayoffMatches.filter(m => m.round === firstPlayoffRound);
+    activeQualifiedCount = firstRoundMatches.length * 2;
+  } else {
+    activeQualifiedCount = activeTournamentConfig?.qualifiedCount || combinedQualifiedTeams || 4;
+  }
+
+  const activeInclude3rd4th = activeTournamentConfig?.include3rd4th !== undefined 
+    ? activeTournamentConfig.include3rd4th 
+    : include3rd4th;
+
+  const activeBreakStart = activeTournamentConfig?.breakStart || breakStart || '';
+  const activeBreakEnd = activeTournamentConfig?.breakEnd || breakEnd || '';
+
+  let formulaName = '';
+  let formulaDescription = '';
+  if (activeFormula === 'direct') {
+    formulaName = "Eliminazione Diretta 🏆";
+    formulaDescription = "Tabellone classico a eliminazione diretta. Chi perde è eliminato, chi vince prosegue il cammino verso la finale.";
+  } else if (activeFormula === 'pools') {
+    formulaName = "Solo Gironi all'Italiana 🏐";
+    formulaDescription = "Campionato lineare con scontri diretti organizzati in gironi (Round Robin). Vince chi accumula più vittorie/punti al termine delle gare.";
+  } else if (activeFormula === 'combined') {
+    formulaName = "Fasi Multiple: Gironi + Playoff 🥇";
+    formulaDescription = "Fase 1 a gironi all'italiana per determinare i piazzamenti. Fase 2 ad eliminazione diretta (Playoff) tra le squadre qualificate.";
+  } else if (activeFormula === 'double_elim') {
+    formulaName = "Vincenti e Perdenti (Double Elimination) 🔄";
+    formulaDescription = "Tabellone a doppia eliminazione. Una squadra viene eliminata solo dopo aver perso 2 incontri, con due tabelloni distinti (Vincenti e Perdenti).";
+  }
+
+  const regSetsLabel = activeMaxSets === 1 
+    ? `Set Singolo a ${activePointsPerSet} punti` 
+    : `2 su 3 a ${activePointsPerSet} (tie break a 15)`;
+
+  const sfSetsLabel = activeSfMaxSets === 1 
+    ? `Set Singolo a ${activeSfPointsPerSet} punti` 
+    : `2 su 3 a ${activeSfPointsPerSet} (tie break a 15)`;
+
+  const breakText = (activeBreakStart && activeBreakEnd)
+    ? `${activeBreakStart} - ${activeBreakEnd}`
+    : `Nessuna`;
 
   // Handle setting up a Match Score manually
   const openEditModal = (match: Match) => {
@@ -1290,32 +1461,22 @@ export default function BracketTab({
 
     const regSetsLabel = activeMaxSets === 1 
       ? `Set Singolo a ${activePointsPerSet} punti` 
-      : `Al meglio di 3 set a ${activePointsPerSet} punti (eventuale tie-break al 3° set a 15 punti)`;
+      : `2 su 3 a ${activePointsPerSet} (tie break a 15)`;
 
     const sfSetsLabel = activeSfMaxSets === 1 
       ? `Set Singolo a ${activeSfPointsPerSet} punti` 
-      : `Al meglio di 3 set a ${activeSfPointsPerSet} punti (eventuale tie-break al 3° set a 15 punti)`;
+      : `2 su 3 a ${activeSfPointsPerSet} (tie break a 15)`;
 
     const breakText = (activeBreakStart && activeBreakEnd)
       ? `Sì &bull; Dalle <strong>${activeBreakStart}</strong> alle <strong>${activeBreakEnd}</strong>`
       : `Nessuna pausa programmata (orari continui)`;
 
-    const playoffQualsHTML = activeFormula === 'combined' ? `
-      <div class="info-card">
-        <div class="card-title">🎖️ Accoppiamenti e Qualificazione Playoff</div>
-        <p style="font-size: 13px; font-weight: bold; color: #1e3a8a; margin: 0 0 8px 0;">
-          Squadre qualificate ai Playoff: ${activeQualifiedCount}
-        </p>
-        <p style="font-size: 12px; color: #1e293b; line-height: 1.5; margin: 0;">
-          ${getCombinedQualificationExplanation(activeGroupCount, Math.ceil(activeTeamsCount / activeGroupCount), activeQualifiedCount)}
-        </p>
-      </div>
-    ` : '';
+    const playoffQualsHTML = '';
 
     printHTML(`
       <html>
         <head>
-          <title>Scheda Tecnica & Configurazione Torneo - ${tournamentName}</title>
+          <title>Scheda Tecnica Torneo - ${tournamentName}</title>
           <style>
             @media print {
               body { padding: 10px; }
@@ -1383,7 +1544,7 @@ export default function BracketTab({
               font-size: 12px;
               font-weight: 800;
               text-transform: uppercase;
-              color: #0f172a;
+              color: #0c4a6e;
               border-bottom: 2px solid #e2e8f0;
               padding-bottom: 6px;
               margin-bottom: 10px;
@@ -1408,25 +1569,6 @@ export default function BracketTab({
               color: #0f172a;
               text-align: right;
             }
-            .badge {
-              background: #ffedd5;
-              color: #ea580c;
-              padding: 2px 8px;
-              border-radius: 6px;
-              font-size: 11px;
-              font-weight: 800;
-              text-transform: uppercase;
-            }
-            .criteria-list {
-              font-size: 12px; 
-              color: #334155; 
-              padding-left: 20px; 
-              line-height: 1.6;
-              margin: 8px 0 0 0;
-            }
-            .criteria-list li {
-              margin-bottom: 6px;
-            }
             .footer { 
               margin-top: 40px; 
               text-align: center; 
@@ -1441,158 +1583,135 @@ export default function BracketTab({
         </head>
         <body>
           <div class="header">
-            <h1>Scheda Configurazione Torneo</h1>
+            <div style="text-align: center; margin-bottom: 12px;">
+              <img src="${logoUrl}" alt="Wsicily Logo" style="height: 55px; object-fit: contain; max-width: 100%; display: inline-block; referrer-policy: no-referrer;" />
+            </div>
+            <h1>Scheda Tecnica Torneo</h1>
             <div class="subtitle">${tournamentName}</div>
           </div>
           <div class="meta-info">
-            <span>Beach Volley Hub &bull; Documento Tecnico</span>
+            <span>Beach Volley Hub &bull; Documento Tecnico Ufficiale</span>
             <span>Generato il: ${new Date().toLocaleDateString('it-IT')} ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
 
           <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 15px; margin-bottom: 25px;">
-            <div style="font-weight: 800; text-transform: uppercase; font-size: 11px; color: #b45309; letter-spacing: 0.5px; margin-bottom: 4px;">Formula Attiva</div>
+            <div style="font-weight: 800; text-transform: uppercase; font-size: 11px; color: #b45309; letter-spacing: 0.5px; margin-bottom: 4px;">Formula Generale del Torneo</div>
             <div style="font-size: 16px; font-weight: 800; color: #78350f;">${formulaName}</div>
-            <div style="font-size: 13px; color: #92400e; margin-top: 4px; font-weight: 500;">${formulaDescription}</div>
+            <div style="font-size: 13px; color: #92400e; margin-top: 4px; font-weight: 500; line-height: 1.4;">${formulaDescription}</div>
+            ${activeFormula === 'combined' ? `
+              <div style="font-size: 12px; color: #78350f; font-weight: 600; border-top: 1px solid #fde68a; padding-top: 10px; margin-top: 10px;">
+                💡 ${getCombinedQualificationExplanation(activeGroupCount, Math.ceil(activeTeamsCount / activeGroupCount), activeQualifiedCount)}
+              </div>
+            ` : ''}
           </div>
 
           <div class="section-grid">
-            <!-- Struttura e Dimensioni -->
+            <!-- Card 1: Formato & Regole -->
             <div class="info-card">
-              <div class="card-title">🧱 Struttura ed Organizzazione</div>
+              <div class="card-title">⚡ Formato & Regole</div>
               <div class="config-item">
-                <span class="config-label">Numero Squadre Iscritte:</span>
-                <span class="config-value">${teams.length} Coppie</span>
-              </div>
-              <div class="config-item">
-                <span class="config-label">Posti Totali Previsti:</span>
-                <span class="config-value">${activeTeamsCount} Squadre</span>
-              </div>
-              ${activeFormula === 'pools' || activeFormula === 'combined' ? `
-              <div class="config-item">
-                <span class="config-label">Numero Gironi Generati:</span>
-                <span class="config-value">${activeGroupCount} ${activeGroupCount === 1 ? 'Girone' : 'Gironi'}</span>
-              </div>
-              <div class="config-item">
-                <span class="config-label">Media Squadre per Girone:</span>
-                <span class="config-value">${Math.round(activeTeamsCount / activeGroupCount)} coppie</span>
-              </div>
-              ` : ''}
-              <div class="config-item">
-                <span class="config-label">Campi da Gioco Attivi:</span>
-                <span class="config-value">${activeCourtCount} ${activeCourtCount === 1 ? 'Campo' : 'Campi'}</span>
-              </div>
-            </div>
-
-            <!-- Formato di Gioco -->
-            <div class="info-card">
-              <div class="card-title">⏱️ Formato Gara e Forfait</div>
-              <div class="config-item">
-                <span class="config-label">Incontri del Torneo / Gironi:</span>
+                <span class="config-label">Incontri Gironi:</span>
                 <span class="config-value">${regSetsLabel}</span>
               </div>
-              ${activeFormula !== 'pools' ? `
               <div class="config-item">
-                <span class="config-label">Incontri di Fase Finale:</span>
+                <span class="config-label">Incontri Finali:</span>
                 <span class="config-value">${sfSetsLabel}</span>
               </div>
               <div class="config-item">
                 <span class="config-label">Finale 3°/4° Posto:</span>
-                <span class="config-value">${activeInclude3rd4th ? 'Disputata (Bronzo 🥉)' : 'Non prevista'}</span>
+                <span class="config-value">${activeInclude3rd4th ? 'Disputata 🥉' : 'Non prevista'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Durata Match Standard:</span>
+                <span class="config-value">${generalMatchDuration} min</span>
+              </div>
+              ${activeFormula !== 'pools' ? `
+              <div class="config-item">
+                <span class="config-label">Durata Match Finali:</span>
+                <span class="config-value">${sfMatchDuration} min</span>
               </div>
               ` : ''}
+            </div>
+
+            <!-- Card 2: Iscritti & Riserve -->
+            <div class="info-card">
+              <div class="card-title">👥 Iscritti & Riserve</div>
               <div class="config-item">
-                <span class="config-label">Fascia Oraria di Pausa:</span>
-                <span class="config-value">${breakText}</span>
+                <span class="config-label">Coppie Iscritte:</span>
+                <span class="config-value">${teams.length} Coppie</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Coppie Ammesse:</span>
+                <span class="config-value">${activeTeamsCount} Coppie</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Coppie Riserve:</span>
+                <span class="config-value">${Math.max(0, teams.length - activeTeamsCount)} ${Math.max(0, teams.length - activeTeamsCount) === 1 ? 'coppia' : 'coppie'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Nome Torneo:</span>
+                <span class="config-value">${tournamentName}</span>
+              </div>
+            </div>
+
+            <!-- Card 3: Gironi & Playoff -->
+            <div class="info-card">
+              <div class="card-title">🧱 Gironi & Playoff</div>
+              <div class="config-item">
+                <span class="config-label">Numero Gironi:</span>
+                <span class="config-value">${activeFormula === 'pools' || activeFormula === 'combined' ? `${activeGroupCount} ${activeGroupCount === 1 ? 'Girone' : 'Gironi'}` : 'Non previsto'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Coppie per Girone:</span>
+                <span class="config-value">${activeFormula === 'pools' || activeFormula === 'combined' ? `${Math.round(activeTeamsCount / activeGroupCount)} coppie` : 'Non applicabile'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Qualificate ai Playoff:</span>
+                <span class="config-value">${activeFormula === 'combined' ? `${activeQualifiedCount} coppie` : 'Non previsto'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Campi Attivi Gioco:</span>
+                <span class="config-value">${activeCourtCount} ${activeCourtCount === 1 ? 'Campo' : 'Campi'}</span>
+              </div>
+            </div>
+
+            <!-- Card 4: Tempi, Svolgimento & Fine -->
+            <div class="info-card">
+              <div class="card-title">🕒 Tempi, Svolgimento & Fine</div>
+              <div class="config-item">
+                <span class="config-label">Partite Reali:</span>
+                <span class="config-value">${currentStats.realMatchesCount} match</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Volume di Gioco Totale:</span>
+                <span class="config-value">${Math.floor(currentStats.totalRawMinutes / 60)}h ${currentStats.totalRawMinutes % 60}m</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Inizio Torneo:</span>
+                <span class="config-value">${hasMatches && currentStats.earliestMinutes !== undefined ? formatMinutesToTime(currentStats.earliestMinutes) : '09:00'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Pausa Torneo:</span>
+                <span class="config-value">${currentStats.hasBreak ? `☕ ${currentStats.breakStart} - ${currentStats.breakEnd}` : 'Non prevista'}</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Durata Stimata Torneo:</span>
+                <span class="config-value">${Math.floor(currentStats.totalElapsedMinutes / 60)}h ${currentStats.totalElapsedMinutes % 60}m</span>
+              </div>
+              <div class="config-item">
+                <span class="config-label">Fine Stimata Torneo:</span>
+                <span class="config-value">~${currentStats.endHour || 'Finita'}</span>
               </div>
             </div>
           </div>
 
-          <!-- Tempi e Carico Orario -->
-          <div class="info-card" style="margin-bottom: 25px;">
-            <div class="card-title">🕒 Stima Tempi, Campi e Carico Ore</div>
-            <div class="section-grid" style="margin-bottom: 0;">
-              <div>
-                <div class="config-item">
-                  <span class="config-label">Incontri Effettivi:</span>
-                  <span class="config-value">${currentStats.realMatchesCount} partite reali</span>
-                </div>
-                <div class="config-item">
-                  <span class="config-label">Volume di Gioco Totale:</span>
-                  <span class="config-value">${Math.floor(currentStats.totalRawMinutes / 60)}h ${currentStats.totalRawMinutes % 60}m</span>
-                </div>
-                <div class="config-item">
-                  <span class="config-label">Durata Stimata:</span>
-                  <span class="config-value" style="color: #d97706; font-weight: 800;">${Math.floor(currentStats.totalElapsedMinutes / 60)}h ${currentStats.totalElapsedMinutes % 60}m</span>
-                </div>
-              </div>
-              <div>
-                <div class="config-item">
-                  <span class="config-label">Fascia di Riposo (Pausa):</span>
-                  <span class="config-value">${currentStats.hasBreak ? `☕ ${currentStats.breakStart} - ${currentStats.breakEnd} (${currentStats.breakDuration} min)` : 'No'}</span>
-                </div>
-                <div class="config-item">
-                  <span class="config-label">Orario Inizio Previsto:</span>
-                  <span class="config-value">${hasMatches && currentStats.earliestMinutes !== undefined ? formatMinutesToTime(currentStats.earliestMinutes) : '09:00'}</span>
-                </div>
-                <div class="config-item">
-                  <span class="config-label">Orario Fine Stimato:</span>
-                  <span class="config-value" style="color: #dc2626; font-weight: 800;">~${currentStats.endHour || 'Finita'}</span>
-                </div>
-              </div>
+          <div class="footer" style="margin-top: 45px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <div style="margin-bottom: 8px;">
+              <img src="${contreraLogoUrl}" alt="Contrera Logo" style="height: 48px; object-fit: contain; margin: 0 auto; display: block; referrer-policy: no-referrer;" />
             </div>
-            <p style="font-size: 11px; color: #64748b; margin: 8px 0 0 0; line-height: 1.4; font-weight: 500;">
-              *La stima oraria tiene conto della disponibilità di <strong>${activeCourtCount} ${activeCourtCount === 1 ? 'campo' : 'campi'}</strong> attivi contemporaneamente ed esclude i match con posizionamenti automatici di riposo (BYE). Durata match basata sul formato di gioco impostato.
-            </p>
-          </div>
-
-          ${playoffQualsHTML}
-
-          <!-- Statistiche dello Stato Corrente -->
-          <div class="info-card" style="margin-bottom: 25px;">
-            <div class="card-title">📈 Stato Avanzamento Torneo</div>
-            <div style="display: flex; justify-content: space-around; text-align: center; padding: 10px 0;">
-              <div>
-                <div style="font-size: 20px; font-weight: 800; color: #0284c7;">${matches.length}</div>
-                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">Pianificate</div>
-              </div>
-              <div style="border-left: 1px solid #e2e8f0;"></div>
-              <div>
-                <div style="font-size: 20px; font-weight: 800; color: #16a34a;">${matches.filter(m => m.status === 'completed').length}</div>
-                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">Giocate</div>
-              </div>
-              <div style="border-left: 1px solid #e2e8f0;"></div>
-              <div>
-                <div style="font-size: 20px; font-weight: 800; color: #ea580c;">${matches.filter(m => m.status === 'live').length}</div>
-                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">In Corso</div>
-              </div>
-              <div style="border-left: 1px solid #e2e8f0;"></div>
-              <div>
-                <div style="font-size: 20px; font-weight: 800; color: #64748b;">${matches.filter(m => m.status === 'scheduled').length}</div>
-                <div style="font-size: 11px; font-weight: bold; color: #64748b; uppercase">In Attesa</div>
-              </div>
+            <div style="font-size: 10px; color: #94a3b8; font-weight: bold;">
+              Beach Volley Hub &bull; Powered by Contrera Smartphone
             </div>
-          </div>
-
-          <!-- Criteri di Classificazione -->
-          <div class="info-card">
-            <div class="card-title">📊 Regolamento &amp; Criteri Classifica Gironi (FIPAV)</div>
-            <p style="font-size: 12px; color: #475569; margin: 0 0 10px 0; line-height: 1.5;">
-              La classifica dei gironi e i relativi passaggi del turno in caso di parità di punti vengono determinati matematicamente applicando i regolamenti ufficiali FIPAV Beach Volley nell'ordine sotto riportato:
-            </p>
-            <ol class="criteria-list">
-              <li><strong>Maggior numero di gare vinte:</strong> Conta il numero complessivo di vittorie conseguite nel girone.</li>
-              <li><strong>Punti di Classifica Risultato Gara:</strong> 
-                <span class="badge" style="background: #e0f2fe; color: #0369a1; vertical-align: middle;">3-Pt System</span>
-                Vengono assegnati 3 punti per vittorie 2-0 o 2-1; 1 punto per la sconfitta al tie-break (1-2); 0 punti per sconfitte 0-2. (In caso di set singolo, vittoria = 3 punti, sconfitta = 0).
-              </li>
-              <li><strong>Quoziente Set (Set Ratio):</strong> Rapporto matematico tra set vinti e set persi in tutta la fase a gironi (Set Vinti / Set Persi).</li>
-              <li><strong>Quoziente Punti (Points Ratio):</strong> Rapporto matematico tra la somma dei punti fatti e la somma dei punti subiti in tutti i set (Punti Fatti / Punti Subiti).</li>
-              <li><strong>Scontro Diretto:</strong> Risultato della partita giocata tra i due concorrenti a pari merito (valevole per parità unicamente tra 2 squadre).</li>
-            </ol>
-          </div>
-
-          <div class="footer">
-            Beach Volley Hub &bull; Generato da Amministratore &bull; Campionato in Corso
           </div>
           <script>
             window.onload = function() { window.print(); }
@@ -1660,19 +1779,22 @@ export default function BracketTab({
         </head>
         <body>
           <div class="header">
-            <h1>Lista d'Ingresso Squadre</h1>
+            <div style="text-align: center; margin-bottom: 12px;">
+              <img src="${logoUrl}" alt="Wsicily Logo" style="height: 55px; object-fit: contain; max-width: 100%; display: inline-block; referrer-policy: no-referrer;" />
+            </div>
+            <h1>Lista d'Ingresso Coppie</h1>
             <div class="subtitle">${tournamentName}</div>
           </div>
           <div class="meta-info">
             <span>Formula: ${activeTournamentConfig?.formula?.toUpperCase() || 'COMBINED'}</span>
-            <span>Totale Squadre: ${teams.length} Iscritte</span>
+            <span>Totale Coppie: ${teams.length} Iscritte</span>
             <span>Data: ${new Date().toLocaleDateString('it-IT')}</span>
           </div>
           <table>
             <thead>
               <tr>
                 <th style="text-align: center;">Pos / Seed</th>
-                <th>Nome Squadra</th>
+                <th>Nome Coppia</th>
                 <th>Atleti / Componenti</th>
                 <th style="text-align: center;">Livello</th>
                 <th style="text-align: left;">Contatto</th>
@@ -1683,8 +1805,13 @@ export default function BracketTab({
               ${rowsHTML}
             </tbody>
           </table>
-          <div class="footer">
-            Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
+          <div class="footer" style="margin-top: 45px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <div style="margin-bottom: 8px;">
+              <img src="${contreraLogoUrl}" alt="Contrera Logo" style="height: 48px; object-fit: contain; margin: 0 auto; display: block; referrer-policy: no-referrer;" />
+            </div>
+            <div style="font-size: 10px; color: #94a3b8; font-weight: bold;">
+              Beach Volley Hub &bull; Powered by Contrera Smartphone
+            </div>
           </div>
           <script>
             window.onload = function() { window.print(); }
@@ -1779,7 +1906,7 @@ export default function BracketTab({
             <thead>
               <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1;">
                 <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Pos</th>
-                <th style="width: 30%; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Squadra</th>
+                <th style="width: 30%; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Coppia</th>
                 <th style="width: 30%; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Giocatori</th>
                 <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">Punti</th>
                 <th style="width: 10%; text-align: center; padding: 8px 10px; font-size: 10px; text-transform: uppercase;">V / P</th>
@@ -1787,7 +1914,7 @@ export default function BracketTab({
               </tr>
             </thead>
             <tbody>
-              ${teamsGroupRows || '<tr><td colspan="6" style="padding: 10px; text-align: center; color: #94a3b8;">Nessuna squadra iscritta in questo girone</td></tr>'}
+              ${teamsGroupRows || '<tr><td colspan="6" style="padding: 10px; text-align: center; color: #94a3b8;">Nessuna coppia iscritta in questo girone</td></tr>'}
             </tbody>
           </table>
 
@@ -1830,6 +1957,9 @@ export default function BracketTab({
         </head>
         <body>
           <div class="header">
+            <div style="text-align: center; margin-bottom: 12px;">
+              <img src="${logoUrl}" alt="Wsicily Logo" style="height: 55px; object-fit: contain; max-width: 100%; display: inline-block; referrer-policy: no-referrer;" />
+            </div>
             <h1>Composizione Gironi e Programma Gare</h1>
             <div class="subtitle">${tournamentName}</div>
           </div>
@@ -1843,8 +1973,13 @@ export default function BracketTab({
             ${sectionsHTML}
           </div>
 
-          <div class="footer">
-            Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
+          <div class="footer" style="margin-top: 45px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <div style="margin-bottom: 8px;">
+              <img src="${contreraLogoUrl}" alt="Contrera Logo" style="height: 48px; object-fit: contain; margin: 0 auto; display: block; referrer-policy: no-referrer;" />
+            </div>
+            <div style="font-size: 10px; color: #94a3b8; font-weight: bold;">
+              Beach Volley Hub &bull; Powered by Contrera Smartphone
+            </div>
           </div>
           <script>
             window.onload = function() { window.print(); }
@@ -1931,6 +2066,9 @@ export default function BracketTab({
         </head>
         <body>
           <div class="header">
+            <div style="text-align: center; margin-bottom: 12px;">
+              <img src="${logoUrl}" alt="Wsicily Logo" style="height: 55px; object-fit: contain; max-width: 100%; display: inline-block; referrer-policy: no-referrer;" />
+            </div>
             <h1>Programma Completo ed Elenco Ordinato Gare</h1>
             <div class="subtitle">${tournamentName}</div>
           </div>
@@ -1955,8 +2093,13 @@ export default function BracketTab({
               ${rowsHTML}
             </tbody>
           </table>
-          <div class="footer">
-            Beach Volley Hub &bull; Generato il ${new Date().toLocaleString('it-IT')}
+          <div class="footer" style="margin-top: 45px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+            <div style="margin-bottom: 8px;">
+              <img src="${contreraLogoUrl}" alt="Contrera Logo" style="height: 48px; object-fit: contain; margin: 0 auto; display: block; referrer-policy: no-referrer;" />
+            </div>
+            <div style="font-size: 10px; color: #94a3b8; font-weight: bold;">
+              Beach Volley Hub &bull; Powered by Contrera Smartphone
+            </div>
           </div>
           <script>
             window.onload = function() { window.print(); }
@@ -2933,120 +3076,343 @@ export default function BracketTab({
       ) : (
         <>
           {/* Header Controls for Active Tournament */}
-          <div className="bg-white rounded-3xl border-4 border-sky-300 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="h-3.5 w-3.5 rounded-full bg-orange-500 animate-ping shrink-0"></span>
-                <h3 className="font-black text-sky-950 text-xl tracking-tight uppercase italic">{tournamentName}</h3>
-              </div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1.5 flex items-center gap-2">
-                <span>🏖️ {matches.some(m => m.phase === 'gironi') ? (matches.some(m => m.phase === 'eliminazione') ? 'Fasi Multiple (Gironi + Playoff)' : 'Fase a Gironi') : 'Eliminazione Diretta'}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
-                <span>{matches.length} Incontri Inseriti</span>
-              </p>
-              <div className="flex flex-wrap gap-2 mt-2.5">
-                <span className="inline-flex items-center text-[10px] font-black uppercase text-sky-800 bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-200">
-                  <Trophy className="w-3 h-3 text-orange-500 mr-1" />
-                  {activeStats.realMatchesCount} Match Reali
-                </span>
-                <span className="inline-flex items-center text-[10px] font-black uppercase text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
-                  <Clock className="w-3 h-3 text-amber-500 mr-1" />
-                  Durata Stima: {Math.floor(activeStats.totalElapsedMinutes / 60)}h {activeStats.totalElapsedMinutes % 60}m
-                </span>
-                <span className="inline-flex items-center text-[10px] font-black uppercase text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                  <Sparkles className="w-3 h-3 text-emerald-500 mr-1" />
-                  Volume Gioco: {Math.floor(activeStats.totalRawMinutes / 60)}h {activeStats.totalRawMinutes % 60}m
-                </span>
-                {activeStats.hasBreak && (
-                  <span className="inline-flex items-center text-[10px] font-black uppercase text-orange-800 bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-200">
-                    <Coffee className="w-3 h-3 text-orange-500 mr-1" />
-                    Pausa: {activeStats.breakStart} - {activeStats.breakEnd} ({activeStats.breakDuration}m)
-                  </span>
-                )}
-                <span className="inline-flex items-center text-[10px] font-black uppercase text-rose-800 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200 animate-pulse">
-                  <Award className="w-3 h-3 text-rose-500 mr-1" />
-                  Ora Fine: ~{activeStats.endHour}
-                </span>
-              </div>
-            </div>
-            {/* Header controls (Azzera Torneo button) */}
-            <div className="flex flex-wrap items-center gap-3">
-              {isAdmin && (
-                <button
-                  id="reset-tournament-btn"
-                  onClick={() => setShowResetConfirmModal(true)}
-                  className="text-xs bg-rose-50 border-2 border-rose-300 text-rose-700 font-extrabold tracking-wider uppercase py-2 px-4 rounded-full hover:bg-rose-100 transition-all shadow-sm"
-                >
-                  Azzera Torneo
-                </button>
-              )}
-            </div>
-          </div>
+          <div className="bg-slate-900 text-white rounded-2xl border border-slate-855 p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden">
+            {/* Decorative subtle ambient light overlay */}
+            <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+            <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-500/5 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20"></div>
 
-          {/* Sezione Stampe e Report Ufficiali - Hidden for Spectators (canWrite check) */}
-          {canWrite && (
-            <div className="bg-gradient-to-br from-slate-50 to-slate-100/90 rounded-3xl border-4 border-slate-200/80 p-5 mt-4 shadow-md">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/60 pb-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <Printer className="w-5 h-5 text-orange-500 stroke-[2.5]" />
-                  <h4 className="font-extrabold text-slate-800 text-xs sm:text-sm uppercase tracking-wider">Area Stampa Documenti & Report Ufficiali 🖨️</h4>
+            {/* Top Bar: Title & Action */}
+            <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 z-10 ${isHeaderExpanded ? 'pb-4 border-b border-slate-800/80' : ''}`}>
+              <div className="space-y-1.5 animate-fade-in">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="relative flex h-3.5 w-3.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-orange-500"></span>
+                  </span>
+                  <h3 className="font-black text-xl lg:text-2xl tracking-tight uppercase italic text-white leading-tight">
+                    {tournamentName}
+                  </h3>
                 </div>
-                <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-200/60 px-2.5 py-1 rounded-md">
-                  Torneo Attivo: {tournamentName}
+                <p className="text-xs text-slate-400 font-semibold tracking-wide flex items-center gap-2">
+                  <span>SCHEDA TECNICA TORNEO</span>
                 </p>
               </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <button
-                  type="button"
-                  id="print-btn-tournament-info"
-                  onClick={handlePrintTournamentInfo}
-                  className="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 hover:border-slate-350 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
-                >
-                  <Info className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
-                  Info & Formula Torneo
-                </button>
 
+              <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
                 <button
-                  type="button"
-                  id="print-btn-entry-list"
-                  onClick={handlePrintEntryList}
-                  className="flex items-center justify-center gap-2 bg-white hover:bg-sky-50 text-sky-900 border-2 border-slate-200 hover:border-sky-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
+                  onClick={() => setIsHeaderExpanded(!isHeaderExpanded)}
+                  className="flex items-center gap-2 bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 font-black text-xs tracking-wider uppercase py-2.5 px-4 rounded-xl border border-slate-700 transition-all shadow-md"
                 >
-                  <FileText className="w-4 h-4 text-sky-500 stroke-[2.5]" />
-                  Lista d'Ingresso
+                  {isHeaderExpanded ? (
+                    <>
+                      <ChevronUp className="w-4 h-4 text-orange-400 shrink-0" />
+                      <span>Riduci Scheda</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 text-orange-400 shrink-0" />
+                      <span>Mostra Dettagli</span>
+                    </>
+                  )}
                 </button>
+                {isAdmin && (
+                  <button
+                    id="reset-tournament-btn"
+                    onClick={() => setShowResetConfirmModal(true)}
+                    className="bg-slate-800 hover:bg-rose-950/45 text-rose-400 hover:text-rose-350 font-black text-xs tracking-wider uppercase py-2.5 px-4 rounded-xl border border-slate-755 hover:border-rose-900/60 transition-all shadow-md active:translate-y-0.5 shrink-0"
+                  >
+                    Azzera Torneo
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {isHeaderExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  className="flex flex-col gap-6 overflow-hidden w-full z-10"
+                >
+                  {/* Formula Highlight banner with Description & Detailed Playoff Qualification Criteria */}
+                  <div className="bg-slate-850/60 border border-slate-800/80 rounded-xl p-4">
+                    <div className="text-[10px] font-black tracking-widest text-orange-400 uppercase mb-1">
+                      Formula Generale del Torneo
+                    </div>
+                    <h4 className="text-sm font-extrabold text-white mb-2 uppercase tracking-wide">
+                      {formulaName}
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed max-w-4xl">
+                      {formulaDescription}
+                    </p>
+                    {activeFormula === 'combined' && (
+                      <p className="text-xs text-amber-300 font-semibold mt-2.5 border-t border-slate-800/60 pt-2.5 flex items-center gap-1.5">
+                        <span>💡</span>
+                        <span>{getCombinedQualificationExplanation(activeGroupCount, Math.ceil(activeTeamsCount / activeGroupCount), activeQualifiedCount)}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Bento Grid Configuration Sections - All 19 Information Items presented in an ordered, professional layout */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+                    {/* Card 1: Formato Gara & Regolamento */}
+                    <div className="bg-slate-855/35 border border-slate-800/65 rounded-xl p-4 flex flex-col justify-between">
+                      <div>
+                        <h5 className="text-[11px] font-black uppercase text-slate-400 tracking-wider mb-3 flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                          <span className="text-amber-400">⚡</span> Formato & Regole
+                        </h5>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Incontri Gironi:</span>
+                            <span className="text-white font-bold text-right break-words leading-tight" title={regSetsLabel}>{regSetsLabel}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Incontri Finali:</span>
+                            <span className="text-white font-bold text-right break-words leading-tight" title={sfSetsLabel}>{sfSetsLabel}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Finale 3°/4° Posto:</span>
+                            <span className="text-white font-bold">{activeInclude3rd4th ? 'Disputata 🥉' : 'Non prevista'}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Durata Match Standard:</span>
+                            <span className="text-amber-300 font-bold">{generalMatchDuration} min</span>
+                          </div>
+                          {activeFormula !== 'pools' && (
+                            <div className="flex justify-between py-1 gap-2">
+                              <span className="text-slate-400 shrink-0">Durata Match Finali:</span>
+                              <span className="text-amber-400 font-bold">{sfMatchDuration} min</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Partecipanti e Iscrizioni */}
+                    <div className="bg-slate-855/35 border border-slate-800/65 rounded-xl p-4 flex flex-col justify-between">
+                      <div>
+                        <h5 className="text-[11px] font-black uppercase text-slate-400 tracking-wider mb-3 flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                          <span className="text-sky-400">👥</span> Iscritti & Riserve
+                        </h5>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Coppie Iscritte:</span>
+                            <span className="text-sky-300 font-extrabold">{teams.length} Coppie</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Coppie Ammesse:</span>
+                            <span className="text-white font-black">{activeTeamsCount} Coppie</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Coppie Riserve:</span>
+                            <span className={`font-bold ${Math.max(0, teams.length - activeTeamsCount) > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
+                              {Math.max(0, teams.length - activeTeamsCount)} {Math.max(0, teams.length - activeTeamsCount) === 1 ? 'coppia' : 'coppie'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 gap-2">
+                            <span className="text-slate-400 shrink-0">Nome Torneo:</span>
+                            <span className="text-white font-medium text-right break-words leading-tight" title={tournamentName}>{tournamentName}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Gironi & Qualificazione */}
+                    <div className="bg-slate-855/35 border border-slate-800/65 rounded-xl p-4 flex flex-col justify-between">
+                      <div>
+                        <h5 className="text-[11px] font-black uppercase text-slate-400 tracking-wider mb-3 flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                          <span className="text-emerald-400">🧱</span> Gironi & Playoff
+                        </h5>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Numero Gironi:</span>
+                            <span className="text-white font-bold">
+                              {activeFormula === 'pools' || activeFormula === 'combined' ? `${activeGroupCount} ${activeGroupCount === 1 ? 'Girone' : 'Gironi'}` : 'Non previsto'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Coppie per Girone:</span>
+                            <span className="text-white font-bold">
+                              {activeFormula === 'pools' || activeFormula === 'combined' ? `${Math.round(activeTeamsCount / activeGroupCount)} coppie` : 'Non applicabile'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Qualificate ai Playoff:</span>
+                            <span className="text-white font-black text-emerald-400 text-right leading-tight">
+                              {activeFormula === 'combined' ? `${activeQualifiedCount} coppie` : 'Non previsto'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 gap-2">
+                            <span className="text-slate-400 shrink-0">Campi Attivi Gioco:</span>
+                            <span className="text-white font-black text-orange-300">
+                              {activeCourtCount} {activeCourtCount === 1 ? 'Campo' : 'Campi'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Stime, Orari, Carico & Riposo */}
+                    <div className="bg-slate-855/40 border border-slate-750/70 rounded-xl p-4 flex flex-col justify-between relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-orange-500 via-amber-500 to-rose-500"></div>
+                      <div>
+                        <h5 className="text-[11px] font-black uppercase text-slate-400 tracking-wider mb-3 flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                          <span className="text-rose-400">🕒</span> Tempi, Svolgimento & Fine
+                        </h5>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Partite Reali:</span>
+                            <span className="text-white font-bold">{activeStats.realMatchesCount} match</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Volume di Gioco Totale:</span>
+                            <span className="text-emerald-400 font-bold">
+                              {Math.floor(activeStats.totalRawMinutes / 60)}h {activeStats.totalRawMinutes % 60}m
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Inizio Torneo:</span>
+                            <span className="text-orange-300 font-bold break-words text-right leading-tight">
+                              {hasActiveMatches && activeStats.earliestMinutes !== undefined ? formatMinutesToTime(activeStats.earliestMinutes) : '09:00'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Pausa Torneo:</span>
+                            <span className="text-slate-200 font-bold break-words text-right leading-tight">
+                              {activeStats.hasBreak ? `☕ ${activeStats.breakStart} - ${activeStats.breakEnd}` : 'Non prevista'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-800/40 gap-2">
+                            <span className="text-slate-400 shrink-0">Durata Stimata Torneo:</span>
+                            <span className="text-amber-400 font-black">{Math.floor(activeStats.totalElapsedMinutes / 60)}h {activeStats.totalElapsedMinutes % 60}m</span>
+                          </div>
+                          <div className="flex justify-between py-1 items-center gap-2">
+                            <span className="text-slate-400 font-semibold shrink-0">Fine Stimata Torneo 🏁:</span>
+                            <span className="text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-md animate-pulse">
+                              ~{activeStats.endHour || 'Finita'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Sezione Stampe e Report Ufficiali - Custom upgraded to match the dark slate aesthetic of the main Technical Sheet */}
+          {canWrite && (
+            <div className="bg-slate-900 text-white rounded-2xl border border-slate-855 p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden mt-6">
+              {/* Decorative subtle ambient light overlay */}
+              <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+              <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-500/5 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20"></div>
+
+              <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 z-10 ${isPrintExpanded ? 'pb-4 border-b border-slate-800/80' : ''}`}>
+                <div className="space-y-1.5 animate-fade-in">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="relative flex h-3.5 w-3.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-orange-500"></span>
+                    </span>
+                    <h3 className="font-black text-xl lg:text-2xl tracking-tight uppercase italic text-white leading-tight flex items-center gap-2">
+                      <Printer className="w-5 h-5 text-orange-400 stroke-[2.5]" />
+                      <span>AREA STAMPA</span>
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-400 font-semibold tracking-wide">
+                    Generazione report PDF ufficiali del torneo da stampare o salvare
+                  </p>
+                </div>
                 
-                <button
-                  type="button"
-                  id="print-btn-groups-pools"
-                  onClick={handlePrintGroupsAndPools}
-                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
-                    matches.some(m => m.phase === 'gironi')
-                      ? 'bg-white hover:bg-amber-50 text-amber-900 border-2 border-slate-200 hover:border-amber-300 active:translate-y-0.5'
-                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
-                  }`}
-                  disabled={!matches.some(m => m.phase === 'gironi')}
-                  title={!matches.some(m => m.phase === 'gironi') ? "La formula attuale non prevede incontri a gironi" : "Stampa i gironi e i relativi incontri"}
-                >
-                  <ListFilter className={`w-4 h-4 ${matches.some(m => m.phase === 'gironi') ? 'text-amber-500' : 'text-slate-400'} stroke-[2.5]`} />
-                  Composizione & Gare Gironi
-                </button>
-                
-                <button
-                  type="button"
-                  id="print-btn-ordered-matches"
-                  onClick={handlePrintOrderedMatches}
-                  className="flex items-center justify-center gap-2 bg-white hover:bg-orange-50 text-orange-950 border-2 border-slate-200 hover:border-orange-300 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-sm active:translate-y-0.5"
-                >
-                  <Clock className="w-4 h-4 text-orange-500 stroke-[2.5]" />
-                  Elenco Ordinato Gare
-                </button>
+                <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap z-10">
+                  <button
+                    type="button"
+                    onClick={() => setIsPrintExpanded(!isPrintExpanded)}
+                    className="flex items-center gap-2 bg-slate-800 hover:bg-slate-750 active:scale-95 text-slate-200 font-black text-xs tracking-wider uppercase py-2.5 px-4 rounded-xl border border-slate-700 transition-all shadow-md"
+                  >
+                    {isPrintExpanded ? (
+                      <>
+                        <ChevronUp className="w-4 h-4 text-orange-400 shrink-0" />
+                        <span>Riduci Area</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4 text-orange-400 shrink-0" />
+                        <span>Mostra Area</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               
-              <p className="text-[10px] text-slate-400 mt-3 italic font-medium">
-                * Cliccando sui pulsanti si aprirà una nuova scheda pronta per l'invio alla tua stampante o per essere salvata come file PDF sul tuo dispositivo.
-              </p>
+              <AnimatePresence initial={false}>
+                {isPrintExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    className="overflow-hidden w-full z-10"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                      <button
+                        type="button"
+                        id="print-btn-tournament-info"
+                        onClick={handlePrintTournamentInfo}
+                        className="flex items-center justify-center gap-2 bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-750 hover:border-orange-500/40 py-3.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md active:translate-y-0.5"
+                      >
+                        <Info className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+                        Info & Formula Torneo
+                      </button>
+
+                      <button
+                        type="button"
+                        id="print-btn-entry-list"
+                        onClick={handlePrintEntryList}
+                        className="flex items-center justify-center gap-2 bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-750 hover:border-orange-500/40 py-3.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md active:translate-y-0.5"
+                      >
+                        <FileText className="w-4 h-4 text-sky-400 stroke-[2.5]" />
+                        Lista d'Ingresso
+                      </button>
+                      
+                      <button
+                        type="button"
+                        id="print-btn-groups-pools"
+                        onClick={handlePrintGroupsAndPools}
+                        className={`flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md ${
+                          matches.some(m => m.phase === 'gironi')
+                            ? 'bg-slate-850 hover:bg-slate-800 text-slate-205 border border-slate-750 hover:border-orange-500/40 active:translate-y-0.5'
+                            : 'bg-slate-850/50 text-slate-500 border border-slate-800 cursor-not-allowed opacity-50'
+                        }`}
+                        disabled={!matches.some(m => m.phase === 'gironi')}
+                        title={!matches.some(m => m.phase === 'gironi') ? "La formula attuale non prevede incontri a gironi" : "Stampa i gironi e i relativi incontri"}
+                      >
+                        <ListFilter className={`w-4 h-4 ${matches.some(m => m.phase === 'gironi') ? 'text-amber-400' : 'text-slate-600'} stroke-[2.5]`} />
+                        Composizione & Gare Gironi
+                      </button>
+                      
+                      <button
+                        type="button"
+                        id="print-btn-ordered-matches"
+                        onClick={handlePrintOrderedMatches}
+                        className="flex items-center justify-center gap-2 bg-slate-855 hover:bg-slate-800 text-slate-200 border border-slate-755 hover:border-orange-500/40 py-3.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md active:translate-y-0.5"
+                      >
+                        <Clock className="w-4 h-4 text-orange-400 stroke-[2.5]" />
+                        Elenco Ordinato Gare
+                      </button>
+                    </div>
+                    
+                    <p className="text-[10px] text-slate-400 mt-4 italic font-medium">
+                      * Cliccando sui pulsanti si aprirà una nuova scheda pronta per l'invio alla tua stampante o per essere salvata come file PDF sul tuo dispositivo.
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 

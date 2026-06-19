@@ -1181,7 +1181,7 @@ export default function TeamsTab({
                         }
 
                         const inviteMsg = `Ciao,  
-Per seguire in tempo reale il torneo Wsicily al quale sei iscritto collegati alla nostra web app all'indirizzo wsicily.vercel.app ed effettua il login con le tue credenziali di squadra:
+Per seguire in tempo reale il torneo Wsicily al quale sei iscritto collegati alla nostra web app all'indirizzo https://wsicily.vercel.app ed effettua il login con le tue credenziali di squadra:
 
 Username: ${finalUserObj.username}
 Password: ${finalUserObj.password}
