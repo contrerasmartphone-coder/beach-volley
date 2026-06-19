@@ -1089,13 +1089,16 @@ export default function BracketTab({
     : (activeTournamentConfig?.maxSets || maxSets || 3);
 
   // Determine playoff semifinal/final params
-  const activePlayoffMatch = matches.find(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
-  const activeSfPointsPerSet = activePlayoffMatch
-    ? (activePlayoffMatch.pointsPerSet || 21)
-    : (activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet || 21);
-  const activeSfMaxSets = activePlayoffMatch
-    ? (activePlayoffMatch.maxSets || 3)
-    : (activeTournamentConfig?.sfMaxSets || sfMaxSets || 3);
+  const activePlayoffFinalMatch = matches.find(m => 
+    (m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de')) && 
+    (m.roundLabel?.toLowerCase().includes('finale') || false)
+  );
+  const activeSfPointsPerSet = activeTournamentConfig?.sfPointsPerSet !== undefined
+    ? activeTournamentConfig.sfPointsPerSet
+    : (activePlayoffFinalMatch?.pointsPerSet || sfPointsPerSet || 21);
+  const activeSfMaxSets = activeTournamentConfig?.sfMaxSets !== undefined
+    ? activeTournamentConfig.sfMaxSets
+    : (activePlayoffFinalMatch?.maxSets || sfMaxSets || 3);
 
   const generalMatchDuration = getSingleMatchDuration(activePointsPerSet, activeMaxSets);
   const sfMatchDuration = getSingleMatchDuration(activeSfPointsPerSet, activeSfMaxSets);
@@ -1414,13 +1417,16 @@ export default function BracketTab({
       : (activeTournamentConfig?.maxSets || maxSets || 3);
 
     // Determine playoff semifinal/final params
-    const activePlayoffMatch = matches.find(m => m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de'));
-    const activeSfPointsPerSet = activePlayoffMatch
-      ? (activePlayoffMatch.pointsPerSet || 21)
-      : (activeTournamentConfig?.sfPointsPerSet || sfPointsPerSet || 21);
-    const activeSfMaxSets = activePlayoffMatch
-      ? (activePlayoffMatch.maxSets || 3)
-      : (activeTournamentConfig?.sfMaxSets || sfMaxSets || 3);
+    const activePlayoffFinalMatch = matches.find(m => 
+      (m.phase === 'eliminazione' || m.id.startsWith('m-p') || m.id.startsWith('m-de')) && 
+      (m.roundLabel?.toLowerCase().includes('finale') || false)
+    );
+    const activeSfPointsPerSet = activeTournamentConfig?.sfPointsPerSet !== undefined
+      ? activeTournamentConfig.sfPointsPerSet
+      : (activePlayoffFinalMatch?.pointsPerSet || sfPointsPerSet || 21);
+    const activeSfMaxSets = activeTournamentConfig?.sfMaxSets !== undefined
+      ? activeTournamentConfig.sfMaxSets
+      : (activePlayoffFinalMatch?.maxSets || sfMaxSets || 3);
 
     // Determine playoff qualification count
     const activePlayoffMatches = matches.filter(m => m.phase === 'eliminazione' || m.id.startsWith('m-p'));
@@ -3076,7 +3082,8 @@ export default function BracketTab({
       ) : (
         <>
           {/* Header Controls for Active Tournament */}
-          <div className="bg-slate-900 text-white rounded-2xl border border-slate-855 p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden">
+          {canWrite && (
+            <div className="bg-slate-900 text-white rounded-2xl border border-slate-855 p-6 flex flex-col gap-6 shadow-xl relative overflow-hidden">
             {/* Decorative subtle ambient light overlay */}
             <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
             <div className="absolute bottom-0 left-0 w-80 h-80 bg-sky-500/5 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20"></div>
@@ -3304,6 +3311,7 @@ export default function BracketTab({
               )}
             </AnimatePresence>
           </div>
+          )}
 
           {/* Sezione Stampe e Report Ufficiali - Custom upgraded to match the dark slate aesthetic of the main Technical Sheet */}
           {canWrite && (

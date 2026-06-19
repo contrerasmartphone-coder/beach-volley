@@ -339,35 +339,37 @@ export default function TeamsTab({
           </div>
         )}
 
-        <div className="border-t border-slate-200 flex flex-col gap-0.5 mt-3.5 pt-2 text-[10px] font-bold text-slate-400">
-          <div className="flex justify-between items-center w-full">
-            <span>
-              Iscritta:{' '}
-              {(() => {
-                if (team.registeredAt.includes(' ')) {
-                  const [d, t] = team.registeredAt.split(' ');
-                  const parts = d.split('-');
+        {canWrite && (
+          <div className="border-t border-slate-200 flex flex-col gap-0.5 mt-3.5 pt-2 text-[10px] font-bold text-slate-400">
+            <div className="flex justify-between items-center w-full">
+              <span>
+                Iscritta:{' '}
+                {(() => {
+                  if (team.registeredAt.includes(' ')) {
+                    const [d, t] = team.registeredAt.split(' ');
+                    const parts = d.split('-');
+                    if (parts.length === 3) {
+                      const [y, m, dayVal] = parts;
+                      return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                    }
+                  }
+                  const parts = team.registeredAt.split('-');
                   if (parts.length === 3) {
                     const [y, m, dayVal] = parts;
-                    return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                    return `${dayVal}/${m}/${y}`;
                   }
-                }
-                const parts = team.registeredAt.split('-');
-                if (parts.length === 3) {
-                  const [y, m, dayVal] = parts;
-                  return `${dayVal}/${m}/${y}`;
-                }
-                return team.registeredAt;
-              })()}
-            </span>
+                  return team.registeredAt;
+                })()}
+              </span>
 
+            </div>
+            {!isWithdrawn && team.subenteredForTeamName && (
+              <span className="text-[9px] text-emerald-600 font-extrabold uppercase tracking-wide flex items-center gap-1 mt-1">
+                • Data d'iscrizione ereditata dalla squadra sostituita
+              </span>
+            )}
           </div>
-          {!isWithdrawn && team.subenteredForTeamName && (
-            <span className="text-[9px] text-emerald-600 font-extrabold uppercase tracking-wide flex items-center gap-1 mt-1">
-              • Data d'iscrizione ereditata dalla squadra sostituita
-            </span>
-          )}
-        </div>
+        )}
       </motion.div>
     );
   };
@@ -988,19 +990,21 @@ export default function TeamsTab({
                           </h3>
                         </>
                       )}
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
-                        Iscrizione: {(() => {
-                          if (selectedDetailsTeam.registeredAt.includes(' ')) {
-                            const [d, t] = selectedDetailsTeam.registeredAt.split(' ');
-                            const parts = d.split('-');
-                            if (parts.length === 3) {
-                              const [y, m, dayVal] = parts;
-                              return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                      {canWrite && (
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">
+                          Iscrizione: {(() => {
+                            if (selectedDetailsTeam.registeredAt.includes(' ')) {
+                              const [d, t] = selectedDetailsTeam.registeredAt.split(' ');
+                              const parts = d.split('-');
+                              if (parts.length === 3) {
+                                const [y, m, dayVal] = parts;
+                                return `${dayVal}/${m}/${y} alle ${t.substring(0, 5)}`;
+                              }
                             }
-                          }
-                          return selectedDetailsTeam.registeredAt;
-                        })()}
-                      </p>
+                            return selectedDetailsTeam.registeredAt;
+                          })()}
+                        </p>
+                      )}
                     </div>
                     <button
                       type="button"
