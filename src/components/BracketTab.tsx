@@ -1997,20 +1997,20 @@ export default function BracketTab({
 
   const handlePrintOrderedMatches = () => {
     const sortedMatches = [...matches].sort((a, b) => {
-      const numA = garaNumbersMap[a.id] || 999999;
-      const numB = garaNumbersMap[b.id] || 999999;
-      if (numA !== numB) return numA - numB;
-      
       const timeA = a.time || '99:99';
       const timeB = b.time || '99:99';
       if (timeA !== timeB) return timeA.localeCompare(timeB);
       
-      return (a.court || '').localeCompare(b.court || '');
+      const courtA = a.court || '';
+      const courtB = b.court || '';
+      if (courtA !== courtB) return courtA.localeCompare(courtB);
+      
+      const numA = garaNumbersMap[a.id] || 999999;
+      const numB = garaNumbersMap[b.id] || 999999;
+      return numA - numB;
     });
 
     const rowsHTML = sortedMatches.map(m => {
-      const garaNumber = garaNumbersMap[m.id] ? `Gara ${garaNumbersMap[m.id]}` : 'Match';
-      
       let phaseLabel = m.phase === 'gironi' ? 'Gironi' : 'Playoff';
       if (m.roundLabel) {
         phaseLabel += ` - ${m.roundLabel}`;
@@ -2036,8 +2036,7 @@ export default function BracketTab({
 
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; height: 45px;">
-          <td style="padding: 10px; font-family: monospace; font-size: 13px; font-weight: bold; text-align: center; background: #f8fafc; color: #0f172a;">${garaNumber}</td>
-          <td style="padding: 10px; font-weight: bold; font-family: monospace; font-size: 13px; text-align: center; color: #2563eb;">${m.time || '--:--'}</td>
+          <td style="padding: 10px; font-weight: 900; font-family: monospace; font-size: 15px; text-align: center; background: #eff6ff; color: #1d4ed8; border-right: 1px solid #cbd5e1;">${m.time || '--:--'}</td>
           <td style="padding: 10px; font-weight: 800; font-size: 13px; text-align: center; color: #059669;">${m.court || 'Campo ?'}</td>
           <td style="padding: 10px; font-size: 11px; text-transform: uppercase; font-weight: bold; color: #64748b;">${phaseLabel}</td>
           <td style="padding: 10px; font-size: 14px;">
@@ -2086,8 +2085,7 @@ export default function BracketTab({
           <table>
             <thead>
               <tr>
-                <th style="text-align: center; width: 80px;">N° Gara</th>
-                <th style="text-align: center; width: 80px;">Orario</th>
+                <th style="text-align: center; width: 100px; background: #eff6ff; color: #1e40af; border-bottom: 2px solid #3b82f6;">Orario</th>
                 <th style="text-align: center; width: 100px;">Campo</th>
                 <th style="width: 150px;">Fase / Gruppo</th>
                 <th>Incontro</th>
