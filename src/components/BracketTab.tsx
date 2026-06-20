@@ -25,6 +25,10 @@ interface BracketTabProps {
     include3rd4th?: boolean;
     breakStart?: string;
     breakEnd?: string;
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
   }) => void;
   onAddNotification: (notification: NotificationLog) => void;
   currentUser?: AppUser | null;
@@ -66,6 +70,21 @@ export default function BracketTab({
   const [include3rd4th, setInclude3rd4th] = useState<boolean>(true);
   const [breakStart, setBreakStart] = useState<string>('');
   const [breakEnd, setBreakEnd] = useState<string>('');
+
+  const [durationSet1Points15, setDurationSet1Points15] = useState<number>(15);
+  const [durationSet1Points21, setDurationSet1Points21] = useState<number>(20);
+  const [durationSet3Points15, setDurationSet3Points15] = useState<number>(45);
+  const [durationSet3Points21, setDurationSet3Points21] = useState<number>(50);
+
+  // Synchronize custom match durations when loading a saved tournament
+  useEffect(() => {
+    if (activeTournamentConfig) {
+      if (activeTournamentConfig.durationSet1Points15 !== undefined) setDurationSet1Points15(activeTournamentConfig.durationSet1Points15);
+      if (activeTournamentConfig.durationSet1Points21 !== undefined) setDurationSet1Points21(activeTournamentConfig.durationSet1Points21);
+      if (activeTournamentConfig.durationSet3Points15 !== undefined) setDurationSet3Points15(activeTournamentConfig.durationSet3Points15);
+      if (activeTournamentConfig.durationSet3Points21 !== undefined) setDurationSet3Points21(activeTournamentConfig.durationSet3Points21);
+    }
+  }, [activeTournamentConfig]);
 
   // Synchronize teamsCount and groupCount automatically for the 'combined' formula
   useEffect(() => {
@@ -143,8 +162,8 @@ export default function BracketTab({
   };
 
   // Active Phase View States
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true);
-  const [isPrintExpanded, setIsPrintExpanded] = useState(true);
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+  const [isPrintExpanded, setIsPrintExpanded] = useState(false);
   const [activePhaseTab, setActivePhaseTab] = useState<'gironi' | 'eliminazione'>('gironi');
   const [selectedGroupTab, setSelectedGroupTab] = useState<string>('');
   const [groupViewMode, setGroupViewMode] = useState<'by-group' | 'all-list'>('by-group');
@@ -598,12 +617,17 @@ export default function BracketTab({
   const getSingleMatchDuration = (pts?: number, sets?: number) => {
     const p = pts || 21;
     const s = sets || 3;
+    const dSet1P15 = activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15;
+    const dSet1P21 = activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20;
+    const dSet3P15 = activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45;
+    const dSet3P21 = activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50;
+
     if (s === 1) {
-      if (p === 15) return 15;
-      return 20;
+      if (p === 15) return dSet1P15;
+      return dSet1P21;
     } else {
-      if (p === 15) return 45;
-      return 50;
+      if (p === 15) return dSet3P15;
+      return dSet3P21;
     }
   };
 
@@ -620,6 +644,13 @@ export default function BracketTab({
     currentBreakStart = breakStart,
     currentBreakEnd = breakEnd
   ) => {
+    const customDurationsObj = {
+      durationSet1Points15: activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15,
+      durationSet1Points21: activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20,
+      durationSet3Points15: activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45,
+      durationSet3Points21: activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50,
+    };
+
     const generalMatchDuration = getSingleMatchDuration(currentPointsPerSet, currentMaxSets);
     const sfMatchDuration = getSingleMatchDuration(currentSfPointsPerSet, currentSfMaxSets);
     const hasDifferentSFParams = currentFormula !== 'pools' && (currentMaxSets !== currentSfMaxSets || currentPointsPerSet !== currentSfPointsPerSet);
@@ -644,7 +675,8 @@ export default function BracketTab({
         currentSfMaxSets as 1 | 3,
         include3rd4th,
         currentBreakStart,
-        currentBreakEnd
+        currentBreakEnd,
+        customDurationsObj
       );
     } else if (currentFormula === 'double_elim') {
       mockMatches = generateDoubleEliminationBracket(
@@ -740,7 +772,8 @@ export default function BracketTab({
         groupStageMatches,
         include3rd4th,
         currentBreakStart,
-        currentBreakEnd
+        currentBreakEnd,
+        customDurationsObj
       );
       mockMatches.push(...playoffMatches);
     }
@@ -869,6 +902,13 @@ export default function BracketTab({
   const getActiveTournamentStats = () => {
     if (matches.length === 0) return { realMatchesCount: 0, singleMatchDuration: 0, totalElapsedMinutes: 0, totalRawMinutes: 0 };
     
+    const customDurationsObj = {
+      durationSet1Points15: activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15,
+      durationSet1Points21: activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20,
+      durationSet3Points15: activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45,
+      durationSet3Points21: activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50,
+    };
+
     const activeFormula = (activeTournamentConfig?.formula && activeTournamentConfig?.formula !== 'N/A')
       ? activeTournamentConfig.formula
       : (matches.some(m => m.phase === 'gironi')
@@ -933,7 +973,8 @@ export default function BracketTab({
           groupMatches,
           activeInclude3rd4th,
           activeBreakStart,
-          activeBreakEnd
+          activeBreakEnd,
+          customDurationsObj
         );
 
         const realMockPlayoffs = mockPlayoffs.filter(m => !isByeTeam(m.team1) && !isByeTeam(m.team2));
@@ -1637,6 +1678,25 @@ export default function BracketTab({
                 <span class="config-value">${sfMatchDuration} min</span>
               </div>
               ` : ''}
+              <div style="border-top: 1px dashed #cbd5e1; margin-top: 12px; padding-top: 8px; font-size: 11px; color: #475569;">
+                <div style="font-weight: bold; text-transform: uppercase; font-size: 9px; color: #64748b; margin-bottom: 5px; letter-spacing: 0.5px;">Durate Match Configurate:</div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                  <span>1 Set da 15 Punti:</span>
+                  <span style="font-weight: bold; color: #0f172a;">${activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15} min</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                  <span>1 Set da 21 Punti:</span>
+                  <span style="font-weight: bold; color: #0f172a;">${activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20} min</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                  <span>2 su 3 da 15 Punti:</span>
+                  <span style="font-weight: bold; color: #0f172a;">${activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45} min</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                  <span>2 su 3 da 21 Punti:</span>
+                  <span style="font-weight: bold; color: #0f172a;">${activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50} min</span>
+                </div>
+              </div>
             </div>
 
             <!-- Card 2: Iscritti & Riserve -->
@@ -2529,7 +2589,7 @@ export default function BracketTab({
     const playoffMatches = generatePlayoffsFromGroups(
       groupsStandings,
       playoffStartHour,
-      40,
+      getSingleMatchDuration(ptsSet, mSets),
       activeCourtCount,
       ptsSet,
       mSets,
@@ -2540,7 +2600,8 @@ export default function BracketTab({
       groupMatches,
       activeTournamentConfig?.include3rd4th !== false,
       activeTournamentConfig?.breakStart,
-      activeTournamentConfig?.breakEnd
+      activeTournamentConfig?.breakEnd,
+      activeTournamentConfig
     );
 
     onUpdateMatches([...matches, ...playoffMatches]);
@@ -2576,7 +2637,11 @@ export default function BracketTab({
       qualifiedCount: formula === 'combined' ? combinedQualifiedTeams : undefined,
       include3rd4th,
       breakStart: breakStart || undefined,
-      breakEnd: breakEnd || undefined
+      breakEnd: breakEnd || undefined,
+      durationSet1Points15,
+      durationSet1Points21,
+      durationSet3Points15,
+      durationSet3Points21
     });
   };
 
@@ -2946,6 +3011,78 @@ export default function BracketTab({
               </div>
             </div>
 
+            {/* Impostazioni Durate Personalizzate Incontri (Minuti) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:col-span-2 p-4 bg-sky-50/50 border border-sky-100 rounded-2xl">
+              <div className="col-span-2 sm:col-span-4">
+                <h4 className="text-sm font-black text-sky-800 flex items-center gap-1.5 animate-fade-in text-[13px]">
+                  ⏱️ Durata Personalizzata Incontri (Minuti)
+                </h4>
+                <p className="text-[11px] text-slate-500 font-bold leading-tight mt-0.5">
+                  Flessibilità totale: imposta la durata stimata di gioco (in minuti) per ciascuna configurazione di set/punteggio.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="setup-duration-set1-15" className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block leading-tight">
+                  1 Set da 15
+                </label>
+                <input
+                  id="setup-duration-set1-15"
+                  type="number"
+                  min="1"
+                  max="180"
+                  className="w-full px-3 py-1.5 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-xs"
+                  value={durationSet1Points15}
+                  onChange={(e) => setDurationSet1Points15(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="setup-duration-set1-21" className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block leading-tight">
+                  1 Set da 21
+                </label>
+                <input
+                  id="setup-duration-set1-21"
+                  type="number"
+                  min="1"
+                  max="180"
+                  className="w-full px-3 py-1.5 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-xs"
+                  value={durationSet1Points21}
+                  onChange={(e) => setDurationSet1Points21(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="setup-duration-set3-15" className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block leading-tight">
+                  2 su 3 da 15
+                </label>
+                <input
+                  id="setup-duration-set3-15"
+                  type="number"
+                  min="1"
+                  max="180"
+                  className="w-full px-3 py-1.5 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-xs"
+                  value={durationSet3Points15}
+                  onChange={(e) => setDurationSet3Points15(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="setup-duration-set3-21" className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block leading-tight">
+                  2 su 3 da 21
+                </label>
+                <input
+                  id="setup-duration-set3-21"
+                  type="number"
+                  min="1"
+                  max="180"
+                  className="w-full px-3 py-1.5 rounded-xl border-2 border-slate-300 font-bold bg-white text-slate-800 focus:outline-none focus:border-orange-400 text-xs"
+                  value={durationSet3Points21}
+                  onChange={(e) => setDurationSet3Points21(Number(e.target.value))}
+                />
+              </div>
+            </div>
+
             {/* Explanatory Info text depending on configuration */}
             <div className="md:col-span-2 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-800 font-semibold space-y-1 leading-relaxed">
               {formula === 'direct' && (
@@ -3049,11 +3186,11 @@ export default function BracketTab({
                 * La stima teorica tiene conto dello svolgimento su <strong className="text-slate-200">{courtCount} {courtCount === 1 ? 'campo' : 'campi'}</strong> in contemporanea ed esclude i match di riposo (BYE). 
                 <br />
                 Parametri: Set al meglio di <strong className="text-slate-200">{maxSets}</strong>, fino a <strong className="text-slate-200">{pointsPerSet}</strong> punti per set
-                ({maxSets === 1 ? (pointsPerSet === 15 ? '1 set a 15 punti = 15 min' : '1 set a 21 punti = 20 min') : (pointsPerSet === 15 ? 'al meglio di 3 set a 15 punti = 45 min' : 'al meglio di 3 set a 21 punti = 50 min')}).
+                ({maxSets === 1 ? (pointsPerSet === 15 ? `1 set a 15 punti = ${activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15} min` : `1 set a 21 punti = ${activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20} min`) : (pointsPerSet === 15 ? `al meglio di 3 set a 15 punti = ${activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45} min` : `al meglio di 3 set a 21 punti = ${activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50} min`)}).
                 {formula !== 'pools' && (maxSets !== sfMaxSets || pointsPerSet !== sfPointsPerSet) && (
                   <>
                     <br />
-                    <span className="text-orange-300">⚠️ Finali: Set al meglio di <strong className="text-orange-200">{sfMaxSets}</strong>, fino a <strong className="text-orange-200">{sfPointsPerSet}</strong> punti per set ({sfMaxSets === 1 ? (sfPointsPerSet === 15 ? '15 min' : '20 min') : (sfPointsPerSet === 15 ? '45 min' : '50 min')}).</span>
+                    <span className="text-orange-300">⚠️ Finali: Set al meglio di <strong className="text-orange-200">{sfMaxSets}</strong>, fino a <strong className="text-orange-200">{sfPointsPerSet}</strong> punti per set ({sfMaxSets === 1 ? (sfPointsPerSet === 15 ? `${activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15} min` : `${activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20} min`) : (sfPointsPerSet === 15 ? `${activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45} min` : `${activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50} min`)}).</span>
                   </>
                 )}
               </p>
@@ -3192,6 +3329,26 @@ export default function BracketTab({
                               <span className="text-amber-400 font-bold">{sfMatchDuration} min</span>
                             </div>
                           )}
+
+                          <div className="border-t border-slate-800/60 mt-3 pt-2.5 text-[10px] text-slate-400 space-y-1">
+                            <div className="text-[10px] uppercase font-bold tracking-widest text-slate-300">Durate Match Configurate:</div>
+                            <div className="flex justify-between">
+                              <span>1 Set da 15 Punti:</span>
+                              <span className="text-slate-200 font-bold">{activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15} min</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>1 Set da 21 Punti:</span>
+                              <span className="text-slate-200 font-bold">{activeTournamentConfig?.durationSet1Points21 ?? durationSet1Points21 ?? 20} min</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>2 su 3 da 15 Punti:</span>
+                              <span className="text-slate-200 font-bold">{activeTournamentConfig?.durationSet3Points15 ?? durationSet3Points15 ?? 45} min</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>2 su 3 da 21 Punti:</span>
+                              <span className="text-slate-200 font-bold">{activeTournamentConfig?.durationSet3Points21 ?? durationSet3Points21 ?? 50} min</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>

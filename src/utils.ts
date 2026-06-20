@@ -304,15 +304,24 @@ export function adjustTimeForRest(
   return timeInMinutes;
 }
 
-export function getMatchDuration(pts?: number, sets?: number): number {
+export function getMatchDuration(
+  pts?: number,
+  sets?: number,
+  customDurations?: {
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
+  }
+): number {
   const p = pts || 21;
   const s = sets || 3;
   if (s === 1) {
-    if (p === 15) return 15;
-    return 20;
+    if (p === 15) return customDurations?.durationSet1Points15 ?? 15;
+    return customDurations?.durationSet1Points21 ?? 20;
   } else {
-    if (p === 15) return 45;
-    return 50;
+    if (p === 15) return customDurations?.durationSet3Points15 ?? 45;
+    return customDurations?.durationSet3Points21 ?? 50;
   }
 }
 
@@ -322,7 +331,13 @@ export function scheduleEliminationRounds(
   courtCount: number,
   defaultDuration: number = 40,
   breakStart?: string,
-  breakEnd?: string
+  breakEnd?: string,
+  customDurations?: {
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
+  }
 ): Match[] {
   let currentTimeMinutes = parseTimeToMinutes(startHour);
 
@@ -344,7 +359,7 @@ export function scheduleEliminationRounds(
 
     for (let p = 0; p < roundMatches.length; p++) {
       const match = roundMatches[p];
-      const duration = getMatchDuration(match.pointsPerSet, match.maxSets) || defaultDuration;
+      const duration = getMatchDuration(match.pointsPerSet, match.maxSets, customDurations) || defaultDuration;
       
       const courtNum = (p % courtCount) + 1;
       const courtIdx = courtNum - 1;
@@ -396,7 +411,13 @@ export function generateDirectEliminationBracket(
   sfMaxSets?: 1 | 3,
   include3rd4th: boolean = true,
   breakStart?: string,
-  breakEnd?: string
+  breakEnd?: string,
+  customDurations?: {
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
+  }
 ): Match[] {
   const matches: Match[] = [];
   
@@ -556,7 +577,8 @@ export function generateDirectEliminationBracket(
     courtCount,
     durationMinutes,
     breakStart,
-    breakEnd
+    breakEnd,
+    customDurations
   );
 
   return autoResolveAndPropagate(scheduledFlatMatches);
@@ -1266,7 +1288,13 @@ export function generatePlayoffsFromGroups(
   groupMatches?: Match[],
   include3rd4th: boolean = true,
   breakStart?: string,
-  breakEnd?: string
+  breakEnd?: string,
+  customDurations?: {
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
+  }
 ): Match[] {
   const groupNames = Object.keys(groupsStandings).sort();
   let qualifiers: Team[] = [];
@@ -1458,7 +1486,8 @@ export function generatePlayoffsFromGroups(
     courtCount,
     durationMinutes,
     breakStart,
-    breakEnd
+    breakEnd,
+    customDurations
   );
 
   return autoResolveAndPropagate(scheduledPlayoffMatches);
@@ -1644,7 +1673,13 @@ export function recalculateTournamentStages(
   allMatches: Match[], 
   teamsList: Team[],
   breakStart?: string,
-  breakEnd?: string
+  breakEnd?: string,
+  customDurations?: {
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
+  }
 ): Match[] {
   let updated = allMatches.map(m => ({ ...m }));
   let changed = true;
@@ -1748,7 +1783,7 @@ export function recalculateTournamentStages(
     let latestGroupEndMinutes = 0;
     groupMatches.forEach(m => {
       if (m.time && m.time.includes(':')) {
-        const matchDuration = getMatchDuration(m.pointsPerSet, m.maxSets);
+        const matchDuration = getMatchDuration(m.pointsPerSet, m.maxSets, customDurations);
         const [h, min] = m.time.split(':').map(Number);
         const endMins = h * 60 + min + matchDuration;
         if (endMins > latestGroupEndMinutes) {
@@ -1798,7 +1833,8 @@ export function recalculateTournamentStages(
           maxCourtNum,
           40,
           breakStart,
-          breakEnd
+          breakEnd,
+          customDurations
         );
       }
     }

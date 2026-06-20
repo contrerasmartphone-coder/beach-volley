@@ -556,15 +556,19 @@ export default function App() {
     include3rd4th?: boolean;
     breakStart?: string;
     breakEnd?: string;
+    durationSet1Points15?: number;
+    durationSet1Points21?: number;
+    durationSet3Points15?: number;
+    durationSet3Points21?: number;
   }, teamsToUse: Team[] = teams) => {
     const startHour = '09:00';
     let matchDuration = 40;
     if (config.maxSets === 1) {
-      if (config.pointsPerSet === 15) matchDuration = 15;
-      else if (config.pointsPerSet === 21) matchDuration = 20;
+      if (config.pointsPerSet === 15) matchDuration = config.durationSet1Points15 ?? 15;
+      else if (config.pointsPerSet === 21) matchDuration = config.durationSet1Points21 ?? 20;
     } else if (config.maxSets === 3) {
-      if (config.pointsPerSet === 15) matchDuration = 45;
-      else if (config.pointsPerSet === 21) matchDuration = 50;
+      if (config.pointsPerSet === 15) matchDuration = config.durationSet3Points15 ?? 45;
+      else if (config.pointsPerSet === 21) matchDuration = config.durationSet3Points21 ?? 50;
     }
 
     // Exclude withdrawn/retired teams from tournament generation, so they aren't seeded or created in pools
@@ -635,7 +639,8 @@ export default function App() {
         config.sfMaxSets,
         config.include3rd4th !== false,
         config.breakStart,
-        config.breakEnd
+        config.breakEnd,
+        config
       );
       
       generatedMatches = seededMatches.map(m => ({
@@ -853,7 +858,8 @@ export default function App() {
           newMatches, 
           teams, 
           activeTournamentConfig?.breakStart, 
-          activeTournamentConfig?.breakEnd
+          activeTournamentConfig?.breakEnd,
+          activeTournamentConfig
         );
         const promises = resolved.map(m => setDoc(doc(db, 'matches', m.id), cleanObject(m)));
         await Promise.all(promises);
