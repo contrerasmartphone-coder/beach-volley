@@ -4004,50 +4004,68 @@ export default function BracketTab({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="fixed inset-0 z-50 bg-slate-950 flex flex-col text-white p-4 md:p-6 overflow-y-auto"
+                  className="fixed inset-0 z-50 bg-slate-950 flex flex-col text-white p-2.5 md:p-3 overflow-hidden h-screen w-screen max-h-screen max-w-screen select-none font-sans"
                 >
+                  {/* Avviso Rotazione Schermo in Orizzontale per Mobile/Tablet */}
+                  <div className="hidden portrait:max-lg:flex fixed inset-0 z-[120] bg-slate-950 flex-col items-center justify-center p-6 text-center text-white">
+                    <motion.div
+                      animate={{ rotate: [0, 90, 90, 0] }}
+                      transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut", times: [0, 0.4, 0.6, 1] }}
+                      className="mb-6 text-amber-500"
+                    >
+                      <RefreshCw className="w-16 h-16" />
+                    </motion.div>
+                    <h2 className="text-xl font-black uppercase tracking-wider text-amber-400">
+                      Ruota il Dispositivo 📱
+                    </h2>
+                    <p className="text-xs text-slate-300 mt-2 max-w-sm uppercase leading-relaxed font-bold">
+                      Per gestire la gara live, ruota il tuo telefono o tablet in posizione orizzontale (Landscape).
+                    </p>
+                  </div>
+
                   {/* Scoreboard Overlay Header */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800 mb-4 shrink-0">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800 shrink-0">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={() => setLiveSimulatingMatchId(null)}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm active:translate-y-0.5 whitespace-nowrap"
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shadow-sm active:translate-y-0.5 whitespace-nowrap"
                       >
-                        <ArrowRight className="w-4 h-4 rotate-180" />
+                        <ArrowRight className="w-3.5 h-3.5 rotate-180" />
                         Chiudi Vista
                       </button>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-white bg-slate-800 px-2.5 py-0.5 rounded text-[10px] uppercase">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-extrabold text-white bg-slate-800 px-1.5 py-0.5 rounded text-[9px] uppercase">
                             Gara {garaNumbersMap[activeMatch.id] || '?'}
                           </span>
-                          <span className="bg-rose-500 text-white px-2 py-0.5 rounded text-[10px] font-black tracking-widest uppercase animate-pulse">
+                          <span className="bg-rose-500 text-white px-1.5 py-0.5 rounded text-[9px] font-black tracking-widest uppercase animate-pulse">
                             LIVE
                           </span>
                         </div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5 truncate hidden sm:block">
                           {activeMatch.groupName || activeMatch.roundLabel || 'Eliminazione'} • {activeMatch.court} • {activeMatch.time || 'N/D'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       {canWrite ? (
-                        <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                          Arbitro / Operatore
+                        <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
+                          <span className="hidden sm:inline">Arbitro / Operatore</span>
+                          <span className="sm:hidden">Arbitro</span>
                         </span>
                       ) : (
-                        <span className="bg-sky-500/10 border border-sky-500/20 text-sky-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
-                          Live (Sola Lettura)
+                        <span className="bg-sky-500/10 border border-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                          <span className="w-1 h-1 rounded-full bg-sky-400"></span>
+                          Live
                         </span>
                       )}
 
                       {canWrite && (
                         <button
                           onClick={handleInterruptLive}
-                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md border-b-2 border-rose-800 active:translate-y-0.5"
+                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all shadow border-b border-rose-850 active:translate-y-0.5"
                           title="Interrompi Gara"
                         >
                           Interrompi Match
@@ -4058,32 +4076,32 @@ export default function BracketTab({
 
                   {/* Live commentary / ticker bar */}
                   {liveTicker && (
-                    <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-2xl p-3 mb-6 text-center text-xs font-extrabold uppercase italic tracking-wide flex items-center justify-center gap-2 max-w-4xl mx-auto w-full shrink-0">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
-                      "{liveTicker}"
+                    <div className="bg-amber-500/15 border border-amber-500/20 text-amber-300 rounded-xl p-1.5 my-1.5 text-center text-[10px] md:text-xs font-semibold uppercase italic tracking-wide flex items-center justify-center gap-1.5 max-w-2xl mx-auto w-full shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0"></span>
+                      <span className="truncate">"{liveTicker}"</span>
                     </div>
                   )}
 
                   {/* Scoreboard Body Layout (Optimized for Horizontal/Vertical responsive) */}
-                  <div className="flex-1 flex flex-col justify-center max-w-7xl mx-auto w-full">
+                  <div className="flex-1 min-h-0 flex flex-col justify-center max-w-7xl mx-auto w-full">
                     
                     {/* Countdown Timeout Banner if called */}
                     {timeoutCountdown !== null && (
-                      <div className="bg-indigo-600 border-2 border-indigo-400 text-white rounded-3xl p-4 mb-6 text-center animate-pulse flex flex-col items-center justify-center gap-1 shadow-lg max-w-lg mx-auto w-full">
-                        <Clock className="w-6 h-6 text-indigo-300 animate-spin mb-1" />
-                        <h4 className="text-xs font-black uppercase tracking-widest">TIMEOUT IN CORSO</h4>
-                        <p className="text-xs font-bold text-indigo-200">
-                          {timeoutActiveTeam === 'team1' ? activeMatch.team1.name : activeMatch.team2.name} ha richiesto tempo di riposo.
+                      <div className="bg-indigo-600 border-2 border-indigo-400 text-white rounded-2xl p-2.5 mb-2 text-center animate-pulse flex flex-col items-center justify-center gap-0.5 shadow-lg max-w-xs mx-auto w-full shrink-0">
+                        <Clock className="w-4 h-4 text-indigo-300 animate-spin mb-0.5" />
+                        <h4 className="text-[9px] font-black uppercase tracking-widest">TIMEOUT IN CORSO</h4>
+                        <p className="text-[9px] font-bold text-indigo-200 truncate max-w-full">
+                          {timeoutActiveTeam === 'team1' ? activeMatch.team1.name : activeMatch.team2.name} ha chiesto tempo.
                         </p>
-                        <p className="text-3xl font-black font-mono mt-1 text-yellow-300">{timeoutCountdown}s</p>
+                        <p className="text-xl font-black font-mono mt-0.5 text-yellow-300 leading-none">{timeoutCountdown}s</p>
                       </div>
                     )}
 
-                    {/* Main Court Grid - Swappable left vs right */}
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_1fr] landscape:grid-cols-[1fr_200px_1fr] items-stretch gap-6 md:gap-4 mb-4">
+                    {/* Main Court Grid - Fixed side-by-side to guarantee landscape layout without vertical overflow */}
+                    <div className="grid grid-cols-[1fr_125px_1fr] md:grid-cols-[1fr_175px_1fr] items-stretch gap-2.5 md:gap-4 h-full min-h-0 w-full flex-1">
                       
                       {/* LEFT COURT PANEL */}
-                      <div className={`p-6 rounded-3xl flex flex-col justify-between border-2 items-center text-center shadow-inner relative overflow-hidden transition-all duration-300 min-h-[320px] ${
+                      <div className={`p-3 rounded-2xl flex flex-col justify-between border-2 items-center text-center shadow-inner relative overflow-hidden transition-all duration-300 min-h-0 min-w-0 ${
                         simServingTeam === (courtSideSwapped ? 'team2' : 'team1')
                           ? 'bg-amber-500/5 border-amber-500/30'
                           : 'bg-slate-900/80 border-slate-800'
@@ -4093,16 +4111,16 @@ export default function BracketTab({
                           <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500"></div>
                         )}
 
-                        <div className="w-full">
-                          <span className="bg-slate-850 border border-slate-800 text-slate-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+                        <div className="w-full shrink-0">
+                          <span className="bg-slate-850 border border-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest inline-block">
                             SQUADRA INTERNA
                           </span>
-                          <h2 className="text-xl md:text-2xl font-black uppercase text-white tracking-widest mt-3 break-all font-sans">
+                          <h2 className="text-xs sm:text-sm md:text-base font-black uppercase text-white tracking-wider mt-1 truncate">
                             {leftTeamName}
                           </h2>
                           
-                          {/* Roster & Serve Selection */}
-                          <div className="mt-4 space-y-2 flex flex-col items-center">
+                          {/* Roster & Serve Selection (Compact row layout) */}
+                          <div className="mt-1 flex flex-row gap-1 items-center justify-center flex-wrap">
                             {[
                               { name: leftP1Name, idx: 0 },
                               { name: leftP2Name, idx: 1 }
@@ -4113,15 +4131,15 @@ export default function BracketTab({
                                   key={pIdx}
                                   disabled={!canWrite}
                                   onClick={() => handleSetActiveServer(courtSideSwapped ? 'team2' : 'team1', player.idx as 0 | 1)}
-                                  className={`px-4 py-1.5 rounded-full text-xs font-extrabold uppercase transition-all flex items-center gap-1.5 ${
+                                  className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase transition-all flex items-center gap-1 ${
                                     isThisPlayerServing
-                                      ? 'bg-amber-500 text-slate-950 border-2 border-amber-400 shadow-md font-black animate-pulse animate-duration-1000'
+                                      ? 'bg-amber-500 text-slate-950 border border-amber-400 shadow-sm font-black'
                                       : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-transparent'
                                   }`}
-                                  title={canWrite ? "Clicca per impostare battitore d'ufficio manualmente" : undefined}
+                                  title={canWrite ? "Imposta battitore d'ufficio manualmente" : undefined}
                                 >
-                                  {player.name}
-                                  {isThisPlayerServing && <span className="text-[10px] uppercase font-black tracking-widest shrink-0">🏐 BATTUTA</span>}
+                                  <span className="truncate max-w-[70px] sm:max-w-[100px]">{player.name}</span>
+                                  {isThisPlayerServing && <span className="text-[8px] font-black shrink-0">🏐</span>}
                                 </button>
                               );
                             })}
@@ -4129,21 +4147,21 @@ export default function BracketTab({
                         </div>
 
                         {/* POINTS DISPLAY */}
-                        <div className="my-6 flex flex-col items-center w-full select-none">
-                          <div className="relative">
-                            <div className="text-8xl md:text-9xl font-black font-mono leading-none tracking-tighter text-amber-450 drop-shadow-[0_4px_12px_rgba(251,191,36,0.35)]">
+                        <div className="my-1.5 flex-1 flex flex-col justify-center items-center w-full select-none min-h-0">
+                          <div className="relative leading-none">
+                            <div className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black font-mono leading-none tracking-tighter text-amber-450 drop-shadow-[0_2px_8px_rgba(251,191,36,0.3)]">
                               {leftPoints}
                             </div>
                             
                             {/* Sets won indicators */}
-                            <div className="flex gap-2 justify-center mt-2">
+                            <div className="flex gap-1.5 justify-center mt-1">
                               {Array.from({ length: activeMatch.maxSets || 3 }).map((_, sIdx) => {
                                 const sWon = leftSets > sIdx;
                                 return (
                                   <span
                                     key={sIdx}
-                                    className={`w-3 h-3 rounded-full border-2 ${
-                                      sWon ? 'bg-amber-400 border-amber-300 shadow-md' : 'bg-transparent border-slate-700'
+                                    className={`w-2 h-2 rounded-full border ${
+                                      sWon ? 'bg-amber-400 border-amber-300 shadow' : 'bg-transparent border-slate-700'
                                     }`}
                                   />
                                 );
@@ -4153,56 +4171,56 @@ export default function BracketTab({
 
                           {/* Quick Score edit if user is administrator */}
                           {canWrite && (
-                            <div className="flex items-center gap-3 mt-5">
+                            <div className="flex items-center gap-1.5 mt-2">
                               <button
                                 onClick={() => handleSubtractPoint(courtSideSwapped ? 'team2' : 'team1')}
-                                className="w-10 h-10 bg-slate-800 hover:bg-slate-750 active:bg-slate-900 border border-slate-700 rounded-full text-xl font-bold flex items-center justify-center transition-all select-none active:translate-y-0.5"
+                                className="w-8 h-8 bg-slate-800 hover:bg-slate-755 active:bg-slate-900 border border-slate-700 rounded-full text-sm font-bold flex items-center justify-center transition-all select-none active:translate-y-0.5"
                                 title="Sottrai punto"
                               >
-                                <Minus className="w-4 h-4 text-slate-400" />
+                                <Minus className="w-3.5 h-3.5 text-slate-400" />
                               </button>
                               <button
                                 onClick={() => handleAddPoint(courtSideSwapped ? 'team2' : 'team1')}
-                                className="w-16 h-16 bg-emerald-500 hover:bg-emerald-450 active:bg-emerald-650 rounded-full text-2xl font-black flex flex-col items-center justify-center transition-all shadow-md border-b-4 border-emerald-700 active:translate-y-0.5 hover:scale-105"
+                                className="w-12 h-12 bg-emerald-500 hover:bg-emerald-450 active:bg-emerald-650 rounded-full text-lg font-black flex flex-col items-center justify-center transition-all shadow border-b-2 border-emerald-700 active:translate-y-0.5 hover:scale-105"
                                 title="Assegna punto"
                               >
-                                <Plus className="w-6 h-6 text-white" />
+                                <Plus className="w-5 h-5 text-white" />
                               </button>
                             </div>
                           )}
                         </div>
 
                         {/* Timeout Display */}
-                        <div className="w-full pt-4 border-t border-slate-800 flex justify-between items-center px-2">
-                          <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">Timeout Set:</span>
+                        <div className="w-full pt-1 border-t border-slate-800/60 flex justify-between items-center px-1 shrink-0">
+                          <span className="text-[8px] font-extrabold uppercase text-slate-500 tracking-wider">Timeout:</span>
                           {courtSideSwapped ? (
                             simT2TimeoutsUsed >= 1 ? (
-                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                              <span className="text-slate-500 text-[8px] font-bold uppercase">Esaurito</span>
                             ) : (
                               canWrite ? (
                                 <button
                                   onClick={() => handleCallTimeout('team2')}
-                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
                                 >
                                   TIMEOUT
                                 </button>
                               ) : (
-                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                                <span className="text-emerald-450 text-[8px] font-semibold uppercase">Disponibile</span>
                               )
                             )
                           ) : (
                             simT1TimeoutsUsed >= 1 ? (
-                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                              <span className="text-slate-500 text-[8px] font-bold uppercase">Esaurito</span>
                             ) : (
                               canWrite ? (
                                 <button
                                   onClick={() => handleCallTimeout('team1')}
-                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
                                 >
                                   TIMEOUT
                                 </button>
                               ) : (
-                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                                <span className="text-emerald-450 text-[8px] font-semibold uppercase">Disponibile</span>
                               )
                             )
                           )}
@@ -4210,36 +4228,36 @@ export default function BracketTab({
                       </div>
 
                       {/* NET SEPARATOR / STATS CONTROL CARD */}
-                      <div className="flex flex-col justify-center items-center gap-6 p-4 rounded-3xl bg-slate-900 border border-slate-800 min-h-[220px]">
-                        <div className="text-center">
-                          <span className="text-[10px] text-orange-400 font-extrabold uppercase tracking-widest block mb-1">
+                      <div className="flex flex-col justify-between items-center gap-1.5 p-2 px-2.5 rounded-2xl bg-slate-900 border border-slate-800 h-full flex-1 py-2.5 text-center min-w-0">
+                        <div className="shrink-0 animate-fade-in">
+                          <span className="text-[9px] text-orange-400 font-extrabold uppercase tracking-widest block mb-0.5">
                             SET CORRENTE
                           </span>
-                          <h4 className="text-2xl font-black uppercase tracking-wider text-slate-100">
+                          <h4 className="text-sm md:text-base font-black uppercase tracking-wider text-slate-100">
                             SET {simCurrentSet}
                           </h4>
-                          <div className="bg-slate-800 border border-slate-750 px-3 py-1 mt-2 text-[10px] font-black text-slate-350 uppercase tracking-wider inline-block">
-                            Fino a {simCurrentSet === 3 ? 15 : (activeMatch.pointsPerSet || 21)} punti
+                          <div className="bg-slate-800 border border-slate-750 px-2 py-0.5 mt-1 text-[8px] font-black text-slate-350 uppercase tracking-wider inline-block">
+                            Fino a {simCurrentSet === 3 ? 15 : (activeMatch.pointsPerSet || 21)} pnt
                           </div>
                         </div>
 
                         {/* Set logs indicator */}
-                        <div className="w-full max-w-[150px] px-2 text-center text-xs">
-                          <div className="border-b border-dashed border-slate-800 pb-2 flex flex-col gap-1.5">
-                            <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider">Punteggio del Match:</span>
-                            <div className="flex items-center justify-center gap-3 font-mono text-xl font-bold">
+                        <div className="w-full px-1 text-center flex-1 flex flex-col justify-center min-h-0">
+                          <div className="border-b border-dashed border-slate-850 pb-1.5 flex flex-col gap-0.5 items-center justify-center">
+                            <span className="text-[8px] text-slate-500 font-black uppercase tracking-wider">Punteggio:</span>
+                            <div className="flex items-center justify-center gap-1.5 font-mono text-sm md:text-base font-black leading-none">
                               <span className="text-amber-400">{simSetsT1}</span>
-                              <span className="text-slate-500 text-xs">vs</span>
+                              <span className="text-slate-600 text-[9px] uppercase font-bold">vs</span>
                               <span className="text-amber-400">{simSetsT2}</span>
                             </div>
                           </div>
 
                           {simCompletedSets.length > 0 && (
-                            <div className="pt-2 flex flex-col gap-1">
-                              <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Set Chiusi:</span>
-                              <div className="flex flex-wrap justify-center gap-1.5">
+                            <div className="pt-1 flex flex-col gap-0.5">
+                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider">Set Chiusi:</span>
+                              <div className="flex flex-wrap justify-center gap-1 max-h-[45px] overflow-y-auto scrollbar-thin">
                                 {simCompletedSets.map((s, idx) => (
-                                  <span key={idx} className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[9px] font-bold text-slate-200 font-mono">
+                                  <span key={idx} className="bg-slate-850 border border-slate-750 px-1.5 py-0.5 rounded text-[8px] font-bold text-slate-300 font-mono">
                                     {s.team1}-{s.team2}
                                   </span>
                                 ))}
@@ -4250,26 +4268,28 @@ export default function BracketTab({
 
                         {/* Manual field switcher button */}
                         {canWrite && (
-                          <button
-                            onClick={() => {
-                              const nextSwappedStatus = !courtSideSwapped;
-                              setCourtSideSwapped(nextSwappedStatus);
-                              syncLiveStateToFirestore({
-                                liveLeftTeam: nextSwappedStatus ? 'team2' : 'team1',
-                                liveRightTeam: nextSwappedStatus ? 'team1' : 'team2',
-                                livePointTicker: `[Punteggio: ${simPointsT1}-${simPointsT2}] L'operatore ha invertito manualmente i campi di gioco.`
-                              });
-                            }}
-                            className="px-4 py-2 bg-slate-850 hover:bg-slate-800 border border-slate-755 text-slate-200 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all active:translate-y-0.5"
-                          >
-                            <ArrowLeftRight className="w-3.5 h-3.5 text-amber-500" />
-                            Scambia Campi 🏝️
-                          </button>
+                          <div className="w-full shrink-0 pt-1.5 border-t border-slate-800/60 mt-auto">
+                            <button
+                              onClick={() => {
+                                const nextSwappedStatus = !courtSideSwapped;
+                                setCourtSideSwapped(nextSwappedStatus);
+                                syncLiveStateToFirestore({
+                                  liveLeftTeam: nextSwappedStatus ? 'team2' : 'team1',
+                                  liveRightTeam: nextSwappedStatus ? 'team1' : 'team2',
+                                  livePointTicker: `[Punteggio: ${simPointsT1}-${simPointsT2}] L'operatore ha invertito manualmente i campi di gioco.`
+                                });
+                              }}
+                              className="w-full py-1.5 px-1 bg-slate-850 hover:bg-slate-800 border border-slate-755 text-slate-200 rounded-lg text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all active:translate-y-0.5"
+                            >
+                              <ArrowLeftRight className="w-3 h-3 text-amber-500 shrink-0" />
+                              <span className="truncate">Inverti Campi</span>
+                            </button>
+                          </div>
                         )}
                       </div>
 
                       {/* RIGHT COURT PANEL */}
-                      <div className={`p-6 rounded-3xl flex flex-col justify-between border-2 items-center text-center shadow-inner relative overflow-hidden transition-all duration-300 min-h-[320px] ${
+                      <div className={`p-3 rounded-2xl flex flex-col justify-between border-2 items-center text-center shadow-inner relative overflow-hidden transition-all duration-300 min-h-0 min-w-0 ${
                         simServingTeam === (courtSideSwapped ? 'team1' : 'team2')
                           ? 'bg-amber-500/5 border-amber-500/30'
                           : 'bg-slate-900/80 border-slate-800'
@@ -4279,16 +4299,16 @@ export default function BracketTab({
                           <div className="absolute top-0 right-0 w-1.5 h-full bg-amber-500"></div>
                         )}
 
-                        <div className="w-full">
-                          <span className="bg-slate-850 border border-slate-800 text-slate-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+                        <div className="w-full shrink-0">
+                          <span className="bg-slate-850 border border-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest inline-block">
                             SQUADRA ESTERNA
                           </span>
-                          <h2 className="text-xl md:text-2xl font-black uppercase text-white tracking-widest mt-3 break-all font-sans">
+                          <h2 className="text-xs sm:text-sm md:text-base font-black uppercase text-white tracking-wider mt-1 truncate">
                             {rightTeamName}
                           </h2>
                           
-                          {/* Roster & Serve Selection */}
-                          <div className="mt-4 space-y-2 flex flex-col items-center">
+                          {/* Roster & Serve Selection (Compact row layout) */}
+                          <div className="mt-1 flex flex-row gap-1 items-center justify-center flex-wrap">
                             {[
                               { name: rightP1Name, idx: 0 },
                               { name: rightP2Name, idx: 1 }
@@ -4299,15 +4319,15 @@ export default function BracketTab({
                                   key={pIdx}
                                   disabled={!canWrite}
                                   onClick={() => handleSetActiveServer(courtSideSwapped ? 'team1' : 'team2', player.idx as 0 | 1)}
-                                  className={`px-4 py-1.5 rounded-full text-xs font-extrabold uppercase transition-all flex items-center gap-1.5 ${
+                                  className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase transition-all flex items-center gap-1 ${
                                     isThisPlayerServing
-                                      ? 'bg-amber-500 text-slate-950 border-2 border-amber-400 shadow-md font-black animate-pulse animate-duration-1000'
+                                      ? 'bg-amber-500 text-slate-950 border border-amber-400 shadow-sm font-black'
                                       : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-transparent'
                                   }`}
-                                  title={canWrite ? "Clicca per impostare battitore d'ufficio manualmente" : undefined}
+                                  title={canWrite ? "Imposta battitore d'ufficio manualmente" : undefined}
                                 >
-                                  {player.name}
-                                  {isThisPlayerServing && <span className="text-[10px] uppercase font-black tracking-widest shrink-0">🏐 BATTUTA</span>}
+                                  <span className="truncate max-w-[70px] sm:max-w-[100px]">{player.name}</span>
+                                  {isThisPlayerServing && <span className="text-[8px] font-black shrink-0">🏐</span>}
                                 </button>
                               );
                             })}
@@ -4315,21 +4335,21 @@ export default function BracketTab({
                         </div>
 
                         {/* POINTS DISPLAY */}
-                        <div className="my-6 flex flex-col items-center w-full select-none">
-                          <div className="relative">
-                            <div className="text-8xl md:text-9xl font-black font-mono leading-none tracking-tighter text-amber-450 drop-shadow-[0_4px_12px_rgba(251,191,36,0.35)]">
+                        <div className="my-1.5 flex-1 flex flex-col justify-center items-center w-full select-none min-h-0">
+                          <div className="relative leading-none">
+                            <div className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black font-mono leading-none tracking-tighter text-amber-450 drop-shadow-[0_2px_8px_rgba(251,191,36,0.3)]">
                               {rightPoints}
                             </div>
                             
                             {/* Sets won indicators */}
-                            <div className="flex gap-2 justify-center mt-2">
+                            <div className="flex gap-1.5 justify-center mt-1">
                               {Array.from({ length: activeMatch.maxSets || 3 }).map((_, sIdx) => {
                                 const sWon = rightSets > sIdx;
                                 return (
                                   <span
                                     key={sIdx}
-                                    className={`w-3 h-3 rounded-full border-2 ${
-                                      sWon ? 'bg-amber-400 border-amber-300 shadow-md' : 'bg-transparent border-slate-700'
+                                    className={`w-2 h-2 rounded-full border ${
+                                      sWon ? 'bg-amber-400 border-amber-300 shadow' : 'bg-transparent border-slate-700'
                                     }`}
                                   />
                                 );
@@ -4339,56 +4359,56 @@ export default function BracketTab({
 
                           {/* Quick Score edit if user is administrator */}
                           {canWrite && (
-                            <div className="flex items-center gap-3 mt-5">
+                            <div className="flex items-center gap-1.5 mt-2">
                               <button
                                 onClick={() => handleSubtractPoint(courtSideSwapped ? 'team1' : 'team2')}
-                                className="w-10 h-10 bg-slate-800 hover:bg-slate-750 active:bg-slate-900 border border-slate-700 rounded-full text-xl font-bold flex items-center justify-center transition-all select-none active:translate-y-0.5"
+                                className="w-8 h-8 bg-slate-800 hover:bg-slate-755 active:bg-slate-900 border border-slate-700 rounded-full text-sm font-bold flex items-center justify-center transition-all select-none active:translate-y-0.5"
                                 title="Sottrai punto"
                               >
-                                <Minus className="w-4 h-4 text-slate-400" />
+                                <Minus className="w-3.5 h-3.5 text-slate-400" />
                               </button>
                               <button
                                 onClick={() => handleAddPoint(courtSideSwapped ? 'team1' : 'team2')}
-                                className="w-16 h-16 bg-emerald-500 hover:bg-emerald-450 active:bg-emerald-650 rounded-full text-2xl font-black flex flex-col items-center justify-center transition-all shadow-md border-b-4 border-emerald-700 active:translate-y-0.5 hover:scale-105"
+                                className="w-12 h-12 bg-emerald-500 hover:bg-emerald-450 active:bg-emerald-650 rounded-full text-lg font-black flex flex-col items-center justify-center transition-all shadow border-b-2 border-emerald-700 active:translate-y-0.5 hover:scale-105"
                                 title="Assegna punto"
                               >
-                                <Plus className="w-6 h-6 text-white" />
+                                <Plus className="w-5 h-5 text-white" />
                               </button>
                             </div>
                           )}
                         </div>
 
                         {/* Timeout Display */}
-                        <div className="w-full pt-4 border-t border-slate-800 flex justify-between items-center px-2">
-                          <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">Timeout Set:</span>
+                        <div className="w-full pt-1 border-t border-slate-800/60 flex justify-between items-center px-1 shrink-0">
+                          <span className="text-[8px] font-extrabold uppercase text-slate-500 tracking-wider">Timeout:</span>
                           {courtSideSwapped ? (
                             simT1TimeoutsUsed >= 1 ? (
-                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                              <span className="text-slate-500 text-[8px] font-bold uppercase">Esaurito</span>
                             ) : (
                               canWrite ? (
                                 <button
                                   onClick={() => handleCallTimeout('team1')}
-                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
                                 >
                                   TIMEOUT
                                 </button>
                               ) : (
-                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                                <span className="text-emerald-450 text-[8px] font-semibold uppercase">Disponibile</span>
                               )
                             )
                           ) : (
                             simT2TimeoutsUsed >= 1 ? (
-                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                              <span className="text-slate-500 text-[8px] font-bold uppercase">Esaurito</span>
                             ) : (
                               canWrite ? (
                                 <button
                                   onClick={() => handleCallTimeout('team2')}
-                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
                                 >
                                   TIMEOUT
                                 </button>
                               ) : (
-                                <span className="bg-emerald-500/10 text-emerald-405 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                                <span className="text-emerald-455 text-[8px] font-semibold uppercase">Disponibile</span>
                               )
                             )
                           )}
@@ -4401,44 +4421,44 @@ export default function BracketTab({
 
                   {/* Modal Confirmations Render Overlay (Handled synchronously) */}
                   {showSetConfirm && (
-                    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
-                      <div className="bg-slate-900 border-2 border-amber-500/40 p-6 md:p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl flex flex-col gap-4">
-                        <div className="w-16 h-16 bg-amber-500/20 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto">
-                          <Check className="w-8 h-8 text-amber-400" />
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 bg-slate-950/90 backdrop-blur-md">
+                      <div className="bg-slate-900 border-2 border-amber-500/40 p-4 rounded-2xl w-full max-w-xs text-center shadow-2xl flex flex-col gap-2 max-h-[95vh] overflow-y-auto">
+                        <div className="w-12 h-12 bg-amber-500/20 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto">
+                          <Check className="w-6 h-6 text-amber-400" />
                         </div>
-                        <h3 className="text-lg font-black uppercase tracking-wider text-white">
+                        <h3 className="text-base font-black uppercase tracking-wider text-white leading-none">
                           Fine Set {simCurrentSet}
                         </h3>
-                        <p className="text-xs text-slate-300">
+                        <p className="text-[10px] text-slate-350">
                           Si è concluso il set. Confermi la fine del set con il seguente punteggio?
                         </p>
                         
-                        <div className="bg-slate-850 border border-slate-800 rounded-2xl p-4 my-2 flex flex-col gap-1 items-center justify-center">
-                          <div className="flex gap-4 items-center justify-center leading-none">
-                            <div className="text-right max-w-[120px] truncate">
-                              <p className="text-[10px] font-black uppercase text-slate-400 truncate">{activeMatch.team1.name}</p>
-                              <p className="text-3xl font-mono font-black text-amber-400 mt-1">{simPointsT1}</p>
+                        <div className="bg-slate-850 border border-slate-800 rounded-xl p-2.5 my-1 flex flex-col gap-1 items-center justify-center">
+                          <div className="flex gap-3 items-center justify-center leading-none">
+                            <div className="text-right max-w-[90px] truncate">
+                              <p className="text-[8px] font-black uppercase text-slate-400 truncate">{activeMatch.team1.name}</p>
+                              <p className="text-xl font-mono font-black text-amber-400 mt-0.5">{simPointsT1}</p>
                             </div>
-                            <div className="text-slate-600 font-bold text-xs uppercase">VS</div>
-                            <div className="text-left max-w-[120px] truncate">
-                              <p className="text-[10px] font-black uppercase text-slate-400 truncate">{activeMatch.team2.name}</p>
-                              <p className="text-3xl font-mono font-black text-amber-400 mt-1">{simPointsT2}</p>
+                            <div className="text-slate-600 font-bold text-[9px] uppercase">VS</div>
+                            <div className="text-left max-w-[90px] truncate">
+                              <p className="text-[8px] font-black uppercase text-slate-400 truncate">{activeMatch.team2.name}</p>
+                              <p className="text-xl font-mono font-black text-amber-400 mt-0.5">{simPointsT2}</p>
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex flex-col gap-1.5 mt-1 shrink-0">
                           <button
                             onClick={handleConfirmSet}
-                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wide transition-all shadow-md active:translate-y-0.5"
+                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-2.5 px-3 rounded-lg text-xs uppercase tracking-wide transition-all shadow active:translate-y-0.5"
                           >
                             Si, Registra Set
                           </button>
                           <button
                             onClick={handleCancelSetConfirm}
-                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wide transition-all"
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide transition-all"
                           >
-                            No, Continua/Correggi
+                            No, Continua
                           </button>
                         </div>
                       </div>
@@ -4446,49 +4466,49 @@ export default function BracketTab({
                   )}
 
                   {showMatchConfirm && (
-                    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md">
-                      <div className="bg-slate-900 border-2 border-emerald-500/40 p-6 md:p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl flex flex-col gap-4">
-                        <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto">
-                          <Trophy className="w-8 h-8 text-emerald-400" />
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 bg-slate-950/95 backdrop-blur-md">
+                      <div className="bg-slate-900 border-2 border-emerald-500/40 p-4 rounded-2xl w-full max-w-xs text-center shadow-2xl flex flex-col gap-2 max-h-[95vh] overflow-y-auto">
+                        <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto">
+                          <Trophy className="w-6 h-6 text-emerald-400" />
                         </div>
-                        <h3 className="text-lg font-black uppercase tracking-wider text-white">
+                        <h3 className="text-base font-black uppercase tracking-wider text-white leading-none">
                           Concludi Incontro
                         </h3>
-                        <p className="text-xs text-slate-300">
-                          Sei sicuro di voler concludere l'incontro? Questo registrerà ufficialmente il risultato e farà avanzare il tabellone.
+                        <p className="text-[10px] text-slate-350">
+                          Sei sicuro di voler concludere l'incontro? Questo registrerà il risultato.
                         </p>
 
-                        <div className="bg-slate-850 border border-slate-800 rounded-3xl p-4 my-2 text-center">
-                          <p className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest mb-1">Squadra Vincitrice</p>
-                          <h4 className="text-base font-black uppercase tracking-wide text-emerald-400 truncate">
+                        <div className="bg-slate-850 border border-slate-800 rounded-2xl p-2.5 my-1 text-center">
+                          <p className="text-[8px] text-slate-500 font-extrabold uppercase tracking-widest mb-0.5">Vincitrice</p>
+                          <h4 className="text-xs font-black uppercase tracking-wide text-emerald-405 truncate">
                             {simSetsT1 > simSetsT2 ? activeMatch.team1.name : activeMatch.team2.name}
                           </h4>
                           
-                          <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-slate-800 font-mono text-lg font-bold text-slate-350">
+                          <div className="flex items-center justify-center gap-3 mt-2 pt-2 border-t border-slate-800 font-mono text-sm font-bold text-slate-355">
                             <div>
-                              <p className="text-[9px] uppercase text-slate-500">{activeMatch.team1.name}</p>
-                              <p className="text-xl mt-0.5 text-white">{simSetsT1}</p>
+                              <p className="text-[8px] uppercase text-slate-500 truncate max-w-[70px]">{activeMatch.team1.name}</p>
+                              <p className="text-base mt-0.5 text-white">{simSetsT1}</p>
                             </div>
-                            <div className="text-slate-600 font-black text-xs">VS</div>
+                            <div className="text-slate-600 font-black text-[10px]">VS</div>
                             <div>
-                              <p className="text-[9px] uppercase text-slate-500">{activeMatch.team2.name}</p>
-                              <p className="text-xl mt-0.5 text-white">{simSetsT2}</p>
+                              <p className="text-[8px] uppercase text-slate-500 truncate max-w-[70px]">{activeMatch.team2.name}</p>
+                              <p className="text-base mt-0.5 text-white">{simSetsT2}</p>
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex flex-col gap-1.5 mt-1 shrink-0">
                           <button
                             onClick={handleConfirmMatch}
-                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wide transition-all shadow-lg active:translate-y-0.5"
+                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-2.5 px-3 rounded-lg text-xs uppercase tracking-wide transition-all shadow active:translate-y-0.5"
                           >
-                            Si, Registra e Completa
+                            Si, Confermo
                           </button>
                           <button
                             onClick={handleCancelMatchConfirm}
-                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wide transition-all"
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide transition-all"
                           >
-                            No, Correggi Punteggio
+                            No, Correggi
                           </button>
                         </div>
                       </div>
@@ -4496,33 +4516,33 @@ export default function BracketTab({
                   )}
 
                   {showInterruptConfirm && (
-                    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md">
-                      <div className="bg-slate-900 border-2 border-rose-500/40 p-6 md:p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl flex flex-col gap-4">
-                        <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center mx-auto">
-                          <AlertCircle className="w-8 h-8 text-rose-500" />
+                    <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 bg-slate-950/95 backdrop-blur-md">
+                      <div className="bg-slate-900 border-2 border-rose-500/40 p-4 rounded-2xl w-full max-w-xs text-center shadow-2xl flex flex-col gap-2 max-h-[95vh] overflow-y-auto">
+                        <div className="w-12 h-12 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center mx-auto">
+                          <AlertCircle className="w-6 h-6 text-rose-500" />
                         </div>
-                        <h3 className="text-lg font-black uppercase tracking-wider text-white">
+                        <h3 className="text-base font-black uppercase tracking-wider text-white leading-none">
                           Interrompi Match Live?
                         </h3>
-                        <p className="text-xs text-slate-300 leading-relaxed">
+                        <p className="text-[10px] text-slate-350 leading-relaxed">
                           Sei sicuro di voler interrompere la diretta live di questo incontro?
                         </p>
-                        <div className="bg-slate-950/50 rounded-xl p-3 text-left border border-slate-800 text-slate-400 text-[11px] leading-relaxed">
-                          ⚠️ <strong className="text-slate-200">ATTENZIONE:</strong> Tutti i punti correnti e i timeout usati andranno persi. Lo stato dell'incontro tornerà a "Pianificato".
+                        <div className="bg-slate-950/50 rounded-xl p-2 text-left border border-slate-800 text-slate-400 text-[9px] leading-relaxed">
+                          ⚠️ <strong>ATTENZIONE:</strong> Tutti i punti correnti andranno persi e tornerà a "Pianificato".
                         </div>
 
-                        <div className="flex flex-col gap-2 mt-2">
+                        <div className="flex flex-col gap-1.5 mt-1 shrink-0">
                           <button
                             onClick={confirmInterruptLive}
-                            className="w-full bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wide transition-all shadow-md active:translate-y-0.5"
+                            className="w-full bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black py-2.5 px-3 rounded-lg text-xs uppercase tracking-wide transition-all active:translate-y-0.5"
                           >
-                            Sì, Interrompi Incontro 🛑
+                            Sì, Interrompi
                           </button>
                           <button
                             onClick={() => setShowInterruptConfirm(false)}
-                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wide transition-all"
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide transition-all"
                           >
-                            Annulla / Rimani Live
+                            Annulla
                           </button>
                         </div>
                       </div>
@@ -4530,52 +4550,48 @@ export default function BracketTab({
                   )}
 
                   {showCourtSwapAlert && (
-                    <div className="fixed inset-0 z-110 flex items-center justify-center p-4 bg-slate-950/98 backdrop-blur-lg">
-                      <div className="bg-slate-900 border-2 border-amber-500/50 p-6 md:p-8 rounded-3xl w-full max-w-md text-center shadow-2xl flex flex-col gap-5">
-                        <div className="w-20 h-20 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto animate-bounce">
-                          <ArrowLeftRight className="w-10 h-10 text-amber-500" />
+                    <div className="fixed inset-0 z-[140] flex items-center justify-center p-3 bg-slate-950/98 backdrop-blur-lg">
+                      <div className="bg-slate-900 border-2 border-amber-500/50 p-4 rounded-2xl w-full max-w-xs text-center shadow-2xl flex flex-col gap-2.5 max-h-[95vh] overflow-y-auto">
+                        <div className="w-14 h-14 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto animate-bounce">
+                          <ArrowLeftRight className="w-6 h-6 text-amber-500" />
                         </div>
                         
                         <div>
-                          <span className="bg-amber-500 text-slate-950 px-3.5 py-1 text-[10px] font-black tracking-widest uppercase rounded">
+                          <span className="bg-amber-500 text-slate-950 px-2.5 py-0.5 text-[8px] font-black tracking-widest uppercase rounded">
                             RICHIESTO CAMBIO CAMPO ⚠️
                           </span>
-                          <h3 className="text-xl font-black uppercase tracking-wider text-white mt-3 leading-snug">
+                          <h3 className="text-base font-black uppercase tracking-wider text-white mt-1.5 leading-none">
                             INVERSIONE DEI CAMPI DI GIOCO
                           </h3>
                         </div>
 
-                        <p className="text-xs text-slate-300">
-                          Raggiunto il punteggio totale prestabilito di <strong className="text-amber-400">{showCourtSwapAlert.totalPoints} punti</strong> nel set. Le squadre devono scambiarsi di campo!
+                        <p className="text-[10px] text-slate-300">
+                          Si scambiano i campi a quota <strong className="text-amber-400">{showCourtSwapAlert.totalPoints} punti</strong>!
                         </p>
 
-                        <div className="bg-slate-850/60 border border-slate-800 rounded-2xl p-4 my-1 flex items-center justify-between gap-3 text-left">
-                          <div className="flex-1 text-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 min-w-0">
-                            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block mb-1">CAMPO SINISTRO 🏝️</span>
-                            <span className="text-xs font-black uppercase tracking-wide text-amber-450 block truncate">
+                        <div className="bg-slate-850/60 border border-slate-800 rounded-xl p-2.5 my-0.5 flex items-center justify-between gap-2 text-left">
+                          <div className="flex-1 text-center bg-slate-950/40 p-1.5 rounded-lg border border-slate-800 min-w-0">
+                            <span className="text-[7px] text-slate-500 font-bold uppercase tracking-widest block mb-0.5">SINISTRA 🏝️</span>
+                            <span className="text-[10px] font-black uppercase tracking-wide text-amber-450 block truncate">
                               {showCourtSwapAlert.leftTeamName}
                             </span>
                           </div>
                           
-                          <ArrowRight className="w-5 h-5 text-amber-500 animate-pulse shrink-0" />
+                          <ArrowRight className="w-4 h-4 text-amber-500 animate-pulse shrink-0" />
                           
-                          <div className="flex-1 text-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 min-w-0">
-                            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block mb-1">CAMPO DESTRO ⛵</span>
-                            <span className="text-xs font-black uppercase tracking-wide text-amber-450 block truncate">
+                          <div className="flex-1 text-center bg-slate-950/40 p-1.5 rounded-lg border border-slate-800 min-w-0">
+                            <span className="text-[7px] text-slate-500 font-bold uppercase tracking-widest block mb-0.5">DESTRA ⛵</span>
+                            <span className="text-[10px] font-black uppercase tracking-wide text-amber-450 block truncate">
                               {showCourtSwapAlert.rightTeamName}
                             </span>
                           </div>
                         </div>
 
-                        <p className="text-[10px] text-slate-500 uppercase font-bold">
-                          Inversione automatica ed avviso sincronizzato su tutti i dispositivi.
-                        </p>
-
                         <button
                           onClick={() => setShowCourtSwapAlert(null)}
-                          className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 px-4 rounded-xl text-xs uppercase tracking-widest transition-all shadow-md active:translate-y-0.5 hover:scale-[1.02]"
+                          className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-2.5 px-3 rounded-lg text-xs uppercase tracking-widest transition-all shadow hover:scale-[1.02] active:translate-y-0.5"
                         >
-                          CONFERMA CAMBIO CAMPO (OK) 👍
+                          CONFERMA (OK) 👍
                         </button>
                       </div>
                     </div>
