@@ -53,6 +53,21 @@ export interface Match {
   loserMatchId?: string; // Target match for the loser (e.g., in Winner-Loser tournament)
   loserMatchSlot?: 'team1' | 'team2'; // Which slot the loser will occupy in the target match
   livePointTicker?: string; // Last live commentary or event (e.g. "Ace di Rossi! 14-12")
+  liveT1Points?: number;
+  liveT2Points?: number;
+  liveCurrentSet?: number;
+  liveServingTeam?: 'team1' | 'team2';
+  liveServerPlayerIndex?: 0 | 1; // 0 for player1, 1 for player2
+  liveT1LastServerIndex?: 0 | 1; // Last served player index
+  liveT2LastServerIndex?: 0 | 1;
+  liveLeftTeam?: 'team1' | 'team2';
+  liveRightTeam?: 'team1' | 'team2';
+  liveP1ServerName?: string;
+  liveP2ServerName?: string;
+  liveP3ServerName?: string;
+  liveP4ServerName?: string;
+  liveT1TimeoutsUsed?: number; // 0 or 1 timeout used
+  liveT2TimeoutsUsed?: number; // 0 or 1 timeout used
   phase?: 'gironi' | 'eliminazione'; // Phase category
   groupName?: string; // Name of group, e.g. "Girone A" for pool stage
   pointsPerSet?: 15 | 21; // Point threshold for a set

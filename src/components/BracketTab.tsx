@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
 import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap, parseTimeToMinutes, formatMinutesToTime, printHTML } from '../utils';
-import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee, ChevronDown, ChevronUp, Plus, Minus, ArrowLeftRight, Undo } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const logoUrl = new URL('../assets/images/wsicily_logo_white_bg_1781554165519.jpg', import.meta.url).href;
@@ -320,6 +320,31 @@ export default function BracketTab({
   const [simCompletedSets, setSimCompletedSets] = useState<SetScore[]>([]);
   const [liveTicker, setLiveTicker] = useState('Riscaldamento atleti in corso...');
 
+  const [simServingTeam, setSimServingTeam] = useState<'team1' | 'team2' | null>(null);
+  const [simServerPlayerIndex, setSimServerPlayerIndex] = useState<0 | 1>(0);
+  const [simT1TimeoutsUsed, setSimT1TimeoutsUsed] = useState<number>(0);
+  const [simT2TimeoutsUsed, setSimT2TimeoutsUsed] = useState<number>(0);
+  const [courtSideSwapped, setCourtSideSwapped] = useState<boolean>(false);
+  const [timeoutCountdown, setTimeoutCountdown] = useState<number | null>(null);
+  const [timeoutActiveTeam, setTimeoutActiveTeam] = useState<'team1' | 'team2' | null>(null);
+  const [showSetConfirm, setShowSetConfirm] = useState<boolean>(false);
+  const [showMatchConfirm, setShowMatchConfirm] = useState<boolean>(false);
+
+  // Custom states for Coin Toss Setup, Service Order Nomination, Interrupt Confirm, and Court Swap Alert
+  const [coinTossMatchSetup, setCoinTossMatchSetup] = useState<Match | null>(null);
+  const [coinTossWinner, setCoinTossWinner] = useState<'team1' | 'team2'>('team1');
+  const [coinTossChoice, setCoinTossChoice] = useState<'serve' | 'court'>('serve');
+  const [firstServingTeam, setFirstServingTeam] = useState<'team1' | 'team2'>('team1');
+  const [firstServedPlayerIndexT1, setFirstServedPlayerIndexT1] = useState<0 | 1>(0);
+  const [firstServedPlayerIndexT2, setFirstServedPlayerIndexT2] = useState<0 | 1>(0);
+  const [initialLeftTeam, setInitialLeftTeam] = useState<'team1' | 'team2'>('team1');
+  const [t1P1Order, setT1P1Order] = useState<string>('');
+  const [t1P2Order, setT1P2Order] = useState<string>('');
+  const [t2P1Order, setT2P1Order] = useState<string>('');
+  const [t2P2Order, setT2P2Order] = useState<string>('');
+  const [showInterruptConfirm, setShowInterruptConfirm] = useState<boolean>(false);
+  const [showCourtSwapAlert, setShowCourtSwapAlert] = useState<{ totalPoints: number; leftTeamName: string; rightTeamName: string } | null>(null);
+
   // Bracket navigation toggle
   const [selectedRoundTab, setSelectedRoundTab] = useState<number>(1);
   const [viewMode, setViewMode] = useState<'visual' | 'cards'>('visual');
@@ -406,7 +431,7 @@ export default function BracketTab({
                 </div>
               </div>
               <span className={`font-mono text-xs font-black min-w-[28px] text-center px-2 py-1 rounded-md ${isCompleted ? 'bg-slate-100 text-slate-800' : 'bg-slate-50 text-slate-400'} ${t1Winner ? 'bg-orange-100 text-orange-700 ring-1 ring-orange-200' : ''}`}>
-                {isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}
+                {isCompleted ? match.team1Score : (isLive ? (match.id === liveSimulatingMatchId ? simSetsT1 : (match.team1Score ?? 0)) : 0)}
               </span>
             </div>
 
@@ -426,7 +451,7 @@ export default function BracketTab({
                 </div>
               </div>
               <span className={`font-mono text-xs font-black min-w-[28px] text-center px-2 py-1 rounded-md ${isCompleted ? 'bg-slate-100 text-slate-800' : 'bg-slate-50 text-slate-400'} ${t2Winner ? 'bg-orange-100 text-orange-700 ring-1 ring-orange-200' : ''}`}>
-                {isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}
+                {isCompleted ? match.team2Score : (isLive ? (match.id === liveSimulatingMatchId ? simSetsT2 : (match.team2Score ?? 0)) : 0)}
               </span>
             </div>
           </div>
@@ -458,6 +483,18 @@ export default function BracketTab({
           {isLive && match.livePointTicker && (
             <div className="bg-orange-50 border border-orange-150 rounded-xl p-2.5 mt-2 text-[10px] font-bold italic text-orange-950">
               {match.livePointTicker}
+            </div>
+          )}
+
+          {isLive && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => openLiveBoard(match)}
+                className="w-full bg-rose-500 hover:bg-rose-600 active:bg-rose-750 text-white font-black py-1.5 px-3 rounded-full text-[10px] uppercase flex items-center justify-center gap-1 shadow-sm transition-all border-b-2 border-rose-700 active:translate-y-0.5"
+              >
+                <Zap className="w-3 h-3 text-white fill-white" />
+                {canWrite ? 'Gestisci Scoreboard Live' : 'Guarda Scoreboard Live'}
+              </button>
             </div>
           )}
         </div>
@@ -2390,137 +2427,455 @@ export default function BracketTab({
     return comments[Math.floor(Math.random() * comments.length)];
   };
 
-  const startLiveSimulation = (match: Match) => {
+  const openLiveBoard = (match: Match) => {
+    setLiveSimulatingMatchId(match.id);
+    setSimPointsT1(match.liveT1Points ?? 0);
+    setSimPointsT2(match.liveT2Points ?? 0);
+    setSimCurrentSet(match.liveCurrentSet ?? 1);
+    setSimSetsT1(match.team1Score ?? 0);
+    setSimSetsT2(match.team2Score ?? 0);
+    setSimCompletedSets(match.sets ?? []);
+    setSimServingTeam(match.liveServingTeam ?? 'team1');
+    setSimServerPlayerIndex(match.liveServerPlayerIndex ?? 0);
+    setSimT1TimeoutsUsed(match.liveT1TimeoutsUsed ?? 0);
+    setSimT2TimeoutsUsed(match.liveT2TimeoutsUsed ?? 0);
+    setLiveTicker(match.livePointTicker || `Diretta avviata: ${match.team1?.name} vs ${match.team2?.name}`);
+  };
+
+  const openCoinTossSetup = (match: Match) => {
     if (!canWrite) {
       alert("⚠️ Azione non consentita: effettua l'accesso come collaboratore o amministratore per avviare il live ticker.");
       return;
     }
-    if (!match.team1 || !match.team2 || liveSimulatingMatchId) return;
+    if (!match.team1 || !match.team2) return;
 
-    setLiveSimulatingMatchId(match.id);
-    setSimPointsT1(0);
-    setSimPointsT2(0);
-    setSimCurrentSet(1);
-    setSimSetsT1(0);
-    setSimSetsT2(0);
-    setSimCompletedSets([]);
-    setLiveTicker(`Riscaldamento completato per ${match.team1.name} e ${match.team2.name}. Il match sta per iniziare! 🏐`);
+    setCoinTossMatchSetup(match);
+    setCoinTossWinner('team1');
+    setCoinTossChoice('serve');
+    setFirstServingTeam('team1');
+    setFirstServedPlayerIndexT1(0);
+    setFirstServedPlayerIndexT2(0);
+    setInitialLeftTeam('team1');
+    setT1P1Order(match.team1.player1);
+    setT1P2Order(match.team1.player2);
+    setT2P1Order(match.team2.player1);
+    setT2P2Order(match.team2.player2);
+  };
 
-    // Force match status to live
+  const confirmCoinTossAndStartLive = () => {
+    if (!coinTossMatchSetup || !coinTossMatchSetup.team1 || !coinTossMatchSetup.team2) return;
+
+    const chosenFirstServer = firstServingTeam === 'team1' ? firstServedPlayerIndexT1 : firstServedPlayerIndexT2;
+    
+    // Build initial live representation
     const ongoingMatch: Match = {
-      ...match,
+      ...coinTossMatchSetup,
       status: 'live',
-      livePointTicker: 'Match Iniziato!'
+      liveT1Points: 0,
+      liveT2Points: 0,
+      liveCurrentSet: 1,
+      team1Score: 0,
+      team2Score: 0,
+      sets: [],
+      liveServingTeam: firstServingTeam,
+      liveServerPlayerIndex: chosenFirstServer,
+      // Core math: The serving team points to their starting server.
+      // The receiving team points to the complementary server index, so on their very first Side-Out,
+      // they rotate to their chosen First Server!
+      liveT1LastServerIndex: firstServingTeam === 'team1' ? firstServedPlayerIndexT1 : (firstServedPlayerIndexT1 === 0 ? 1 : 0),
+      liveT2LastServerIndex: firstServingTeam === 'team2' ? firstServedPlayerIndexT2 : (firstServedPlayerIndexT2 === 0 ? 1 : 0),
+      liveLeftTeam: initialLeftTeam,
+      liveRightTeam: initialLeftTeam === 'team1' ? 'team2' : 'team1',
+      liveP1ServerName: t1P1Order || coinTossMatchSetup.team1.player1,
+      liveP2ServerName: t1P2Order || coinTossMatchSetup.team1.player2,
+      liveP3ServerName: t2P1Order || coinTossMatchSetup.team2.player1,
+      liveP4ServerName: t2P2Order || coinTossMatchSetup.team2.player2,
+      livePointTicker: `Gara live avviata sul ${coinTossMatchSetup.court}! Batte ${
+        firstServingTeam === 'team1' ? coinTossMatchSetup.team1.name : coinTossMatchSetup.team2.name
+      }, disposizione in campo definita dal sorteggio.`
     };
-    onUpdateMatches(matches.map(m => m.id === match.id ? ongoingMatch : m));
+
+    onUpdateMatches(matches.map(m => m.id === coinTossMatchSetup.id ? ongoingMatch : m));
 
     onAddNotification({
       id: `notif-${Date.now()}-live-start`,
       title: '🚨 MATCH LIVE IN CORSO!',
-      message: `${match.team1.name} vs ${match.team2.name} è iniziato sul ${match.court}. Segui in diretta!`,
+      message: `${coinTossMatchSetup.team1.name} vs ${coinTossMatchSetup.team2.name} è iniziato sul ${coinTossMatchSetup.court}. Segui in diretta!`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type: 'live_update',
-      matchId: match.id,
+      matchId: coinTossMatchSetup.id,
     });
+
+    setCoinTossMatchSetup(null);
+    openLiveBoard(ongoingMatch);
   };
 
-  // Effect to drive point-by-point simulation ticker
+  const startLiveSimulation = (match: Match) => {
+    openCoinTossSetup(match);
+  };
+
+  const syncLiveStateToFirestore = (updatedFields: Partial<Match>) => {
+    if (!liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch) return;
+
+    const updatedMatch: Match = {
+      ...activeMatch,
+      ...updatedFields,
+    };
+
+    onUpdateMatches(matches.map(m => m.id === liveSimulatingMatchId ? updatedMatch : m));
+  };
+
+  const handleAddPoint = (team: 'team1' | 'team2') => {
+    if (!canWrite || !liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch || !activeMatch.team1 || !activeMatch.team2) return;
+
+    let nextP1 = simPointsT1;
+    let nextP2 = simPointsT2;
+    let nextServingTeam = simServingTeam ?? 'team1';
+    let nextServerPlayerIndex = simServerPlayerIndex;
+
+    const t1LastServer = activeMatch.liveT1LastServerIndex ?? 0;
+    const t2LastServer = activeMatch.liveT2LastServerIndex ?? 0;
+
+    let isCambioPalla = false;
+    let updatedT1LastServer = t1LastServer;
+    let updatedT2LastServer = t2LastServer;
+
+    if (team === 'team1') {
+      nextP1++;
+      if (nextServingTeam !== 'team1') {
+        isCambioPalla = true;
+        nextServingTeam = 'team1';
+        const rotated = t1LastServer === 0 ? 1 : 0;
+        nextServerPlayerIndex = rotated;
+        updatedT1LastServer = rotated;
+      }
+    } else {
+      nextP2++;
+      if (nextServingTeam !== 'team2') {
+        isCambioPalla = true;
+        nextServingTeam = 'team2';
+        const rotated = t2LastServer === 0 ? 1 : 0;
+        nextServerPlayerIndex = rotated;
+        updatedT2LastServer = rotated;
+      }
+    }
+
+    const targetPoints = simCurrentSet === 3 ? 15 : (activeMatch.pointsPerSet || 21);
+    const sumPoints = nextP1 + nextP2;
+    const changeEndsFactor = targetPoints === 21 ? 7 : 5;
+    const isSetFinished = (nextP1 >= targetPoints || nextP2 >= targetPoints) && Math.abs(nextP1 - nextP2) >= 2;
+    const isCambioCampoNow = sumPoints > 0 && sumPoints % changeEndsFactor === 0 && !isSetFinished;
+
+    let newTicker = isCambioPalla
+      ? `Cambio palla! Servizio a ${team === 'team1' ? activeMatch.team1.name : activeMatch.team2.name}.`
+      : `Punto per ${team === 'team1' ? activeMatch.team1.name : activeMatch.team2.name}!`;
+
+    newTicker += ` Punteggio: ${nextP1}-${nextP2}.`;
+
+    const updatedFields: Partial<Match> = {
+      liveT1Points: nextP1,
+      liveT2Points: nextP2,
+      liveServingTeam: nextServingTeam,
+      liveServerPlayerIndex: nextServerPlayerIndex,
+      liveT1LastServerIndex: updatedT1LastServer,
+      liveT2LastServerIndex: updatedT2LastServer,
+      livePointTicker: newTicker,
+    };
+
+    setSimPointsT1(nextP1);
+    setSimPointsT2(nextP2);
+    setSimServingTeam(nextServingTeam);
+    setSimServerPlayerIndex(nextServerPlayerIndex);
+
+    const isSidesCurrentlySwapped = activeMatch.liveLeftTeam === 'team2';
+
+    if (isCambioCampoNow) {
+      const nextSwappedStatus = !isSidesCurrentlySwapped;
+      setCourtSideSwapped(nextSwappedStatus);
+      updatedFields.liveLeftTeam = nextSwappedStatus ? 'team2' : 'team1';
+      updatedFields.liveRightTeam = nextSwappedStatus ? 'team1' : 'team2';
+      updatedFields.livePointTicker = `${newTicker} ➔ ⚠️ CAMBIO CAMPO AUTOMATICO A ${sumPoints} PUNTI TOTALI!`;
+
+      // Trigger the highly prominent warning overlay
+      const lTeamName = nextSwappedStatus ? activeMatch.team2.name : activeMatch.team1.name;
+      const rTeamName = nextSwappedStatus ? activeMatch.team1.name : activeMatch.team2.name;
+      setShowCourtSwapAlert({
+        totalPoints: sumPoints,
+        leftTeamName: lTeamName,
+        rightTeamName: rTeamName
+      });
+    }
+
+    syncLiveStateToFirestore(updatedFields);
+
+    if ((nextP1 >= targetPoints || nextP2 >= targetPoints) && Math.abs(nextP1 - nextP2) >= 2) {
+      setShowSetConfirm(true);
+    }
+  };
+
+  const handleSubtractPoint = (team: 'team1' | 'team2') => {
+    if (!canWrite || !liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch) return;
+
+    let nextP1 = simPointsT1;
+    let nextP2 = simPointsT2;
+
+    if (team === 'team1') {
+      if (nextP1 > 0) nextP1--;
+    } else {
+      if (nextP2 > 0) nextP2--;
+    }
+
+    setSimPointsT1(nextP1);
+    setSimPointsT2(nextP2);
+
+    const updatedFields: Partial<Match> = {
+      liveT1Points: nextP1,
+      liveT2Points: nextP2,
+      livePointTicker: `Punteggio corretto: ${nextP1}-${nextP2}`,
+    };
+
+    syncLiveStateToFirestore(updatedFields);
+  };
+
+  const handleSetActiveServer = (team: 'team1' | 'team2', playerIndex: 0 | 1) => {
+    if (!canWrite) return;
+    setSimServingTeam(team);
+    setSimServerPlayerIndex(playerIndex);
+
+    const update: Partial<Match> = {
+      liveServingTeam: team,
+      liveServerPlayerIndex: playerIndex,
+      livePointTicker: `[Punteggio: ${simPointsT1}-${simPointsT2}] Servizio assegnato manualmente a ${team === 'team1' ? 'Squadra 1' : 'Squadra 2'} (${playerIndex === 0 ? 'Battitore 1' : 'Battitore 2'})`
+    };
+    if (team === 'team1') {
+      update.liveT1LastServerIndex = playerIndex;
+    } else {
+      update.liveT2LastServerIndex = playerIndex;
+    }
+    syncLiveStateToFirestore(update);
+  };
+
+  const handleCallTimeout = (team: 'team1' | 'team2') => {
+    if (!canWrite || !liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch) return;
+
+    if (team === 'team1') {
+      if (simT1TimeoutsUsed >= 1) return;
+      setSimT1TimeoutsUsed(1);
+      setTimeoutActiveTeam('team1');
+      setTimeoutCountdown(30);
+      syncLiveStateToFirestore({
+        liveT1TimeoutsUsed: 1,
+        livePointTicker: `Timeout richiesto da ${activeMatch.team1?.name} ⏳ [Punteggio: ${simPointsT1}-${simPointsT2}]`
+      });
+    } else {
+      if (simT2TimeoutsUsed >= 1) return;
+      setSimT2TimeoutsUsed(1);
+      setTimeoutActiveTeam('team2');
+      setTimeoutCountdown(30);
+      syncLiveStateToFirestore({
+        liveT2TimeoutsUsed: 1,
+        livePointTicker: `Timeout richiesto da ${activeMatch.team2?.name} ⏳ [Punteggio: ${simPointsT1}-${simPointsT2}]`
+      });
+    }
+  };
+
+  const handleConfirmSet = () => {
+    setShowSetConfirm(false);
+    if (!liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch || !activeMatch.team1 || !activeMatch.team2) return;
+
+    const finalSetScore: SetScore = { team1: simPointsT1, team2: simPointsT2 };
+    const updatedCompletedSets = [...simCompletedSets, finalSetScore];
+
+    let nextSetsT1 = simSetsT1;
+    let nextSetsT2 = simSetsT2;
+
+    if (simPointsT1 > simPointsT2) {
+      nextSetsT1++;
+    } else {
+      nextSetsT2++;
+    }
+
+    const isBestOfThree = activeMatch.maxSets === 3;
+    const neededSetsToWin = isBestOfThree ? 2 : 1;
+    const isMatchFinished = nextSetsT1 >= neededSetsToWin || nextSetsT2 >= neededSetsToWin;
+
+    if (isMatchFinished) {
+      setSimSetsT1(nextSetsT1);
+      setSimSetsT2(nextSetsT2);
+      setSimCompletedSets(updatedCompletedSets);
+      setShowMatchConfirm(true);
+    } else {
+      const nextSetNum = simCurrentSet + 1;
+      
+      onAddNotification({
+        id: `notif-${Date.now()}-set-end`,
+        title: `🎯 FINE SET ${simCurrentSet}!`,
+        message: `${activeMatch.team1.name} (${simPointsT1}) - ${activeMatch.team2.name} (${simPointsT2}) sul ${activeMatch.court}. Inizio Set ${nextSetNum}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type: 'live_update',
+        matchId: activeMatch.id,
+      });
+
+      const updatedFields: Partial<Match> = {
+        liveT1Points: 0,
+        liveT2Points: 0,
+        liveCurrentSet: nextSetNum,
+        team1Score: nextSetsT1,
+        team2Score: nextSetsT2,
+        liveT1TimeoutsUsed: 0,
+        liveT2TimeoutsUsed: 0,
+        sets: updatedCompletedSets,
+        livePointTicker: `Fine Set ${simCurrentSet} (${simPointsT1}-${simPointsT2}). Inizio Set ${nextSetNum}!`
+      };
+
+      syncLiveStateToFirestore(updatedFields);
+
+      setSimPointsT1(0);
+      setSimPointsT2(0);
+      setSimCurrentSet(nextSetNum);
+      setSimSetsT1(nextSetsT1);
+      setSimSetsT2(nextSetsT2);
+      setSimCompletedSets(updatedCompletedSets);
+      setSimT1TimeoutsUsed(0);
+      setSimT2TimeoutsUsed(0);
+    }
+  };
+
+  const handleCancelSetConfirm = () => {
+    setShowSetConfirm(false);
+  };
+
+  const handleConfirmMatch = () => {
+    setShowMatchConfirm(false);
+    if (!liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch || !activeMatch.team1 || !activeMatch.team2) return;
+
+    const matchWinnerId = simSetsT1 > simSetsT2 ? activeMatch.team1.id : activeMatch.team2.id;
+    
+    const finalMatch: Match = {
+      ...activeMatch,
+      status: 'completed',
+      team1Score: simSetsT1,
+      team2Score: simSetsT2,
+      sets: simCompletedSets,
+      winnerId: matchWinnerId,
+      livePointTicker: undefined,
+      liveT1Points: undefined,
+      liveT2Points: undefined,
+      liveCurrentSet: undefined,
+      liveServingTeam: undefined,
+      liveServerPlayerIndex: undefined,
+      liveT1TimeoutsUsed: undefined,
+      liveT2TimeoutsUsed: undefined
+    };
+
+    onAddNotification({
+      id: `notif-${Date.now()}-match-end`,
+      title: '🏆 INCONTRO COMPLETATO!',
+      message: `Il match tra ${activeMatch.team1.name} e ${activeMatch.team2.name} si è concluso con la vittoria di ${simSetsT1 > simSetsT2 ? activeMatch.team1.name : activeMatch.team2.name} per ${simSetsT1} a ${simSetsT2}!`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      type: 'result',
+      matchId: activeMatch.id,
+    });
+
+    onUpdateMatches(matches.map(m => m.id === liveSimulatingMatchId ? finalMatch : m));
+    setLiveSimulatingMatchId(null);
+    propagateWinner(finalMatch);
+  };
+
+  const handleCancelMatchConfirm = () => {
+    setShowMatchConfirm(false);
+  };
+
+  const handleInterruptLive = () => {
+    setShowInterruptConfirm(true);
+  };
+
+  const confirmInterruptLive = () => {
+    setShowInterruptConfirm(false);
+    if (!liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch) return;
+
+    const restoredMatch: Match = {
+      ...activeMatch,
+      status: 'scheduled',
+      team1Score: 0,
+      team2Score: 0,
+      sets: [],
+      livePointTicker: undefined,
+      liveT1Points: undefined,
+      liveT2Points: undefined,
+      liveCurrentSet: undefined,
+      liveServingTeam: undefined,
+      liveServerPlayerIndex: undefined,
+      liveT1LastServerIndex: undefined,
+      liveT2LastServerIndex: undefined,
+      liveLeftTeam: undefined,
+      liveRightTeam: undefined,
+      liveP1ServerName: undefined,
+      liveP2ServerName: undefined,
+      liveP3ServerName: undefined,
+      liveP4ServerName: undefined,
+      liveT1TimeoutsUsed: undefined,
+      liveT2TimeoutsUsed: undefined
+    };
+
+    onUpdateMatches(matches.map(m => m.id === liveSimulatingMatchId ? restoredMatch : m));
+    setLiveSimulatingMatchId(null);
+  };
+
+  // Synchronize operator and reader devices on live match update from database stream
   useEffect(() => {
     if (!liveSimulatingMatchId) return;
+    const activeMatch = matches.find(m => m.id === liveSimulatingMatchId);
+    if (!activeMatch) return;
 
-    const matchObj = matches.find(m => m.id === liveSimulatingMatchId);
-    if (!matchObj || !matchObj.team1 || !matchObj.team2) return;
+    setSimPointsT1(activeMatch.liveT1Points ?? 0);
+    setSimPointsT2(activeMatch.liveT2Points ?? 0);
+    setSimCurrentSet(activeMatch.liveCurrentSet ?? 1);
+    setSimSetsT1(activeMatch.team1Score ?? 0);
+    setSimSetsT2(activeMatch.team2Score ?? 0);
+    setSimCompletedSets(activeMatch.sets ?? []);
+    setSimServingTeam(activeMatch.liveServingTeam ?? 'team1');
+    setSimServerPlayerIndex(activeMatch.liveServerPlayerIndex ?? 0);
+    setSimT1TimeoutsUsed(activeMatch.liveT1TimeoutsUsed ?? 0);
+    setSimT2TimeoutsUsed(activeMatch.liveT2TimeoutsUsed ?? 0);
 
-    const t1Name = matchObj.team1.name;
-    const t2Name = matchObj.team2.name;
+    // Keep left/right orientation updated on all operators and spectators simultaneously
+    if (activeMatch.liveLeftTeam) {
+      setCourtSideSwapped(activeMatch.liveLeftTeam === 'team2');
+    }
 
-    const interval = setInterval(() => {
-      // Determine set point thresholds based on FIPAV Beach Volley standard
-      const isTieBreak = simCurrentSet === 3;
-      const targetPoints = isTieBreak ? 15 : 21;
+    if (activeMatch.livePointTicker) {
+      setLiveTicker(activeMatch.livePointTicker);
+    }
+  }, [liveSimulatingMatchId, matches]);
 
-      // Random point winner based on small random bias
-      const t1WinsPoint = Math.random() < 0.51; // slight bias to prevent exact tie draws
-      
-      let nextP1 = simPointsT1;
-      let nextP2 = simPointsT2;
-
-      if (t1WinsPoint) {
-        nextP1++;
-        setSimPointsT1(nextP1);
-      } else {
-        nextP2++;
-        setSimPointsT2(nextP2);
-      }
-
-      // Live description
-      const pointWinnerName = t1WinsPoint ? t1Name : t2Name;
-      const commentary = getVolleyCommentary(pointWinnerName, t1WinsPoint ? t2Name : t1Name, nextP1, nextP2);
-      const currentScoreString = `[Set ${simCurrentSet}] ${t1Name} ${nextP1} - ${nextP2} ${t2Name}`;
-      setLiveTicker(`${commentary} ➔ ${currentScoreString}`);
-
-      // Push real-time event ticker to individual match card
-      const updatedMatchesTicker = matches.map(m => {
-        if (m.id === liveSimulatingMatchId) {
-          return {
-            ...m,
-            livePointTicker: `${pointWinnerName} assegna punto! ${nextP1}-${nextP2}`,
-            sets: [...simCompletedSets, { team1: nextP1, team2: nextP2 }]
-          };
-        }
-        return m;
-      });
-      onUpdateMatches(updatedMatchesTicker);
-
-      // Check if Set concluded
-      if ((nextP1 >= targetPoints || nextP2 >= targetPoints) && Math.abs(nextP1 - nextP2) >= 2) {
-        // Set finished
-        const finalSetScore: SetScore = { team1: nextP1, team2: nextP2 };
-        const updatedCompleted = [...simCompletedSets, finalSetScore];
-        setSimCompletedSets(updatedCompleted);
-
-        let nextSetsT1 = simSetsT1;
-        let nextSetsT2 = simSetsT2;
-
-        if (nextP1 > nextP2) {
-          nextSetsT1++;
-          setSimSetsT1(nextSetsT1);
-        } else {
-          nextSetsT2++;
-          setSimSetsT2(nextSetsT2);
-        }
-
-        // Check if Match finished
-        const matchWinnerOfSets = nextSetsT1 >= 2 ? matchObj.team1.id : nextSetsT2 >= 2 ? matchObj.team2.id : null;
-
-        if (matchWinnerOfSets) {
-          // Complete entire simulator
-          const finalMatch: Match = {
-            ...matchObj,
-            status: 'completed',
-            team1Score: nextSetsT1,
-            team2Score: nextSetsT2,
-            sets: updatedCompleted,
-            winnerId: matchWinnerOfSets,
-            livePointTicker: undefined,
-          };
-          
-          clearInterval(interval);
-          setLiveSimulatingMatchId(null);
-          propagateWinner(finalMatch);
-        } else {
-          // Proceed to next set
-          setSimCurrentSet(simCurrentSet + 1);
-          setSimPointsT1(0);
-          setSimPointsT2(0);
-          setLiveTicker(`Fine Set ${simCurrentSet}! Risultato: ${nextP1}-${nextP2}. Gli atleti cambiano campo di gioco... 🏝️`);
-        }
-      }
-
-    }, 2500); // point every 2.5 seconds feels engaging but fast!
-
-    return () => clearInterval(interval);
-  }, [liveSimulatingMatchId, simPointsT1, simPointsT2, simCurrentSet, simSetsT1, simSetsT2, simCompletedSets, matches]);
+  // Timeout active countdown clock
+  useEffect(() => {
+    if (timeoutCountdown === null) return;
+    if (timeoutCountdown === 0) {
+      setTimeoutCountdown(null);
+      setTimeoutActiveTeam(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setTimeoutCountdown(timeoutCountdown - 1);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [timeoutCountdown]);
 
 
   // Synchronize tabs and groups on load
@@ -3614,31 +3969,621 @@ export default function BracketTab({
             </div>
           )}
 
-          {/* Simulated point tracker ticker box if a simulation is active */}
+          {/* Live Scorekeeper Board Overlay */}
           <AnimatePresence>
-            {liveSimulatingMatchId && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                id="live-ticker-box"
-                className="bg-orange-100 border-4 border-orange-400 rounded-3xl p-6 text-center flex flex-col items-center gap-3 shadow-xl relative overflow-hidden"
-              >
-                <div className="absolute top-0 right-0 p-2 bg-orange-400 text-white text-[10px] font-bold rounded-bl-xl uppercase tracking-widest animate-pulse">
-                  SIMULAZIONE LIVE IN CORSO
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1 bg-white border border-orange-300 rounded-full text-orange-850 text-[10px] font-black tracking-widest uppercase shadow-sm mt-3">
-                  <Zap className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
-                  COMMENTATORE AUTOMATICO
-                </div>
-                <p id="live-ticker-text" className="text-base font-black text-slate-800 uppercase italic mt-1">
-                  "{liveTicker}"
-                </p>
-                <div className="w-full max-w-md bg-white border-2 border-orange-200 h-3 rounded-full overflow-hidden mt-2 p-0.5 shadow-inner">
-                  <div className="h-full bg-orange-500 rounded-full animate-pulse transition-all duration-300 w-2/3 mx-auto"></div>
-                </div>
-              </motion.div>
-            )}
+            {(() => {
+              const activeMatch = liveSimulatingMatchId ? matches.find(m => m.id === liveSimulatingMatchId) : null;
+              if (!activeMatch || !activeMatch.team1 || !activeMatch.team2) return null;
+
+              const leftTeamName = courtSideSwapped ? activeMatch.team2.name : activeMatch.team1.name;
+              const rightTeamName = courtSideSwapped ? activeMatch.team1.name : activeMatch.team2.name;
+
+              const leftPoints = courtSideSwapped ? simPointsT2 : simPointsT1;
+              const rightPoints = courtSideSwapped ? simPointsT1 : simPointsT2;
+
+              const leftSets = courtSideSwapped ? simSetsT2 : simSetsT1;
+              const rightSets = courtSideSwapped ? simSetsT1 : simSetsT2;
+
+              const leftIsT2 = courtSideSwapped;
+              const leftP1Name = leftIsT2 
+                ? (activeMatch.liveP3ServerName ?? activeMatch.team2.player1) 
+                : (activeMatch.liveP1ServerName ?? activeMatch.team1.player1);
+              const leftP2Name = leftIsT2 
+                ? (activeMatch.liveP4ServerName ?? activeMatch.team2.player2) 
+                : (activeMatch.liveP2ServerName ?? activeMatch.team1.player2);
+                
+              const rightP1Name = leftIsT2 
+                ? (activeMatch.liveP1ServerName ?? activeMatch.team1.player1) 
+                : (activeMatch.liveP3ServerName ?? activeMatch.team2.player1);
+              const rightP2Name = leftIsT2 
+                ? (activeMatch.liveP2ServerName ?? activeMatch.team1.player2) 
+                : (activeMatch.liveP4ServerName ?? activeMatch.team2.player2);
+
+              return (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-50 bg-slate-950 flex flex-col text-white p-4 md:p-6 overflow-y-auto"
+                >
+                  {/* Scoreboard Overlay Header */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800 mb-4 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setLiveSimulatingMatchId(null)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm active:translate-y-0.5 whitespace-nowrap"
+                      >
+                        <ArrowRight className="w-4 h-4 rotate-180" />
+                        Chiudi Vista
+                      </button>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-white bg-slate-800 px-2.5 py-0.5 rounded text-[10px] uppercase">
+                            Gara {garaNumbersMap[activeMatch.id] || '?'}
+                          </span>
+                          <span className="bg-rose-500 text-white px-2 py-0.5 rounded text-[10px] font-black tracking-widest uppercase animate-pulse">
+                            LIVE
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
+                          {activeMatch.groupName || activeMatch.roundLabel || 'Eliminazione'} • {activeMatch.court} • {activeMatch.time || 'N/D'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {canWrite ? (
+                        <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          Arbitro / Operatore
+                        </span>
+                      ) : (
+                        <span className="bg-sky-500/10 border border-sky-500/20 text-sky-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                          Live (Sola Lettura)
+                        </span>
+                      )}
+
+                      {canWrite && (
+                        <button
+                          onClick={handleInterruptLive}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md border-b-2 border-rose-800 active:translate-y-0.5"
+                          title="Interrompi Gara"
+                        >
+                          Interrompi Match
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Live commentary / ticker bar */}
+                  {liveTicker && (
+                    <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-2xl p-3 mb-6 text-center text-xs font-extrabold uppercase italic tracking-wide flex items-center justify-center gap-2 max-w-4xl mx-auto w-full shrink-0">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                      "{liveTicker}"
+                    </div>
+                  )}
+
+                  {/* Scoreboard Body Layout (Optimized for Horizontal/Vertical responsive) */}
+                  <div className="flex-1 flex flex-col justify-center max-w-7xl mx-auto w-full">
+                    
+                    {/* Countdown Timeout Banner if called */}
+                    {timeoutCountdown !== null && (
+                      <div className="bg-indigo-600 border-2 border-indigo-400 text-white rounded-3xl p-4 mb-6 text-center animate-pulse flex flex-col items-center justify-center gap-1 shadow-lg max-w-lg mx-auto w-full">
+                        <Clock className="w-6 h-6 text-indigo-300 animate-spin mb-1" />
+                        <h4 className="text-xs font-black uppercase tracking-widest">TIMEOUT IN CORSO</h4>
+                        <p className="text-xs font-bold text-indigo-200">
+                          {timeoutActiveTeam === 'team1' ? activeMatch.team1.name : activeMatch.team2.name} ha richiesto tempo di riposo.
+                        </p>
+                        <p className="text-3xl font-black font-mono mt-1 text-yellow-300">{timeoutCountdown}s</p>
+                      </div>
+                    )}
+
+                    {/* Main Court Grid - Swappable left vs right */}
+                    <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_1fr] landscape:grid-cols-[1fr_200px_1fr] items-stretch gap-6 md:gap-4 mb-4">
+                      
+                      {/* LEFT COURT PANEL */}
+                      <div className={`p-6 rounded-3xl flex flex-col justify-between border-2 items-center text-center shadow-inner relative overflow-hidden transition-all duration-300 min-h-[320px] ${
+                        simServingTeam === (courtSideSwapped ? 'team2' : 'team1')
+                          ? 'bg-amber-500/5 border-amber-500/30'
+                          : 'bg-slate-900/80 border-slate-800'
+                      }`}>
+                        {/* Serve Background Highlight Effect */}
+                        {simServingTeam === (courtSideSwapped ? 'team2' : 'team1') && (
+                          <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500"></div>
+                        )}
+
+                        <div className="w-full">
+                          <span className="bg-slate-850 border border-slate-800 text-slate-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+                            SQUADRA INTERNA
+                          </span>
+                          <h2 className="text-xl md:text-2xl font-black uppercase text-white tracking-widest mt-3 break-all font-sans">
+                            {leftTeamName}
+                          </h2>
+                          
+                          {/* Roster & Serve Selection */}
+                          <div className="mt-4 space-y-2 flex flex-col items-center">
+                            {[
+                              { name: leftP1Name, idx: 0 },
+                              { name: leftP2Name, idx: 1 }
+                            ].map((player, pIdx) => {
+                              const isThisPlayerServing = simServingTeam === (courtSideSwapped ? 'team2' : 'team1') && simServerPlayerIndex === player.idx;
+                              return (
+                                <button
+                                  key={pIdx}
+                                  disabled={!canWrite}
+                                  onClick={() => handleSetActiveServer(courtSideSwapped ? 'team2' : 'team1', player.idx as 0 | 1)}
+                                  className={`px-4 py-1.5 rounded-full text-xs font-extrabold uppercase transition-all flex items-center gap-1.5 ${
+                                    isThisPlayerServing
+                                      ? 'bg-amber-500 text-slate-950 border-2 border-amber-400 shadow-md font-black animate-pulse animate-duration-1000'
+                                      : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-transparent'
+                                  }`}
+                                  title={canWrite ? "Clicca per impostare battitore d'ufficio manualmente" : undefined}
+                                >
+                                  {player.name}
+                                  {isThisPlayerServing && <span className="text-[10px] uppercase font-black tracking-widest shrink-0">🏐 BATTUTA</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* POINTS DISPLAY */}
+                        <div className="my-6 flex flex-col items-center w-full select-none">
+                          <div className="relative">
+                            <div className="text-8xl md:text-9xl font-black font-mono leading-none tracking-tighter text-amber-450 drop-shadow-[0_4px_12px_rgba(251,191,36,0.35)]">
+                              {leftPoints}
+                            </div>
+                            
+                            {/* Sets won indicators */}
+                            <div className="flex gap-2 justify-center mt-2">
+                              {Array.from({ length: activeMatch.maxSets || 3 }).map((_, sIdx) => {
+                                const sWon = leftSets > sIdx;
+                                return (
+                                  <span
+                                    key={sIdx}
+                                    className={`w-3 h-3 rounded-full border-2 ${
+                                      sWon ? 'bg-amber-400 border-amber-300 shadow-md' : 'bg-transparent border-slate-700'
+                                    }`}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Quick Score edit if user is administrator */}
+                          {canWrite && (
+                            <div className="flex items-center gap-3 mt-5">
+                              <button
+                                onClick={() => handleSubtractPoint(courtSideSwapped ? 'team2' : 'team1')}
+                                className="w-10 h-10 bg-slate-800 hover:bg-slate-750 active:bg-slate-900 border border-slate-700 rounded-full text-xl font-bold flex items-center justify-center transition-all select-none active:translate-y-0.5"
+                                title="Sottrai punto"
+                              >
+                                <Minus className="w-4 h-4 text-slate-400" />
+                              </button>
+                              <button
+                                onClick={() => handleAddPoint(courtSideSwapped ? 'team2' : 'team1')}
+                                className="w-16 h-16 bg-emerald-500 hover:bg-emerald-450 active:bg-emerald-650 rounded-full text-2xl font-black flex flex-col items-center justify-center transition-all shadow-md border-b-4 border-emerald-700 active:translate-y-0.5 hover:scale-105"
+                                title="Assegna punto"
+                              >
+                                <Plus className="w-6 h-6 text-white" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Timeout Display */}
+                        <div className="w-full pt-4 border-t border-slate-800 flex justify-between items-center px-2">
+                          <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">Timeout Set:</span>
+                          {courtSideSwapped ? (
+                            simT2TimeoutsUsed >= 1 ? (
+                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                            ) : (
+                              canWrite ? (
+                                <button
+                                  onClick={() => handleCallTimeout('team2')}
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                >
+                                  TIMEOUT
+                                </button>
+                              ) : (
+                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                              )
+                            )
+                          ) : (
+                            simT1TimeoutsUsed >= 1 ? (
+                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                            ) : (
+                              canWrite ? (
+                                <button
+                                  onClick={() => handleCallTimeout('team1')}
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                >
+                                  TIMEOUT
+                                </button>
+                              ) : (
+                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                              )
+                            )
+                          )}
+                        </div>
+                      </div>
+
+                      {/* NET SEPARATOR / STATS CONTROL CARD */}
+                      <div className="flex flex-col justify-center items-center gap-6 p-4 rounded-3xl bg-slate-900 border border-slate-800 min-h-[220px]">
+                        <div className="text-center">
+                          <span className="text-[10px] text-orange-400 font-extrabold uppercase tracking-widest block mb-1">
+                            SET CORRENTE
+                          </span>
+                          <h4 className="text-2xl font-black uppercase tracking-wider text-slate-100">
+                            SET {simCurrentSet}
+                          </h4>
+                          <div className="bg-slate-800 border border-slate-750 px-3 py-1 mt-2 text-[10px] font-black text-slate-350 uppercase tracking-wider inline-block">
+                            Fino a {simCurrentSet === 3 ? 15 : (activeMatch.pointsPerSet || 21)} punti
+                          </div>
+                        </div>
+
+                        {/* Set logs indicator */}
+                        <div className="w-full max-w-[150px] px-2 text-center text-xs">
+                          <div className="border-b border-dashed border-slate-800 pb-2 flex flex-col gap-1.5">
+                            <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider">Punteggio del Match:</span>
+                            <div className="flex items-center justify-center gap-3 font-mono text-xl font-bold">
+                              <span className="text-amber-400">{simSetsT1}</span>
+                              <span className="text-slate-500 text-xs">vs</span>
+                              <span className="text-amber-400">{simSetsT2}</span>
+                            </div>
+                          </div>
+
+                          {simCompletedSets.length > 0 && (
+                            <div className="pt-2 flex flex-col gap-1">
+                              <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Set Chiusi:</span>
+                              <div className="flex flex-wrap justify-center gap-1.5">
+                                {simCompletedSets.map((s, idx) => (
+                                  <span key={idx} className="bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-[9px] font-bold text-slate-200 font-mono">
+                                    {s.team1}-{s.team2}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Manual field switcher button */}
+                        {canWrite && (
+                          <button
+                            onClick={() => {
+                              const nextSwappedStatus = !courtSideSwapped;
+                              setCourtSideSwapped(nextSwappedStatus);
+                              syncLiveStateToFirestore({
+                                liveLeftTeam: nextSwappedStatus ? 'team2' : 'team1',
+                                liveRightTeam: nextSwappedStatus ? 'team1' : 'team2',
+                                livePointTicker: `[Punteggio: ${simPointsT1}-${simPointsT2}] L'operatore ha invertito manualmente i campi di gioco.`
+                              });
+                            }}
+                            className="px-4 py-2 bg-slate-850 hover:bg-slate-800 border border-slate-755 text-slate-200 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all active:translate-y-0.5"
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5 text-amber-500" />
+                            Scambia Campi 🏝️
+                          </button>
+                        )}
+                      </div>
+
+                      {/* RIGHT COURT PANEL */}
+                      <div className={`p-6 rounded-3xl flex flex-col justify-between border-2 items-center text-center shadow-inner relative overflow-hidden transition-all duration-300 min-h-[320px] ${
+                        simServingTeam === (courtSideSwapped ? 'team1' : 'team2')
+                          ? 'bg-amber-500/5 border-amber-500/30'
+                          : 'bg-slate-900/80 border-slate-800'
+                      }`}>
+                        {/* Serve Background Highlight Effect */}
+                        {simServingTeam === (courtSideSwapped ? 'team1' : 'team2') && (
+                          <div className="absolute top-0 right-0 w-1.5 h-full bg-amber-500"></div>
+                        )}
+
+                        <div className="w-full">
+                          <span className="bg-slate-850 border border-slate-800 text-slate-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+                            SQUADRA ESTERNA
+                          </span>
+                          <h2 className="text-xl md:text-2xl font-black uppercase text-white tracking-widest mt-3 break-all font-sans">
+                            {rightTeamName}
+                          </h2>
+                          
+                          {/* Roster & Serve Selection */}
+                          <div className="mt-4 space-y-2 flex flex-col items-center">
+                            {[
+                              { name: rightP1Name, idx: 0 },
+                              { name: rightP2Name, idx: 1 }
+                            ].map((player, pIdx) => {
+                              const isThisPlayerServing = simServingTeam === (courtSideSwapped ? 'team1' : 'team2') && simServerPlayerIndex === player.idx;
+                              return (
+                                <button
+                                  key={pIdx}
+                                  disabled={!canWrite}
+                                  onClick={() => handleSetActiveServer(courtSideSwapped ? 'team1' : 'team2', player.idx as 0 | 1)}
+                                  className={`px-4 py-1.5 rounded-full text-xs font-extrabold uppercase transition-all flex items-center gap-1.5 ${
+                                    isThisPlayerServing
+                                      ? 'bg-amber-500 text-slate-950 border-2 border-amber-400 shadow-md font-black animate-pulse animate-duration-1000'
+                                      : 'bg-slate-800 hover:bg-slate-750 text-slate-300 border border-transparent'
+                                  }`}
+                                  title={canWrite ? "Clicca per impostare battitore d'ufficio manualmente" : undefined}
+                                >
+                                  {player.name}
+                                  {isThisPlayerServing && <span className="text-[10px] uppercase font-black tracking-widest shrink-0">🏐 BATTUTA</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* POINTS DISPLAY */}
+                        <div className="my-6 flex flex-col items-center w-full select-none">
+                          <div className="relative">
+                            <div className="text-8xl md:text-9xl font-black font-mono leading-none tracking-tighter text-amber-450 drop-shadow-[0_4px_12px_rgba(251,191,36,0.35)]">
+                              {rightPoints}
+                            </div>
+                            
+                            {/* Sets won indicators */}
+                            <div className="flex gap-2 justify-center mt-2">
+                              {Array.from({ length: activeMatch.maxSets || 3 }).map((_, sIdx) => {
+                                const sWon = rightSets > sIdx;
+                                return (
+                                  <span
+                                    key={sIdx}
+                                    className={`w-3 h-3 rounded-full border-2 ${
+                                      sWon ? 'bg-amber-400 border-amber-300 shadow-md' : 'bg-transparent border-slate-700'
+                                    }`}
+                                  />
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Quick Score edit if user is administrator */}
+                          {canWrite && (
+                            <div className="flex items-center gap-3 mt-5">
+                              <button
+                                onClick={() => handleSubtractPoint(courtSideSwapped ? 'team1' : 'team2')}
+                                className="w-10 h-10 bg-slate-800 hover:bg-slate-750 active:bg-slate-900 border border-slate-700 rounded-full text-xl font-bold flex items-center justify-center transition-all select-none active:translate-y-0.5"
+                                title="Sottrai punto"
+                              >
+                                <Minus className="w-4 h-4 text-slate-400" />
+                              </button>
+                              <button
+                                onClick={() => handleAddPoint(courtSideSwapped ? 'team1' : 'team2')}
+                                className="w-16 h-16 bg-emerald-500 hover:bg-emerald-450 active:bg-emerald-650 rounded-full text-2xl font-black flex flex-col items-center justify-center transition-all shadow-md border-b-4 border-emerald-700 active:translate-y-0.5 hover:scale-105"
+                                title="Assegna punto"
+                              >
+                                <Plus className="w-6 h-6 text-white" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Timeout Display */}
+                        <div className="w-full pt-4 border-t border-slate-800 flex justify-between items-center px-2">
+                          <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">Timeout Set:</span>
+                          {courtSideSwapped ? (
+                            simT1TimeoutsUsed >= 1 ? (
+                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                            ) : (
+                              canWrite ? (
+                                <button
+                                  onClick={() => handleCallTimeout('team1')}
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                >
+                                  TIMEOUT
+                                </button>
+                              ) : (
+                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                              )
+                            )
+                          ) : (
+                            simT2TimeoutsUsed >= 1 ? (
+                              <span className="bg-slate-850 text-slate-500 border border-slate-800 px-3 py-1 rounded-full text-[9px] font-black uppercase">Esaurito</span>
+                            ) : (
+                              canWrite ? (
+                                <button
+                                  onClick={() => handleCallTimeout('team2')}
+                                  className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm active:translate-y-0.5"
+                                >
+                                  TIMEOUT
+                                </button>
+                              ) : (
+                                <span className="bg-emerald-500/10 text-emerald-405 border border-emerald-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase">Disponibile</span>
+                              )
+                            )
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+
+                  </div>
+
+                  {/* Modal Confirmations Render Overlay (Handled synchronously) */}
+                  {showSetConfirm && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+                      <div className="bg-slate-900 border-2 border-amber-500/40 p-6 md:p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl flex flex-col gap-4">
+                        <div className="w-16 h-16 bg-amber-500/20 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto">
+                          <Check className="w-8 h-8 text-amber-400" />
+                        </div>
+                        <h3 className="text-lg font-black uppercase tracking-wider text-white">
+                          Fine Set {simCurrentSet}
+                        </h3>
+                        <p className="text-xs text-slate-300">
+                          Si è concluso il set. Confermi la fine del set con il seguente punteggio?
+                        </p>
+                        
+                        <div className="bg-slate-850 border border-slate-800 rounded-2xl p-4 my-2 flex flex-col gap-1 items-center justify-center">
+                          <div className="flex gap-4 items-center justify-center leading-none">
+                            <div className="text-right max-w-[120px] truncate">
+                              <p className="text-[10px] font-black uppercase text-slate-400 truncate">{activeMatch.team1.name}</p>
+                              <p className="text-3xl font-mono font-black text-amber-400 mt-1">{simPointsT1}</p>
+                            </div>
+                            <div className="text-slate-600 font-bold text-xs uppercase">VS</div>
+                            <div className="text-left max-w-[120px] truncate">
+                              <p className="text-[10px] font-black uppercase text-slate-400 truncate">{activeMatch.team2.name}</p>
+                              <p className="text-3xl font-mono font-black text-amber-400 mt-1">{simPointsT2}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 mt-2">
+                          <button
+                            onClick={handleConfirmSet}
+                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wide transition-all shadow-md active:translate-y-0.5"
+                          >
+                            Si, Registra Set
+                          </button>
+                          <button
+                            onClick={handleCancelSetConfirm}
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wide transition-all"
+                          >
+                            No, Continua/Correggi
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {showMatchConfirm && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md">
+                      <div className="bg-slate-900 border-2 border-emerald-500/40 p-6 md:p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl flex flex-col gap-4">
+                        <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto">
+                          <Trophy className="w-8 h-8 text-emerald-400" />
+                        </div>
+                        <h3 className="text-lg font-black uppercase tracking-wider text-white">
+                          Concludi Incontro
+                        </h3>
+                        <p className="text-xs text-slate-300">
+                          Sei sicuro di voler concludere l'incontro? Questo registrerà ufficialmente il risultato e farà avanzare il tabellone.
+                        </p>
+
+                        <div className="bg-slate-850 border border-slate-800 rounded-3xl p-4 my-2 text-center">
+                          <p className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest mb-1">Squadra Vincitrice</p>
+                          <h4 className="text-base font-black uppercase tracking-wide text-emerald-400 truncate">
+                            {simSetsT1 > simSetsT2 ? activeMatch.team1.name : activeMatch.team2.name}
+                          </h4>
+                          
+                          <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-slate-800 font-mono text-lg font-bold text-slate-350">
+                            <div>
+                              <p className="text-[9px] uppercase text-slate-500">{activeMatch.team1.name}</p>
+                              <p className="text-xl mt-0.5 text-white">{simSetsT1}</p>
+                            </div>
+                            <div className="text-slate-600 font-black text-xs">VS</div>
+                            <div>
+                              <p className="text-[9px] uppercase text-slate-500">{activeMatch.team2.name}</p>
+                              <p className="text-xl mt-0.5 text-white">{simSetsT2}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 mt-2">
+                          <button
+                            onClick={handleConfirmMatch}
+                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wide transition-all shadow-lg active:translate-y-0.5"
+                          >
+                            Si, Registra e Completa
+                          </button>
+                          <button
+                            onClick={handleCancelMatchConfirm}
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wide transition-all"
+                          >
+                            No, Correggi Punteggio
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {showInterruptConfirm && (
+                    <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md">
+                      <div className="bg-slate-900 border-2 border-rose-500/40 p-6 md:p-8 rounded-3xl w-full max-w-sm text-center shadow-2xl flex flex-col gap-4">
+                        <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center mx-auto">
+                          <AlertCircle className="w-8 h-8 text-rose-500" />
+                        </div>
+                        <h3 className="text-lg font-black uppercase tracking-wider text-white">
+                          Interrompi Match Live?
+                        </h3>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          Sei sicuro di voler interrompere la diretta live di questo incontro?
+                        </p>
+                        <div className="bg-slate-950/50 rounded-xl p-3 text-left border border-slate-800 text-slate-400 text-[11px] leading-relaxed">
+                          ⚠️ <strong className="text-slate-200">ATTENZIONE:</strong> Tutti i punti correnti e i timeout usati andranno persi. Lo stato dell'incontro tornerà a "Pianificato".
+                        </div>
+
+                        <div className="flex flex-col gap-2 mt-2">
+                          <button
+                            onClick={confirmInterruptLive}
+                            className="w-full bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wide transition-all shadow-md active:translate-y-0.5"
+                          >
+                            Sì, Interrompi Incontro 🛑
+                          </button>
+                          <button
+                            onClick={() => setShowInterruptConfirm(false)}
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-350 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wide transition-all"
+                          >
+                            Annulla / Rimani Live
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {showCourtSwapAlert && (
+                    <div className="fixed inset-0 z-110 flex items-center justify-center p-4 bg-slate-950/98 backdrop-blur-lg">
+                      <div className="bg-slate-900 border-2 border-amber-500/50 p-6 md:p-8 rounded-3xl w-full max-w-md text-center shadow-2xl flex flex-col gap-5">
+                        <div className="w-20 h-20 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto animate-bounce">
+                          <ArrowLeftRight className="w-10 h-10 text-amber-500" />
+                        </div>
+                        
+                        <div>
+                          <span className="bg-amber-500 text-slate-950 px-3.5 py-1 text-[10px] font-black tracking-widest uppercase rounded">
+                            RICHIESTO CAMBIO CAMPO ⚠️
+                          </span>
+                          <h3 className="text-xl font-black uppercase tracking-wider text-white mt-3 leading-snug">
+                            INVERSIONE DEI CAMPI DI GIOCO
+                          </h3>
+                        </div>
+
+                        <p className="text-xs text-slate-300">
+                          Raggiunto il punteggio totale prestabilito di <strong className="text-amber-400">{showCourtSwapAlert.totalPoints} punti</strong> nel set. Le squadre devono scambiarsi di campo!
+                        </p>
+
+                        <div className="bg-slate-850/60 border border-slate-800 rounded-2xl p-4 my-1 flex items-center justify-between gap-3 text-left">
+                          <div className="flex-1 text-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 min-w-0">
+                            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block mb-1">CAMPO SINISTRO 🏝️</span>
+                            <span className="text-xs font-black uppercase tracking-wide text-amber-450 block truncate">
+                              {showCourtSwapAlert.leftTeamName}
+                            </span>
+                          </div>
+                          
+                          <ArrowRight className="w-5 h-5 text-amber-500 animate-pulse shrink-0" />
+                          
+                          <div className="flex-1 text-center bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 min-w-0">
+                            <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block mb-1">CAMPO DESTRO ⛵</span>
+                            <span className="text-xs font-black uppercase tracking-wide text-amber-450 block truncate">
+                              {showCourtSwapAlert.rightTeamName}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-slate-500 uppercase font-bold">
+                          Inversione automatica ed avviso sincronizzato su tutti i dispositivi.
+                        </p>
+
+                        <button
+                          onClick={() => setShowCourtSwapAlert(null)}
+                          className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 px-4 rounded-xl text-xs uppercase tracking-widest transition-all shadow-md active:translate-y-0.5 hover:scale-[1.02]"
+                        >
+                          CONFERMA CAMBIO CAMPO (OK) 👍
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                </motion.div>
+              );
+            })()}
           </AnimatePresence>
 
           {/* RENDERING DEPENDING ON ACTIVE PHASE TAB */}
@@ -4000,10 +4945,10 @@ export default function BracketTab({
                                         </span>
                                       </div>
                                       <span id={`bracket-t1-score-${match.id}`} className={`font-mono text-xs px-1 ${t1Winner ? 'text-orange-600 font-black' : 'text-slate-500'}`}>
-                                        {isCompleted ? match.team1Score : (isLive ? simPointsT1 : 0)}
+                                        {isCompleted ? match.team1Score : (isLive ? (match.id === liveSimulatingMatchId ? simSetsT1 : (match.team1Score ?? 0)) : 0)}
                                       </span>
                                     </div>
-
+ 
                                     {/* Team 2 */}
                                     <div className={`flex items-center justify-between py-1 px-1.5 rounded-lg text-xs font-bold mt-1.5 transition-colors ${
                                       t2Winner ? 'bg-orange-100 text-slate-900 border border-orange-200' : 'text-slate-800'
@@ -4015,7 +4960,7 @@ export default function BracketTab({
                                         </span>
                                       </div>
                                       <span id={`bracket-t2-score-${match.id}`} className={`font-mono text-xs px-1 ${t2Winner ? 'text-orange-600 font-black' : 'text-slate-500'}`}>
-                                        {isCompleted ? match.team2Score : (isLive ? simPointsT2 : 0)}
+                                        {isCompleted ? match.team2Score : (isLive ? (match.id === liveSimulatingMatchId ? simSetsT2 : (match.team2Score ?? 0)) : 0)}
                                       </span>
                                     </div>
 
@@ -4067,6 +5012,21 @@ export default function BracketTab({
                                           title="Automatica Istantanea"
                                         >
                                           FAST
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* Modifica score se completato */}
+                                    {match.team1 && match.team2 && isLive && (
+                                      <div className="mt-3 pt-2 border-t border-slate-100 flex gap-1 justify-end">
+                                        <button
+                                          id={`action-live-board-${match.id}`}
+                                          onClick={() => openLiveBoard(match)}
+                                          className="p-1 px-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded text-[9px] font-black uppercase tracking-wider border-b-2 border-rose-700 flex items-center gap-1 shadow-xs transition-all active:translate-y-0.5"
+                                          title="Gestisci o Guarda Live Scoreboard"
+                                        >
+                                          <Zap className="w-2.5 h-2.5 fill-white text-white shrink-0" />
+                                          {canWrite ? 'GESTISCI LIVE' : 'GUARDA LIVE'}
                                         </button>
                                       </div>
                                     )}
@@ -4718,6 +5678,211 @@ export default function BracketTab({
                   OK, Ho Capito
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Coin Toss Setup Modal (Sorteggio e Disposizione Campi) */}
+      {coinTossMatchSetup && (
+        <div id="coin-toss-modal" className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl border-4 border-emerald-400 animate-in fade-in zoom-in-95 duration-150 flex flex-col">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-5 text-white border-b-4 border-emerald-600 text-center shrink-0">
+              <h4 className="font-black text-lg italic uppercase tracking-tight">Sorteggio & Disposizione 🪙</h4>
+              <p className="text-xs font-bold text-white/95 uppercase tracking-widest mt-1 font-mono">
+                Gara n. {coinTossMatchSetup.garaNu || 'Live'} • Campo: {coinTossMatchSetup.court}
+              </p>
+            </div>
+
+            <div className="p-6 space-y-5 overflow-y-auto text-slate-700">
+              
+              {/* Sezione 1: Chi inizia in battuta */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-black uppercase text-slate-400 block tracking-wider">
+                  1. Quale squadra inizia al servizio (Battuta)? 🏐
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFirstServingTeam('team1')}
+                    className={`p-3.5 rounded-2xl border-2 font-black uppercase text-xs transition-all flex flex-col items-center justify-center gap-1 ${
+                      firstServingTeam === 'team1'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-350 text-slate-600'
+                    }`}
+                  >
+                    <span className="truncate max-w-[150px]">{coinTossMatchSetup.team1?.name}</span>
+                    <span className="text-[9px] font-bold text-slate-400 lowercase italic">Batte per prima</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFirstServingTeam('team2')}
+                    className={`p-3.5 rounded-2xl border-2 font-black uppercase text-xs transition-all flex flex-col items-center justify-center gap-1 ${
+                      firstServingTeam === 'team2'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-350 text-slate-600'
+                    }`}
+                  >
+                    <span className="truncate max-w-[150px]">{coinTossMatchSetup.team2?.name}</span>
+                    <span className="text-[9px] font-bold text-slate-400 lowercase italic">Batte per prima</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sezione 2: Posizionamento in campo */}
+              <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <label className="text-[11px] font-black uppercase text-slate-500 block tracking-wider">
+                  2. Quale squadra inizia nel campo SINISTRO? 🏝️
+                </label>
+                <p className="text-[10px] text-slate-400 leading-tight">
+                  Seleziona la squadra che inizia la partita sul lato sinistro della visuale:
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setInitialLeftTeam('team1')}
+                    className={`p-3 rounded-xl border font-bold uppercase text-[10px] tracking-wide transition-all ${
+                      initialLeftTeam === 'team1'
+                        ? 'border-amber-500 bg-amber-50 text-amber-700 font-extrabold'
+                        : 'border-slate-200 hover:border-slate-350 text-slate-600'
+                    }`}
+                  >
+                    <span className="truncate block max-w-full">{coinTossMatchSetup.team1?.name}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInitialLeftTeam('team2')}
+                    className={`p-3 rounded-xl border font-bold uppercase text-[10px] tracking-wide transition-all ${
+                      initialLeftTeam === 'team2'
+                        ? 'border-amber-500 bg-amber-50 text-amber-700 font-extrabold'
+                        : 'border-slate-200 hover:border-slate-350 text-slate-600'
+                    }`}
+                  >
+                    <span className="truncate block max-w-full">{coinTossMatchSetup.team2?.name}</span>
+                  </button>
+                </div>
+
+                <div className="mt-3 pt-2.5 border-t border-slate-200 flex justify-between items-center text-[10px] uppercase font-bold text-slate-500">
+                  <div className="text-center flex-1 bg-white p-1.5 rounded border border-slate-100 min-w-0">
+                    <span className="text-[8px] text-slate-450 block mb-0.5">LATO SINISTRO 👈</span>
+                    <span className="text-amber-600 truncate block">
+                      {initialLeftTeam === 'team1' ? coinTossMatchSetup.team1?.name : coinTossMatchSetup.team2?.name}
+                    </span>
+                  </div>
+                  <ArrowLeftRight className="w-3.5 h-3.5 mx-2 text-slate-400 shrink-0" />
+                  <div className="text-center flex-1 bg-white p-1.5 rounded border border-slate-100 min-w-0">
+                    <span className="text-[8px] text-slate-450 block mb-0.5">LATO DESTRO 👉</span>
+                    <span className="text-emerald-600 truncate block">
+                      {initialLeftTeam === 'team1' ? coinTossMatchSetup.team2?.name : coinTossMatchSetup.team1?.name}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sezione 3: Primo Battitore di ciascuna squadra */}
+              <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <label className="text-[11px] font-black uppercase text-slate-500 block tracking-wider">
+                  3. Chi Batte per Primo (Primo Servitore)
+                </label>
+                <p className="text-[10px] text-slate-500 leading-tight">
+                  Seleziona quale giocatore eseguirà la prima battuta per ogni squadra durante i rispettivi turni al servizio:
+                </p>
+
+                <div className="space-y-3 pt-1">
+                  {/* Prima Coppia */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-black uppercase text-slate-450 tracking-wider">
+                      {coinTossMatchSetup.team1?.name}:
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFirstServedPlayerIndexT1(0)}
+                        className={`p-2 rounded-xl border text-[10px] font-bold truncate transition-all ${
+                          firstServedPlayerIndexT1 === 0
+                            ? 'border-sky-500 bg-sky-50 text-sky-700 font-extrabold'
+                            : 'border-slate-200 hover:border-slate-350 text-slate-650'
+                        }`}
+                      >
+                        {coinTossMatchSetup.team1?.player1}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFirstServedPlayerIndexT1(1)}
+                        className={`p-2 rounded-xl border text-[10px] font-bold truncate transition-all ${
+                          firstServedPlayerIndexT1 === 1
+                            ? 'border-sky-500 bg-sky-50 text-sky-700 font-extrabold'
+                            : 'border-slate-200 hover:border-slate-350 text-slate-650'
+                        }`}
+                      >
+                        {coinTossMatchSetup.team1?.player2}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Seconda Coppia */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-black uppercase text-slate-450 tracking-wider">
+                      {coinTossMatchSetup.team2?.name}:
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFirstServedPlayerIndexT2(0)}
+                        className={`p-2 rounded-xl border text-[10px] font-bold truncate transition-all ${
+                          firstServedPlayerIndexT2 === 0
+                            ? 'border-sky-500 bg-sky-50 text-sky-700 font-extrabold'
+                            : 'border-slate-200 hover:border-slate-350 text-slate-650'
+                        }`}
+                      >
+                        {coinTossMatchSetup.team2?.player1}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFirstServedPlayerIndexT2(1)}
+                        className={`p-2 rounded-xl border text-[10px] font-bold truncate transition-all ${
+                          firstServedPlayerIndexT2 === 1
+                            ? 'border-sky-500 bg-sky-50 text-sky-700 font-extrabold'
+                            : 'border-slate-200 hover:border-slate-350 text-slate-650'
+                        }`}
+                      >
+                        {coinTossMatchSetup.team2?.player2}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-2 text-[10px] text-slate-600 leading-tight border-t border-slate-200 pt-2 flex flex-wrap items-center gap-1">
+                  <span>🎯 Primo servizio dell'incontro:</span>
+                  <strong className="text-emerald-600 uppercase font-extrabold">
+                    {firstServingTeam === 'team1' ? coinTossMatchSetup.team1?.name : coinTossMatchSetup.team2?.name} ({
+                      firstServingTeam === 'team1'
+                        ? (firstServedPlayerIndexT1 === 0 ? coinTossMatchSetup.team1?.player1 : coinTossMatchSetup.team1?.player2)
+                        : (firstServedPlayerIndexT2 === 0 ? coinTossMatchSetup.team2?.player1 : coinTossMatchSetup.team2?.player2)
+                    })
+                  </strong>
+                </div>
+              </div>
+
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setCoinTossMatchSetup(null)}
+                className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-2xl text-xs uppercase tracking-wider transition-all text-center"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={confirmCoinTossAndStartLive}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-2xl text-xs uppercase tracking-wider transition-all border-b-4 border-emerald-700 shadow-md active:translate-y-0.5"
+              >
+                Avvia Incontro Live 🚀
+              </button>
             </div>
           </div>
         </div>
