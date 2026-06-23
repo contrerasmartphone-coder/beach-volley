@@ -1,8 +1,22 @@
-import React, { useState } from 'react';
-import { AppUser } from '../types';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { Shield, UserPlus, Trash2, Edit3, Key, Plus, Lock, Check, Eye, EyeOff, X, Copy, Trophy } from 'lucide-react';
+import React, { useState } from "react";
+import { AppUser } from "../types";
+import { db, handleFirestoreError, OperationType } from "../firebase";
+import { collection, doc, setDoc, deleteDoc } from "firebase/firestore";
+import {
+  Shield,
+  UserPlus,
+  Trash2,
+  Edit3,
+  Key,
+  Plus,
+  Lock,
+  Check,
+  Eye,
+  EyeOff,
+  X,
+  Copy,
+  Trophy,
+} from "lucide-react";
 
 interface UserTabProps {
   currentUser: AppUser | null;
@@ -12,30 +26,44 @@ interface UserTabProps {
 export default function UserTab({ currentUser, users }: UserTabProps) {
   const [isAddFormOpen, setIsAddFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
-  const [userToDeleteState, setUserToDeleteState] = useState<AppUser | null>(null);
+  const [userToDeleteState, setUserToDeleteState] = useState<AppUser | null>(
+    null,
+  );
 
   // New user credentials state
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState<'admin' | 'collaborator' | 'reader' | 'ATLETA'>('reader');
-  const [newNome, setNewNome] = useState('');
-  const [newCognome, setNewCognome] = useState('');
-  const [newTelefono, setNewTelefono] = useState('');
-  
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newRole, setNewRole] = useState<
+    "admin" | "collaborator" | "reader" | "ATLETA"
+  >("reader");
+  const [newNome, setNewNome] = useState("");
+  const [newCognome, setNewCognome] = useState("");
+  const [newTelefono, setNewTelefono] = useState("");
+
   // Visibility toggles
-  const [passwordsShown, setPasswordsShown] = useState<{ [key: string]: boolean }>({});
+  const [passwordsShown, setPasswordsShown] = useState<{
+    [key: string]: boolean;
+  }>({});
   const [errorText, setErrorText] = useState<string | null>(null);
   const [successText, setSuccessText] = useState<string | null>(null);
 
-  const isAdmin = currentUser && currentUser.role === 'admin';
+  const isAdmin = currentUser && currentUser.role === "admin";
 
   if (!isAdmin) {
     return (
-      <div id="users-tab-forbidden" className="bg-white rounded-3xl p-8 border border-red-200/50 text-center max-w-lg mx-auto shadow-sm mt-6">
+      <div
+        id="users-tab-forbidden"
+        className="bg-white rounded-3xl p-8 border border-red-200/50 text-center max-w-lg mx-auto shadow-sm mt-6"
+      >
         <Lock className="w-12 h-12 text-red-500 mx-auto animate-bounce mb-4" />
-        <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Accesso Riservato agli Amministratori</h3>
+        <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">
+          Accesso Riservato agli Amministratori
+        </h3>
         <p className="text-xs text-slate-550 mt-2.5 leading-relaxed">
-          Spiacenti, solo gli amministratori del Beach Volley Hub possono accedere a questo pannello di gestione dei privilegi utente e delle password. Effettua l'accesso come "admin" per sbloccare questa funzionalità.
+          Spiacenti, solo gli amministratori del Beach Volley Hub possono
+          accedere a questo pannello di gestione dei privilegi utente e delle
+          password. Effettua l'accesso come "admin" per sbloccare questa
+          funzionalità.
         </p>
       </div>
     );
@@ -44,7 +72,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   const adminUsers = users.filter((u) => u.isTeamUser !== true);
 
   const togglePasswordVisibility = (id: string) => {
-    setPasswordsShown(prev => ({ ...prev, [id]: !prev[id] }));
+    setPasswordsShown((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -56,17 +84,17 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
     const cleanPassword = newPassword.trim();
 
     if (!cleanUsername || !cleanPassword) {
-      setErrorText('Tutti i campi (utente e password) sono obbligatori.');
+      setErrorText("Tutti i campi (utente e password) sono obbligatori.");
       return;
     }
 
     if (cleanUsername.length < 3) {
-      setErrorText('Il nome utente deve avere almeno 3 caratteri.');
+      setErrorText("Il nome utente deve avere almeno 3 caratteri.");
       return;
     }
 
     // Check if user already exists
-    if (users.some(u => u.username === cleanUsername)) {
+    if (users.some((u) => u.username === cleanUsername)) {
       setErrorText(`L'utente "${cleanUsername}" è già presente nel database.`);
       return;
     }
@@ -76,22 +104,22 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       username: cleanUsername,
       password: cleanPassword,
       role: newRole,
-      createdAt: new Date().toLocaleDateString('it-IT'),
+      createdAt: new Date().toLocaleDateString("it-IT"),
       nome: newNome.trim(),
       cognome: newCognome.trim(),
-      telefono: newTelefono.trim()
+      telefono: newTelefono.trim(),
     };
 
     try {
-      await setDoc(doc(db, 'users', newUser.id), newUser);
+      await setDoc(doc(db, "users", newUser.id), newUser);
       setSuccessText(`Profilo "${cleanUsername}" creato con successo! 🎉`);
       setIsAddFormOpen(false);
-      setNewUsername('');
-      setNewPassword('');
-      setNewRole('reader');
-      setNewNome('');
-      setNewCognome('');
-      setNewTelefono('');
+      setNewUsername("");
+      setNewPassword("");
+      setNewRole("reader");
+      setNewNome("");
+      setNewCognome("");
+      setNewTelefono("");
       setTimeout(() => setSuccessText(null), 5000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `users/${newUser.id}`);
@@ -105,8 +133,10 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
     setSuccessText(null);
 
     try {
-      await setDoc(doc(db, 'users', editingUser.id), editingUser);
-      setSuccessText(`Privilegi per "${editingUser.username}" aggiornati con successo! ⚙️`);
+      await setDoc(doc(db, "users", editingUser.id), editingUser);
+      setSuccessText(
+        `Privilegi per "${editingUser.username}" aggiornati con successo! ⚙️`,
+      );
       setEditingUser(null);
       setTimeout(() => setSuccessText(null), 5000);
     } catch (err) {
@@ -116,7 +146,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
 
   const handleDeleteUser = (userToDelete: AppUser) => {
     if (currentUser && userToDelete.username === currentUser.username) {
-      setErrorText('Non puoi rimuovere la tua stessa utenza amministratore attiva!');
+      setErrorText(
+        "Non puoi rimuovere la tua stessa utenza amministratore attiva!",
+      );
       setTimeout(() => setErrorText(null), 4500);
       return;
     }
@@ -127,11 +159,15 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   const confirmDeleteUser = async () => {
     if (!userToDeleteState) return;
     try {
-      await deleteDoc(doc(db, 'users', userToDeleteState.id));
+      await deleteDoc(doc(db, "users", userToDeleteState.id));
       setSuccessText(`Accesso rimosso per "${userToDeleteState.username}".`);
       setTimeout(() => setSuccessText(null), 4000);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `users/${userToDeleteState.id}`);
+      handleFirestoreError(
+        err,
+        OperationType.DELETE,
+        `users/${userToDeleteState.id}`,
+      );
     } finally {
       setUserToDeleteState(null);
     }
@@ -139,24 +175,32 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
 
   return (
     <div id="users-dashboard-pane" className="space-y-6">
-      
       {/* Feedbacks Alerts banner */}
       {successText && (
-        <div id="users-success-bar" className="bg-emerald-100 border-l-4 border-emerald-500 text-emerald-800 p-4 rounded-xl shadow-sm text-xs font-black uppercase tracking-wider flex items-center gap-2">
+        <div
+          id="users-success-bar"
+          className="bg-emerald-100 border-l-4 border-emerald-500 text-emerald-800 p-4 rounded-xl shadow-sm text-xs font-black uppercase tracking-wider flex items-center gap-2"
+        >
           <Check className="w-5 h-5 text-emerald-600" />
           {successText}
         </div>
       )}
 
       {errorText && (
-        <div id="users-error-bar" className="bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-xl shadow-sm text-xs font-black uppercase tracking-wider flex items-center gap-2">
+        <div
+          id="users-error-bar"
+          className="bg-red-100 border-l-4 border-red-500 text-red-800 p-4 rounded-xl shadow-sm text-xs font-black uppercase tracking-wider flex items-center gap-2"
+        >
           <Lock className="w-5 h-5 text-red-600" />
           {errorText}
         </div>
       )}
 
       {/* Main Container list */}
-      <div id="users-workspace-card" className="bg-white rounded-3xl border border-amber-200/60 p-6 shadow-sm">
+      <div
+        id="users-workspace-card"
+        className="bg-white rounded-3xl border border-amber-200/60 p-6 shadow-sm"
+      >
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-slate-100 pb-5 mb-6">
           <div>
             <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
@@ -164,7 +208,8 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               Gestione Privilegi Utente Operatori ({adminUsers.length})
             </h2>
             <p className="text-xs text-slate-400 font-extrabold uppercase tracking-wider mt-1">
-              Consolle per la regolazione e l'impostazione degli accessi al software
+              Consolle per la regolazione e l'impostazione degli accessi al
+              software
             </p>
           </div>
 
@@ -186,18 +231,33 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
           <table className="w-full text-xs font-sans">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200">
-                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Operatore / E-mail</th>
-                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Anagrafica / Telefono</th>
-                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Livello Privilegio</th>
-                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Chiave Password</th>
-                <th className="p-3.5 text-center font-black text-slate-500 uppercase tracking-wider">Stato Sessione</th>
-                <th className="p-3.5 text-right font-black text-slate-500 uppercase tracking-wider">Azioni Gestionali</th>
+                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">
+                  Operatore / E-mail
+                </th>
+                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">
+                  Anagrafica / Telefono
+                </th>
+                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">
+                  Livello Privilegio
+                </th>
+                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">
+                  Chiave Password
+                </th>
+                <th className="p-3.5 text-center font-black text-slate-500 uppercase tracking-wider">
+                  Stato Sessione
+                </th>
+                <th className="p-3.5 text-right font-black text-slate-500 uppercase tracking-wider">
+                  Azioni Gestionali
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {adminUsers.map((u) => {
-                const isSelf = u.username === (currentUser?.username);
-                const isOnline = u.lastActiveAt && (Date.now() - u.lastActiveAt < 120000); // Online if active in last 2 minutes
+                const isSelf = u.username === currentUser?.username;
+                const isOnline =
+                  !!u.activeSessionId &&
+                  u.lastActiveAt &&
+                  Date.now() - u.lastActiveAt < 120000; // Online if active in last 2 minutes and has active session
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/50">
                     <td className="p-3.5">
@@ -210,47 +270,59 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                         )}
                       </div>
                       <div className="text-[10px] text-slate-400 mt-0.5">
-                        Creato il: <span className="font-semibold">{u.createdAt}</span>
+                        Creato il:{" "}
+                        <span className="font-semibold">{u.createdAt}</span>
                       </div>
                     </td>
                     <td className="p-3.5">
                       <div className="space-y-0.5 text-slate-700">
-                        {(u.nome || u.cognome) ? (
+                        {u.nome || u.cognome ? (
                           <div className="font-black text-xs uppercase">
-                            👤 {u.nome || ''} {u.cognome || ''}
+                            👤 {u.nome || ""} {u.cognome || ""}
                           </div>
                         ) : (
-                          <div className="text-slate-450 italic">- Nessun nome -</div>
+                          <div className="text-slate-450 italic">
+                            - Nessun nome -
+                          </div>
                         )}
                         {u.telefono ? (
                           <div className="text-[10px] font-mono text-slate-500 font-bold">
                             📞 {u.telefono}
                           </div>
                         ) : (
-                          <div className="text-[10px] text-slate-450 italic">Senza recapito</div>
+                          <div className="text-[10px] text-slate-450 italic">
+                            Senza recapito
+                          </div>
                         )}
                       </div>
                     </td>
                     <td className="p-3.5">
                       <span
                         className={`text-[9px] font-black uppercase tracking-wider py-1 px-3 rounded-full border ${
-                          u.role === 'admin'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : u.role === 'collaborator'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : u.role === 'ATLETA'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                          u.role === "admin"
+                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                            : u.role === "collaborator"
+                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              : u.role === "ATLETA"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-slate-100 text-slate-600 border-slate-200"
                         }`}
                       >
-                        🛡️ {u.role === 'admin' ? 'Amministratore (Admin)' : u.role === 'collaborator' ? 'Collaboratore Score' : u.role === 'ATLETA' ? 'Atleta' : 'Lettore Spettatore'}
+                        🛡️{" "}
+                        {u.role === "admin"
+                          ? "Amministratore (Admin)"
+                          : u.role === "collaborator"
+                            ? "Collaboratore Score"
+                            : u.role === "ATLETA"
+                              ? "Atleta"
+                              : "Lettore Spettatore"}
                       </span>
                     </td>
                     <td className="p-3.5">
                       <div className="flex items-center gap-1.5">
                         <input
-                          type={passwordsShown[u.id] ? 'text' : 'password'}
-                          value={u.password || ''}
+                          type={passwordsShown[u.id] ? "text" : "password"}
+                          value={u.password || ""}
                           readOnly
                           className="bg-transparent text-[11px] font-mono outline-none border-none py-0.5 max-w-[100px]"
                         />
@@ -260,7 +332,11 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                           className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-all"
                           title="Mostra / Nascondi password"
                         >
-                          {passwordsShown[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          {passwordsShown[u.id] ? (
+                            <EyeOff className="w-3.5 h-3.5" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5" />
+                          )}
                         </button>
                       </div>
                     </td>
@@ -274,7 +350,12 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                         <div className="text-[10px] text-slate-500 font-semibold leading-tight">
                           <div>Sconnesso</div>
                           <div className="text-[8px] text-slate-400 font-mono mt-0.5">
-                            {new Date(u.lastActiveAt).toLocaleString('it-IT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                            {new Date(u.lastActiveAt).toLocaleString("it-IT", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              day: "2-digit",
+                              month: "2-digit",
+                            })}
                           </div>
                         </div>
                       ) : (
@@ -302,8 +383,8 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                           disabled={isSelf}
                           className={`p-2 rounded-lg transition-all border ${
                             isSelf
-                              ? 'opacity-30 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-400'
-                              : 'bg-slate-50 hover:bg-red-50 text-red-650 border-slate-200 hover:border-red-200'
+                              ? "opacity-30 cursor-not-allowed bg-slate-50 border-slate-200 text-slate-400"
+                              : "bg-slate-50 hover:bg-red-50 text-red-650 border-slate-200 hover:border-red-200"
                           }`}
                           title="Elimina accesso"
                         >
@@ -321,8 +402,14 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
 
       {/* Slide / Modal: Add User Form */}
       {isAddFormOpen && (
-        <div id="add-user-modal-overlay" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div id="add-user-modal" className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400">
+        <div
+          id="add-user-modal-overlay"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+        >
+          <div
+            id="add-user-modal"
+            className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400"
+          >
             <div className="flex justify-between items-center border-b pb-4">
               <h3 className="text-lg font-black text-sky-900 uppercase tracking-tight flex items-center gap-1.5">
                 <UserPlus className="w-5 h-5 text-orange-550" />
@@ -340,7 +427,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
             <form onSubmit={handleCreateUser} className="mt-5 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome</label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                    Nome
+                  </label>
                   <input
                     type="text"
                     value={newNome}
@@ -350,7 +439,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Cognome</label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                    Cognome
+                  </label>
                   <input
                     type="text"
                     value={newCognome}
@@ -362,7 +453,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Numero di Telefono</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Numero di Telefono
+                </label>
                 <input
                   type="tel"
                   value={newTelefono}
@@ -373,7 +466,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Username / E-mail</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Username / E-mail
+                </label>
                 <input
                   type="text"
                   value={newUsername}
@@ -385,7 +480,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Password di Accesso</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Password di Accesso
+                </label>
                 <div className="relative">
                   <input
                     type="text"
@@ -399,10 +496,13 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                     type="button"
                     onClick={() => {
                       // Generate simple random password
-                      const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ0123456789';
-                      let randPass = '';
+                      const chars =
+                        "abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ0123456789";
+                      let randPass = "";
                       for (let i = 0; i < 8; i++) {
-                        randPass += chars.charAt(Math.floor(Math.random() * chars.length));
+                        randPass += chars.charAt(
+                          Math.floor(Math.random() * chars.length),
+                        );
                       }
                       setNewPassword(randPass);
                     }}
@@ -414,15 +514,23 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Tipo di Privilegio</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Tipo di Privilegio
+                </label>
                 <select
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value as any)}
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all uppercase"
                 >
-                  <option value="reader">Lettore Spettatore (Solo lettura)</option>
-                  <option value="collaborator">Collaboratore Score (Aggiorna punteggi e tabelloni)</option>
-                  <option value="admin">Amministratore Completo (Accesso a tutto)</option>
+                  <option value="reader">
+                    Lettore Spettatore (Solo lettura)
+                  </option>
+                  <option value="collaborator">
+                    Collaboratore Score (Aggiorna punteggi e tabelloni)
+                  </option>
+                  <option value="admin">
+                    Amministratore Completo (Accesso a tutto)
+                  </option>
                   <option value="ATLETA">Atleta (Accesso Limitato)</option>
                 </select>
               </div>
@@ -449,8 +557,14 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
 
       {/* Slide / Modal: EDIT User Form */}
       {editingUser && (
-        <div id="editing-user-modal-overlay" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div id="editing-user-modal" className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400">
+        <div
+          id="editing-user-modal-overlay"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+        >
+          <div
+            id="editing-user-modal"
+            className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border-4 border-sky-400"
+          >
             <div className="flex justify-between items-center border-b pb-4">
               <h3 className="text-lg font-black text-sky-900 uppercase tracking-tight flex items-center gap-1.5">
                 <Edit3 className="w-5 h-5 text-indigo-500" />
@@ -467,7 +581,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
 
             <form onSubmit={handleUpdateUser} className="mt-5 space-y-4">
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Nome Utente</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                  Nome Utente
+                </label>
                 <div className="bg-slate-100 border border-slate-200 text-slate-500 px-4 py-3 rounded-xl font-mono text-xs font-black uppercase">
                   {editingUser.username}
                 </div>
@@ -475,21 +591,32 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome</label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                    Nome
+                  </label>
                   <input
                     type="text"
-                    value={editingUser.nome || ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, nome: e.target.value })}
+                    value={editingUser.nome || ""}
+                    onChange={(e) =>
+                      setEditingUser({ ...editingUser, nome: e.target.value })
+                    }
                     placeholder="Nome"
                     className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Cognome</label>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                    Cognome
+                  </label>
                   <input
                     type="text"
-                    value={editingUser.cognome || ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, cognome: e.target.value })}
+                    value={editingUser.cognome || ""}
+                    onChange={(e) =>
+                      setEditingUser({
+                        ...editingUser,
+                        cognome: e.target.value,
+                      })
+                    }
                     placeholder="Cognome"
                     className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
                   />
@@ -497,22 +624,30 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Telefono</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Telefono
+                </label>
                 <input
                   type="tel"
-                  value={editingUser.telefono || ''}
-                  onChange={(e) => setEditingUser({ ...editingUser, telefono: e.target.value })}
+                  value={editingUser.telefono || ""}
+                  onChange={(e) =>
+                    setEditingUser({ ...editingUser, telefono: e.target.value })
+                  }
                   placeholder="Telefono"
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-4 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Password</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Password
+                </label>
                 <input
                   type="text"
-                  value={editingUser.password || ''}
-                  onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })}
+                  value={editingUser.password || ""}
+                  onChange={(e) =>
+                    setEditingUser({ ...editingUser, password: e.target.value })
+                  }
                   placeholder="Imposta nuova password"
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-black tracking-normal text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all font-mono"
                   required
@@ -520,15 +655,28 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Rapporto di Privilegi</label>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">
+                  Rapporto di Privilegi
+                </label>
                 <select
                   value={editingUser.role}
-                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as any })}
+                  onChange={(e) =>
+                    setEditingUser({
+                      ...editingUser,
+                      role: e.target.value as any,
+                    })
+                  }
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all uppercase"
                 >
-                  <option value="reader">Lettore Spettatore (Solo lettura)</option>
-                  <option value="collaborator">Collaboratore Score (Aggiorna punteggi e tabelloni)</option>
-                  <option value="admin">Amministratore Completo (Accesso a tutto)</option>
+                  <option value="reader">
+                    Lettore Spettatore (Solo lettura)
+                  </option>
+                  <option value="collaborator">
+                    Collaboratore Score (Aggiorna punteggi e tabelloni)
+                  </option>
+                  <option value="admin">
+                    Amministratore Completo (Accesso a tutto)
+                  </option>
                   <option value="ATLETA">Atleta (Accesso Limitato)</option>
                 </select>
               </div>
@@ -554,15 +702,25 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       )}
 
       {userToDeleteState !== null && (
-        <div id="delete-user-confirm-modal" className="fixed inset-0 bg-sky-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+        <div
+          id="delete-user-confirm-modal"
+          className="fixed inset-0 bg-sky-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200"
+        >
           <div className="bg-white rounded-3xl border-4 border-rose-450 shadow-2xl p-6 max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-200 text-slate-800">
             <div className="text-center space-y-2">
               <div className="w-12 h-12 bg-rose-50 border-2 border-rose-300 rounded-full flex items-center justify-center mx-auto text-rose-500 shadow-xs mb-1">
                 <Trash2 className="w-6 h-6" />
               </div>
-              <h3 className="font-black text-rose-750 uppercase italic text-lg leading-tight">Revocare Accesso?</h3>
+              <h3 className="font-black text-rose-750 uppercase italic text-lg leading-tight">
+                Revocare Accesso?
+              </h3>
               <p className="text-xs text-slate-550 font-semibold leading-relaxed">
-                Sei sicuro di voler revocare l'accesso e cancellare l'utente <strong className="text-slate-850 font-black">"{userToDeleteState.username}"</strong>? Questa operazione eliminerà definitivamente le sue credenziali di operatore.
+                Sei sicuro di voler revocare l'accesso e cancellare l'utente{" "}
+                <strong className="text-slate-850 font-black">
+                  "{userToDeleteState.username}"
+                </strong>
+                ? Questa operazione eliminerà definitivamente le sue credenziali
+                di operatore.
               </p>
             </div>
             <div className="flex gap-2 font-sans">
@@ -586,7 +744,6 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
           </div>
         </div>
       )}
-
     </div>
   );
 }
