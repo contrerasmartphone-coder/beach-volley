@@ -93,8 +93,13 @@
         "id": { "type": "string" },
         "username": { "type": "string" },
         "password": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin", "collaborator", "reader"] },
-        "createdAt": { "type": "string" }
+        "role": { "type": "string", "enum": ["admin", "collaborator", "reader", "ATLETA"] },
+        "createdAt": { "type": "string" },
+        "nome": { "type": "string" },
+        "cognome": { "type": "string" },
+        "telefono": { "type": "string" },
+        "activeSessionId": { "type": "string" },
+        "lastActiveAt": { "type": "number" }
       },
       "required": ["id", "username", "password", "role", "createdAt"]
     },

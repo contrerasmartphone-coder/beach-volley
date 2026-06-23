@@ -17,7 +17,10 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   // New user credentials state
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState<'admin' | 'collaborator' | 'reader'>('reader');
+  const [newRole, setNewRole] = useState<'admin' | 'collaborator' | 'reader' | 'ATLETA'>('reader');
+  const [newNome, setNewNome] = useState('');
+  const [newCognome, setNewCognome] = useState('');
+  const [newTelefono, setNewTelefono] = useState('');
   
   // Visibility toggles
   const [passwordsShown, setPasswordsShown] = useState<{ [key: string]: boolean }>({});
@@ -31,7 +34,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       <div id="users-tab-forbidden" className="bg-white rounded-3xl p-8 border border-red-200/50 text-center max-w-lg mx-auto shadow-sm mt-6">
         <Lock className="w-12 h-12 text-red-500 mx-auto animate-bounce mb-4" />
         <h3 className="text-base font-black text-slate-800 uppercase tracking-tight">Accesso Riservato agli Amministratori</h3>
-        <p className="text-xs text-slate-500 mt-2.5 leading-relaxed">
+        <p className="text-xs text-slate-550 mt-2.5 leading-relaxed">
           Spiacenti, solo gli amministratori del Beach Volley Hub possono accedere a questo pannello di gestione dei privilegi utente e delle password. Effettua l'accesso come "admin" per sbloccare questa funzionalità.
         </p>
       </div>
@@ -39,19 +42,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   }
 
   const adminUsers = users.filter((u) => u.isTeamUser !== true);
-  const teamUsers = users.filter((u) => u.isTeamUser === true);
 
   const togglePasswordVisibility = (id: string) => {
     setPasswordsShown(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const handleCopyCredentials = (u: AppUser) => {
-    const textToCopy = `Username: ${u.username}\nPassword: ${u.password}`;
-    navigator.clipboard.writeText(textToCopy);
-    setSuccessText(`Credenziali per la squadra "${u.username}" copiate negli appunti! 📋`);
-    setTimeout(() => {
-      setSuccessText(null);
-    }, 4500);
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -83,7 +76,10 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       username: cleanUsername,
       password: cleanPassword,
       role: newRole,
-      createdAt: new Date().toLocaleDateString('it-IT')
+      createdAt: new Date().toLocaleDateString('it-IT'),
+      nome: newNome.trim(),
+      cognome: newCognome.trim(),
+      telefono: newTelefono.trim()
     };
 
     try {
@@ -93,6 +89,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       setNewUsername('');
       setNewPassword('');
       setNewRole('reader');
+      setNewNome('');
+      setNewCognome('');
+      setNewTelefono('');
       setTimeout(() => setSuccessText(null), 5000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `users/${newUser.id}`);
@@ -187,25 +186,48 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
           <table className="w-full text-xs font-sans">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200">
-                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Nome Utente / E-mail</th>
+                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Operatore / E-mail</th>
+                <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Anagrafica / Telefono</th>
                 <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Livello Privilegio</th>
                 <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Chiave Password</th>
-                <th className="p-3.5 text-center font-black text-slate-500 uppercase tracking-wider">Data Creazione</th>
+                <th className="p-3.5 text-center font-black text-slate-500 uppercase tracking-wider">Stato Sessione</th>
                 <th className="p-3.5 text-right font-black text-slate-500 uppercase tracking-wider">Azioni Gestionali</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {adminUsers.map((u) => {
                 const isSelf = u.username === (currentUser?.username);
+                const isOnline = u.lastActiveAt && (Date.now() - u.lastActiveAt < 120000); // Online if active in last 2 minutes
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/50">
                     <td className="p-3.5">
-                      <div className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                      <div className="font-extrabold text-slate-850 flex items-center gap-1.5">
                         <span className="font-mono">{u.username}</span>
                         {isSelf && (
-                          <span className="text-[9px] bg-sky-100 text-sky-800 font-black uppercase px-2 py-0.5 rounded-full">
+                          <span className="text-[9px] bg-sky-100 text-sky-850 font-black uppercase px-2 py-0.5 rounded-full border border-sky-200">
                             TU UTENTE
                           </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Creato il: <span className="font-semibold">{u.createdAt}</span>
+                      </div>
+                    </td>
+                    <td className="p-3.5">
+                      <div className="space-y-0.5 text-slate-700">
+                        {(u.nome || u.cognome) ? (
+                          <div className="font-black text-xs uppercase">
+                            👤 {u.nome || ''} {u.cognome || ''}
+                          </div>
+                        ) : (
+                          <div className="text-slate-450 italic">- Nessun nome -</div>
+                        )}
+                        {u.telefono ? (
+                          <div className="text-[10px] font-mono text-slate-500 font-bold">
+                            📞 {u.telefono}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-450 italic">Senza recapito</div>
                         )}
                       </div>
                     </td>
@@ -216,10 +238,12 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                             ? 'bg-rose-50 text-rose-700 border-rose-200'
                             : u.role === 'collaborator'
                             ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : u.role === 'ATLETA'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : 'bg-slate-100 text-slate-600 border-slate-200'
                         }`}
                       >
-                        🛡️ {u.role === 'admin' ? 'Amministratore (Admin)' : u.role === 'collaborator' ? 'Collaboratore Score' : 'Lettore Spettatore'}
+                        🛡️ {u.role === 'admin' ? 'Amministratore (Admin)' : u.role === 'collaborator' ? 'Collaboratore Score' : u.role === 'ATLETA' ? 'Atleta' : 'Lettore Spettatore'}
                       </span>
                     </td>
                     <td className="p-3.5">
@@ -240,8 +264,24 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                         </button>
                       </div>
                     </td>
-                    <td className="p-3.5 text-center font-bold text-slate-400 font-mono">
-                      {u.createdAt}
+                    <td className="p-3.5 text-center">
+                      {isOnline ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-2550 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                          <span className="w-1.5 h-1.5 bg-emerald-505 bg-emerald-500 rounded-full animate-pulse"></span>
+                          Attivo Connesso
+                        </span>
+                      ) : u.lastActiveAt ? (
+                        <div className="text-[10px] text-slate-500 font-semibold leading-tight">
+                          <div>Sconnesso</div>
+                          <div className="text-[8px] text-slate-400 font-mono mt-0.5">
+                            {new Date(u.lastActiveAt).toLocaleString('it-IT', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                          Mai Connesso
+                        </span>
+                      )}
                     </td>
                     <td className="p-3.5 text-right">
                       <div className="flex justify-end gap-1.5">
@@ -279,93 +319,6 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
         </div>
       </div>
 
-      {/* Section 2: Team Access Credentials List */}
-      <div id="team-users-workspace-card" className="bg-white rounded-3xl border border-emerald-200/60 p-6 shadow-sm mt-8 animate-in fade-in slide-in duration-300">
-        <div className="border-b-2 border-slate-100 pb-5 mb-6">
-          <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-            <Trophy className="w-5 h-5 text-emerald-500" />
-            Accessi Automatici Squadre Torneo ({teamUsers.length})
-          </h2>
-          <p className="text-xs text-slate-400 font-extrabold uppercase tracking-wider mt-1 leading-relaxed">
-            Profili da lettore generati automaticamente all'iscrizione della squadra. Le squadre inserite possono usare queste credenziali per accedere in sola lettura al loro torneo.
-          </p>
-        </div>
-
-        {teamUsers.length === 0 ? (
-          <div className="bg-emerald-50/40 rounded-2xl py-8 px-4 text-center border border-dashed border-emerald-200">
-            <Trophy className="w-8 h-8 text-emerald-450 mx-auto opacity-50 mb-2" />
-            <span className="text-xs text-emerald-800 font-extrabold uppercase tracking-wider block">Nessuna squadra ancora registrata</span>
-            <p className="text-[11px] text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
-              Registra delle squadre nel tab principale per generare automaticamente i loro account spettatore!
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto border border-slate-100 rounded-2xl bg-slate-50/25">
-            <table className="w-full text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200">
-                  <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Nome Squadra (Username)</th>
-                  <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Ruolo Assegnato</th>
-                  <th className="p-3.5 text-left font-black text-slate-500 uppercase tracking-wider">Password</th>
-                  <th className="p-3.5 text-center font-black text-slate-500 uppercase tracking-wider">Data Iscrizione</th>
-                  <th className="p-3.5 text-right font-black text-slate-500 uppercase tracking-wider">Azioni Rapide</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {teamUsers.map((u) => {
-                  return (
-                    <tr key={u.id} className="hover:bg-slate-50/50">
-                      <td className="p-3.5">
-                        <div className="font-extrabold text-slate-800 font-mono">
-                          {u.username}
-                        </div>
-                      </td>
-                      <td className="p-3.5">
-                        <span className="text-[9px] font-black uppercase tracking-wider py-1 px-3 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
-                          🌊 Lettore Spettatore
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type={passwordsShown[u.id] ? 'text' : 'password'}
-                            value={u.password || ''}
-                            readOnly
-                            className="bg-transparent text-[11px] font-mono outline-none border-none py-0.5 max-w-[100px]"
-                          />
-                          <button
-                            id={`btn-toggle-team-pass-vis-${u.id}`}
-                            onClick={() => togglePasswordVisibility(u.id)}
-                            className="p-1 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-all"
-                            title="Mostra / Nascondi password"
-                          >
-                            {passwordsShown[u.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
-                      </td>
-                      <td className="p-3.5 text-center font-bold text-slate-400 font-mono">
-                        {u.createdAt}
-                      </td>
-                      <td className="p-3.5 text-right">
-                        <button
-                          id={`btn-copy-team-creds-${u.id}`}
-                          onClick={() => handleCopyCredentials(u)}
-                          className="bg-emerald-50 hover:bg-emerald-100 text-emerald-750 font-black uppercase text-[9px] tracking-wider py-1.5 px-3 rounded-xl transition-all border border-emerald-250 flex items-center gap-1.5 ml-auto shadow-sm"
-                          title="Copia credenziali negli appunti"
-                        >
-                          <Copy className="w-3 h-3" />
-                          Copia Credenziali
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* Slide / Modal: Add User Form */}
       {isAddFormOpen && (
         <div id="add-user-modal-overlay" className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -385,6 +338,40 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
             </div>
 
             <form onSubmit={handleCreateUser} className="mt-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome</label>
+                  <input
+                    type="text"
+                    value={newNome}
+                    onChange={(e) => setNewNome(e.target.value)}
+                    placeholder="Mario"
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-4 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Cognome</label>
+                  <input
+                    type="text"
+                    value={newCognome}
+                    onChange={(e) => setNewCognome(e.target.value)}
+                    placeholder="Rossi"
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-4 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Numero di Telefono</label>
+                <input
+                  type="tel"
+                  value={newTelefono}
+                  onChange={(e) => setNewTelefono(e.target.value)}
+                  placeholder="345 6789012"
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-4 text-xs font-mono font-bold text-slate-800 placeholder-slate-405 focus:outline-none focus:border-sky-500 transition-all"
+                />
+              </div>
+
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Username / E-mail</label>
                 <input
@@ -392,7 +379,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
                   placeholder="E.g., mario.rossi@gmail.com"
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-black uppercase text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 transition-all font-mono"
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-black uppercase text-slate-800 placeholder-slate-404 focus:outline-none focus:border-sky-500 transition-all font-mono"
                   required
                 />
               </div>
@@ -436,6 +423,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                   <option value="reader">Lettore Spettatore (Solo lettura)</option>
                   <option value="collaborator">Collaboratore Score (Aggiorna punteggi e tabelloni)</option>
                   <option value="admin">Amministratore Completo (Accesso a tutto)</option>
+                  <option value="ATLETA">Atleta (Accesso Limitato)</option>
                 </select>
               </div>
 
@@ -485,6 +473,40 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Nome</label>
+                  <input
+                    type="text"
+                    value={editingUser.nome || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, nome: e.target.value })}
+                    placeholder="Nome"
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Cognome</label>
+                  <input
+                    type="text"
+                    value={editingUser.cognome || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, cognome: e.target.value })}
+                    placeholder="Cognome"
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Telefono</label>
+                <input
+                  type="tel"
+                  value={editingUser.telefono || ''}
+                  onChange={(e) => setEditingUser({ ...editingUser, telefono: e.target.value })}
+                  placeholder="Telefono"
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-2.5 px-4 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
+                />
+              </div>
+
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Password</label>
                 <input
@@ -507,6 +529,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
                   <option value="reader">Lettore Spettatore (Solo lettura)</option>
                   <option value="collaborator">Collaboratore Score (Aggiorna punteggi e tabelloni)</option>
                   <option value="admin">Amministratore Completo (Accesso a tutto)</option>
+                  <option value="ATLETA">Atleta (Accesso Limitato)</option>
                 </select>
               </div>
 

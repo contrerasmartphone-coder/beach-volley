@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Team, Match, NotificationLog, AppUser, ArchivedTournament, ActiveTournamentSave } from './types';
 import { DEMO_TEAMS, getInitialTeamStats, generateDirectEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, generateDoubleEliminationBracket, autoResolveAndPropagate, sortTeamsByEntryList, recalculateTournamentStages, getGaraNumbersMap } from './utils';
 import TeamsTab from './components/TeamsTab';
@@ -27,6 +27,74 @@ export default function App() {
       return null;
     }
   });
+
+  const [sessionTimeLeft, setSessionTimeLeft] = useState<number>(900); // 15 minutes session
+  const currentUserRef = useRef<AppUser | null>(currentUser);
+
+  // Sync ref with current user
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  // Connection timer ticks down of active user session
+  useEffect(() => {
+    if (!currentUser) {
+      setSessionTimeLeft(900);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setSessionTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setCurrentUser(null);
+          alert("La tua sessione di connessione è scaduta per inattività. Effettua nuovamente l'accesso.");
+          return 900;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Handle user activity renewal of connection timer
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const renewSession = () => {
+      setSessionTimeLeft(900);
+    };
+
+    window.addEventListener('click', renewSession);
+    window.addEventListener('keypress', renewSession);
+
+    return () => {
+      window.removeEventListener('click', renewSession);
+      window.removeEventListener('keypress', renewSession);
+    };
+  }, [currentUser]);
+
+  // Save active ping to DB once a minute to prevent idle timeout
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const writePing = async () => {
+      try {
+        await setDoc(doc(db, 'users', currentUser.id), { lastActiveAt: Date.now() }, { merge: true });
+      } catch (err) {
+        console.error("Errore salvataggio ping attività:", err);
+      }
+    };
+
+    writePing(); // immediate write upon login
+
+    const timer = setInterval(() => {
+      writePing();
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, [currentUser?.id]);
 
   const [users, setUsers] = useState<AppUser[]>([]);
   const [archives, setArchives] = useState<ArchivedTournament[]>([]);
@@ -156,6 +224,15 @@ export default function App() {
       });
       list.sort((a, b) => a.username.localeCompare(b.username));
       setUsers(list);
+
+      // Block simultaneous connections: disconnect older sessions if a newer one logs in
+      if (currentUserRef.current) {
+        const dbUser = list.find(u => u.id === currentUserRef.current?.id);
+        if (dbUser && dbUser.activeSessionId && dbUser.activeSessionId !== currentUserRef.current.activeSessionId) {
+          setCurrentUser(null);
+          alert("La tua sessione è stata terminata poiché è stato effettuato un nuovo accesso con lo stesso account da un altro dispositivo o browser.");
+        }
+      }
     }, (error) => {
       console.error("Firestore sync error (users):", error);
     });
@@ -305,17 +382,6 @@ export default function App() {
     };
 
     try {
-      // Create associated team user with random password
-      const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
-      const newUser: AppUser = {
-        id: `team-user-${newTeam.id}`,
-        username: newTeam.name,
-        password: randomPassword,
-        role: 'reader',
-        createdAt: new Date().toLocaleDateString('it-IT'),
-        isTeamUser: true,
-      };
-      await setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
       await setDoc(doc(db, 'teams', newTeam.id), cleanObject(newTeam));
       await setDoc(doc(db, 'notifications', addedNotif.id), cleanObject(addedNotif));
     } catch (err) {
@@ -331,7 +397,6 @@ export default function App() {
     
     try {
       await deleteDoc(doc(db, 'teams', id));
-      await deleteDoc(doc(db, 'users', `team-user-${id}`));
       const rmNotif: NotificationLog = {
         id: `notif-rm-${Date.now()}`,
         title: 'Iscrizione cancellata 🗑️',
@@ -363,28 +428,6 @@ export default function App() {
     };
 
     try {
-      // Sync the automatic team user with the updated name
-      const userRef = doc(db, 'users', `team-user-${updatedTeam.id}`);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        const existingData = userSnap.data();
-        await setDoc(userRef, cleanObject({
-          ...existingData,
-          username: updatedTeam.name
-        }));
-      } else {
-        const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
-        const newUser: AppUser = {
-          id: `team-user-${updatedTeam.id}`,
-          username: updatedTeam.name,
-          password: randomPassword,
-          role: 'reader',
-          createdAt: new Date().toLocaleDateString('it-IT'),
-          isTeamUser: true,
-        };
-        await setDoc(userRef, cleanObject(newUser));
-      }
-
       await setDoc(doc(db, 'teams', updatedTeam.id), cleanObject(updatedTeam));
       await setDoc(doc(db, 'notifications', updateNotif.id), cleanObject(updateNotif));
 
@@ -488,31 +531,6 @@ export default function App() {
       await clearCollection('notifications');
       await deleteDoc(doc(db, 'config', 'settings'));
 
-      // Delete any existing team credentials to avoid orphans
-      const userSnap = await getDocs(collection(db, 'users'));
-      const deletePromisesArr: Promise<void>[] = [];
-      userSnap.forEach((docDoc) => {
-        if (docDoc.data().isTeamUser === true) {
-          deletePromisesArr.push(deleteDoc(doc(db, 'users', docDoc.id)));
-        }
-      });
-      await Promise.all(deletePromisesArr);
-
-      // Generate automatically a team spectating user for each of the new teams
-      const teamUserPromises = selectedDemos.map((team) => {
-        const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
-        const newUser: AppUser = {
-          id: `team-user-${team.id}`,
-          username: team.name,
-          password: randomPassword,
-          role: 'reader',
-          createdAt: new Date().toLocaleDateString('it-IT'),
-          isTeamUser: true,
-        };
-        return setDoc(doc(db, 'users', newUser.id), cleanObject(newUser));
-      });
-      await Promise.all(teamUserPromises);
-
       const teamPromises = selectedDemos.map((team) => setDoc(doc(db, 'teams', team.id), cleanObject(team)));
       await Promise.all(teamPromises);
       await setDoc(doc(db, 'notifications', demNotif.id), cleanObject(demNotif));
@@ -527,16 +545,6 @@ export default function App() {
       await clearCollection('matches');
       await clearCollection('notifications');
       await deleteDoc(doc(db, 'config', 'settings'));
-
-      // Delete team credentials in sync with teams teardown
-      const userSnap = await getDocs(collection(db, 'users'));
-      const deletePromisesArr: Promise<void>[] = [];
-      userSnap.forEach((docDoc) => {
-        if (docDoc.data().isTeamUser === true) {
-          deletePromisesArr.push(deleteDoc(doc(db, 'users', docDoc.id)));
-        }
-      });
-      await Promise.all(deletePromisesArr);
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, 'all');
     }
@@ -898,7 +906,6 @@ export default function App() {
 
   const handleSaveActiveTournament = async (nameToUse: string, overwriteSaveId?: string) => {
     const saveId = overwriteSaveId || `save-${Date.now()}`;
-    const liveTeamUsers = users.filter((u) => u.isTeamUser === true);
     const newSave: ActiveTournamentSave = {
       id: saveId,
       name: nameToUse,
@@ -912,7 +919,7 @@ export default function App() {
       savedBy: currentUser?.username || 'admin',
       notifications: notifications,
       timestamp: Date.now(),
-      teamUsers: liveTeamUsers,
+      teamUsers: [],
     };
     try {
       await setDoc(doc(db, 'saves', saveId), cleanObject(newSave));
@@ -933,37 +940,6 @@ export default function App() {
       await clearCollection('matches');
       await clearCollection('notifications');
 
-      // Purge current team credentials
-      const userSnap = await getDocs(collection(db, 'users'));
-      const deletePromisesArr: Promise<void>[] = [];
-      userSnap.forEach((docDoc) => {
-        if (docDoc.data().isTeamUser === true) {
-          deletePromisesArr.push(deleteDoc(doc(db, 'users', docDoc.id)));
-        }
-      });
-      await Promise.all(deletePromisesArr);
-
-      // Restore saved credentials or auto-generate on-demand for older backup files
-      const restoredUsers: AppUser[] = [];
-      if (save.teamUsers && save.teamUsers.length > 0) {
-        restoredUsers.push(...save.teamUsers);
-      } else {
-        save.teams.forEach((team) => {
-          const randomPassword = Math.random().toString(36).slice(-6).toUpperCase();
-          restoredUsers.push({
-            id: `team-user-${team.id}`,
-            username: team.name,
-            password: randomPassword,
-            role: 'reader',
-            createdAt: new Date().toLocaleDateString('it-IT'),
-            isTeamUser: true,
-          });
-        });
-      }
-
-      const userPromises = restoredUsers.map(u => setDoc(doc(db, 'users', u.id), cleanObject(u)));
-      await Promise.all(userPromises);
-      
       const teamPromises = save.teams.map(t => setDoc(doc(db, 'teams', t.id), cleanObject(t)));
       await Promise.all(teamPromises);
 
@@ -1062,10 +1038,29 @@ export default function App() {
                 const isSavedPassCorrect = savedUser && savedUser.password === typedPass;
 
                 if (isActivePassCorrect) {
-                  // The user exists and is in the active tournament, and correct password: allow access
-                  setCurrentUser(activeUser);
-                  setLoginUsername('');
-                  setLoginPassword('');
+                  // The user exists and correct password: allow access with session tracking
+                  const newSessionId = Math.random().toString(36).slice(2) + Date.now().toString();
+                  const updatedUser = {
+                    ...activeUser,
+                    activeSessionId: newSessionId,
+                    lastActiveAt: Date.now(),
+                  };
+                  
+                  // Persist the active session info to database so other active connections of the same user are closed
+                  const userDocRef = doc(db, 'users', activeUser.id);
+                  setDoc(userDocRef, cleanObject(updatedUser))
+                    .then(() => {
+                      setCurrentUser(updatedUser);
+                      setLoginUsername('');
+                      setLoginPassword('');
+                    })
+                    .catch((err) => {
+                      console.error("Errore salvataggio sessione utente:", err);
+                      // Fallback to allow access if database is writing
+                      setCurrentUser(updatedUser);
+                      setLoginUsername('');
+                      setLoginPassword('');
+                    });
                 } else if (isSavedPassCorrect) {
                   // Correct password but associated with an inactive saved tournament: return inactive tournament error
                   setLoginError('Torneo richiesto non attivo.');
@@ -1122,10 +1117,8 @@ export default function App() {
     );
   }
 
-  const isTeamUser = currentUser?.isTeamUser === true;
-  const isTeamAuthorized = isTeamUser
-    ? teams.some((t) => t.name.trim().toLowerCase() === currentUser.username.trim().toLowerCase())
-    : true;
+  const isTeamUser = false;
+  const isTeamAuthorized = true;
 
   return (
     <div id="main-beach-app-shell" className="min-h-screen bg-amber-50 text-slate-800 font-sans antialiased pb-0 border-0 md:border-8 border-sky-400 flex flex-col selection:bg-orange-200">
@@ -1184,9 +1177,14 @@ export default function App() {
                 <div id="session-user-badge" className="bg-sky-850 border border-sky-400/30 rounded-2xl p-2 px-3 flex items-center gap-3 text-[11px] md:text-xs shadow-inner uppercase tracking-wider font-sans">
                   <div className="text-left">
                     <div className="font-extrabold text-amber-300 max-w-[120px] truncate">{currentUser.username}</div>
-                    <div className="text-[8px] text-sky-300 font-black mt-0.5 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                      {currentUser.role === 'admin' ? '🛡️ Amministratore' : currentUser.role === 'collaborator' ? '💼 Collaboratore' : '👁️ LETTORE'}
+                    <div className="text-[8px] text-sky-300 font-black mt-0.5 flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        {currentUser.role === 'admin' ? '🛡️ Amministratore' : currentUser.role === 'collaborator' ? '💼 Collaboratore' : currentUser.role === 'ATLETA' ? '🏃 ATLETA' : '👁️ LETTORE'}
+                      </div>
+                      <div className="text-[9px] text-amber-300 font-extrabold font-mono mt-0.5">
+                        ⏳ {Math.floor(sessionTimeLeft / 60)}:{(sessionTimeLeft % 60).toString().padStart(2, '0')}
+                      </div>
                     </div>
                   </div>
                   <button

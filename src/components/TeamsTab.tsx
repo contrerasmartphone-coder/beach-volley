@@ -1170,74 +1170,7 @@ export default function TeamsTab({
                         </div>
                       </div>
 
-                      {/* Credenziali della Squadra */}
-                      {(() => {
-                        const teamUserObj = users.find(u => u.id === `team-user-${selectedDetailsTeam.id}`);
-                        const fallbackUserObj = !teamUserObj ? users.find(u => u.isTeamUser && u.username.trim().toLowerCase() === selectedDetailsTeam.name.trim().toLowerCase()) : null;
-                        const finalUserObj = teamUserObj || fallbackUserObj;
 
-                        if (!finalUserObj) {
-                          return (
-                            <div className="bg-amber-55/40 border border-amber-250 rounded-xl p-3 text-center text-xs text-amber-800 font-bold mt-2.5">
-                              ⚠️ Nessun account associato trovato per questa squadra nel database.
-                            </div>
-                          );
-                        }
-
-                        const inviteMsg = `Ciao,  
-Per seguire in tempo reale il torneo Wsicily al quale sei iscritto collegati alla nostra web app all'indirizzo https://wsicily.vercel.app ed effettua il login con le tue credenziali di squadra:
-
-Username: ${finalUserObj.username}
-Password: ${finalUserObj.password}
-
-Buon Divertimento!
-
-Lo staff Wsicily!`;
-
-                        const hasPhone = selectedDetailsTeam.phone && selectedDetailsTeam.phone !== 'Non specificato';
-                        const p1PhoneTemp = hasPhone ? selectedDetailsTeam.phone : '';
-                        const wpInviteUrl = getWhatsAppUrl(p1PhoneTemp) + `?text=${encodeURIComponent(inviteMsg)}`;
-
-                        return (
-                          <div className="bg-sky-50 border-2 border-sky-200 rounded-xl p-3.5 mt-2.5 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-black uppercase text-sky-700 tracking-wider flex items-center gap-1.5">
-                                <Lock className="w-3.5 h-3.5 text-sky-600" />
-                                Credenziali di Accesso Squadra 🔐
-                              </span>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-2 text-xs font-semibold bg-white p-2.5 rounded-lg border border-sky-100">
-                              <div>
-                                <div className="text-[9px] text-slate-400 uppercase font-bold">Username</div>
-                                <div className="font-mono text-xs text-sky-950 truncate select-all">{finalUserObj.username}</div>
-                              </div>
-                              <div>
-                                <div className="text-[9px] text-slate-400 uppercase font-bold">Password</div>
-                                <div className="font-mono text-xs text-orange-600 font-extrabold tracking-wider select-all">{finalUserObj.password}</div>
-                              </div>
-                            </div>
-
-                            <div className="pt-1">
-                              <a
-                                href={wpInviteUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 text-[11px] font-black uppercase tracking-wide bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-lg transition-all shadow-md cursor-pointer text-center"
-                                id={`send-wp-creds-${selectedDetailsTeam.id}`}
-                              >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                                Invia Credenziali via WhatsApp 💬
-                              </a>
-                              {!hasPhone && (
-                                <p className="text-[8px] md:text-[9px] text-orange-650 font-bold mt-1 text-center leading-tight">
-                                  * Nota: Numero di Player 1 mancante. WhatsApp richiederà di selezionare il contatto manualmente.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()}
                     </div>
 
                     {/* Player 2 Details / Edit */}

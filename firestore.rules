@@ -43,7 +43,12 @@ service cloud.firestore {
         && u.username is string && u.username.size() <= 200
         && u.password is string && u.password.size() <= 200
         && (u.role == 'admin' || u.role == 'collaborator' || u.role == 'reader')
-        && u.createdAt is string;
+        && u.createdAt is string
+        && (!('nome' in u) || u.nome is string)
+        && (!('cognome' in u) || u.cognome is string)
+        && (!('telefono' in u) || u.telefono is string)
+        && (!('activeSessionId' in u) || u.activeSessionId is string)
+        && (!('lastActiveAt' in u) || u.lastActiveAt is int || u.lastActiveAt is float);
     }
 
     function isValidArchive(a) {

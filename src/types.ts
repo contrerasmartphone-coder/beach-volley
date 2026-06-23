@@ -98,9 +98,14 @@ export interface AppUser {
   id: string;
   username: string;
   password?: string;
-  role: 'admin' | 'collaborator' | 'reader';
+  role: 'admin' | 'collaborator' | 'reader' | 'ATLETA';
   createdAt: string;
   isTeamUser?: boolean;
+  nome?: string;
+  cognome?: string;
+  telefono?: string;
+  activeSessionId?: string;
+  lastActiveAt?: number;
 }
 
 export interface ArchivedTournament {
