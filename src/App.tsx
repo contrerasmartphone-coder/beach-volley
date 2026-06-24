@@ -167,6 +167,7 @@ export default function App() {
         activeSessionId: null,
       }).catch(console.error);
     }
+    localStorage.removeItem("bv_current_user");
     setCurrentUser(null);
   };
 
