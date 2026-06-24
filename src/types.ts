@@ -99,6 +99,7 @@ export interface AppUser {
   username: string;
   password?: string;
   role: 'admin' | 'collaborator' | 'reader' | 'ATLETA';
+  genere?: 'M' | 'F';
   createdAt: string;
   isTeamUser?: boolean;
   nome?: string;
@@ -106,6 +107,23 @@ export interface AppUser {
   telefono?: string;
   activeSessionId?: string;
   lastActiveAt?: number;
+  dataNascita?: string; // Data di nascita
+  isAthlete?: boolean; // Se lo staff è anche atleta o se abilitato
+}
+
+export interface RegistrationRequest {
+  id: string; // unique ID, e.g. username
+  username: string;
+  password?: string;
+  role: 'admin' | 'collaborator' | 'reader' | 'ATLETA';
+  nome: string;
+  cognome: string;
+  telefono: string;
+  genere?: 'M' | 'F';
+  dataNascita?: string;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  isAthlete?: boolean;
 }
 
 export interface ArchivedTournament {

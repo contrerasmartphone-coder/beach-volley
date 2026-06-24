@@ -82,7 +82,9 @@
       "type": "object",
       "properties": {
         "admittedTeamsCount": { "type": "number" },
-        "activeTournamentConfig": { "type": "object" }
+        "activeTournamentConfig": { "type": "object" },
+        "tournamentDate": { "type": "string" },
+        "tournamentGender": { "type": "string", "enum": ["maschile", "misto", "femminile", ""] }
       }
     },
     "AppUser": {
@@ -98,10 +100,29 @@
         "nome": { "type": "string" },
         "cognome": { "type": "string" },
         "telefono": { "type": "string" },
+        "dataNascita": { "type": "string" },
         "activeSessionId": { "type": "string" },
         "lastActiveAt": { "type": "number" }
       },
       "required": ["id", "username", "password", "role", "createdAt"]
+    },
+    "RegistrationRequest": {
+      "title": "RegistrationRequest",
+      "description": "Represents a pending registration request from an operator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "collaborator", "reader", "ATLETA"] },
+        "createdAt": { "type": "string" },
+        "nome": { "type": "string" },
+        "cognome": { "type": "string" },
+        "telefono": { "type": "string" },
+        "dataNascita": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] }
+      },
+      "required": ["id", "username", "password", "role", "createdAt", "nome", "cognome", "telefono", "status"]
     },
     "ArchivedTournament": {
       "title": "ArchivedTournament",
@@ -135,9 +156,22 @@
         "admittedTeamsCount": { "type": "number" }
       },
       "required": ["id", "name", "date", "formula", "teamsCount", "teams", "matches"]
+    },
+    "SystemStatus": {
+      "title": "SystemStatus",
+      "description": "Defines global online/offline connection state",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["online", "offline"] }
+      },
+      "required": ["status"]
     }
   },
   "firestore": {
+    "/config/status": {
+      "schema": "SystemStatus",
+      "description": "Stores the global connection status (Online/Offline) for non-admin users"
+    },
     "/teams/{teamId}": {
       "schema": "Team",
       "description": "Stores teams registered for the tournament"
@@ -157,6 +191,10 @@
     "/users/{userId}": {
       "schema": "AppUser",
       "description": "Stores credentials and permissions for users running the app"
+    },
+    "/registrationRequests/{requestId}": {
+      "schema": "RegistrationRequest",
+      "description": "Stores pending registration requests from operators awaiting admin approval"
     },
     "/archives/{archiveId}": {
       "schema": "ArchivedTournament",

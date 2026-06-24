@@ -42,13 +42,29 @@ service cloud.firestore {
       return u.id is string
         && u.username is string && u.username.size() <= 200
         && u.password is string && u.password.size() <= 200
-        && (u.role == 'admin' || u.role == 'collaborator' || u.role == 'reader')
+        && (u.role == 'admin' || u.role == 'collaborator' || u.role == 'reader' || u.role == 'ATLETA')
         && u.createdAt is string
         && (!('nome' in u) || u.nome is string)
         && (!('cognome' in u) || u.cognome is string)
         && (!('telefono' in u) || u.telefono is string)
+        && (!('dataNascita' in u) || u.dataNascita is string)
+        && (!('genere' in u) || u.genere == 'M' || u.genere == 'F')
         && (!('activeSessionId' in u) || u.activeSessionId is string)
         && (!('lastActiveAt' in u) || u.lastActiveAt is int || u.lastActiveAt is float);
+    }
+
+    function isValidRegistrationRequest(r) {
+      return r.id is string
+        && r.username is string && r.username.size() <= 200
+        && r.password is string && r.password.size() <= 200
+        && (r.role == 'admin' || r.role == 'collaborator' || r.role == 'reader' || r.role == 'ATLETA')
+        && r.createdAt is string
+        && r.nome is string && r.nome.size() <= 200
+        && r.cognome is string && r.cognome.size() <= 200
+        && r.telefono is string && r.telefono.size() <= 50
+        && (r.status == 'pending' || r.status == 'approved' || r.status == 'rejected')
+        && (!('genere' in r) || r.genere == 'M' || r.genere == 'F')
+        && (!('dataNascita' in r) || r.dataNascita is string);
     }
 
     function isValidArchive(a) {
@@ -99,6 +115,12 @@ service cloud.firestore {
       allow delete: if isValidId(userId);
     }
 
+    match /registrationRequests/{requestId} {
+      allow read: if true;
+      allow create, update: if isValidId(requestId) && isValidRegistrationRequest(request.resource.data);
+      allow delete: if isValidId(requestId);
+    }
+
     match /archives/{archiveId} {
       allow read: if true;
       allow create, update: if isValidId(archiveId) && isValidArchive(request.resource.data);
@@ -112,6 +134,11 @@ service cloud.firestore {
     }
 
     match /config/settings {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /config/status {
       allow read: if true;
       allow write: if true;
     }

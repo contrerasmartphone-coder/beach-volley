@@ -43,6 +43,8 @@ export default function TeamsTab({
 }: TeamsTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
+  const isUserAthlete = !!(currentUser && (currentUser.role === 'ATLETA' || currentUser.isAthlete === true));
+  const canRegisterTeam = !!(canWrite || isUserAthlete);
 
   const [name, setName] = useState('');
   const [player1, setPlayer1] = useState('');
@@ -50,6 +52,16 @@ export default function TeamsTab({
   const [level, setLevel] = useState<'Beginner' | 'Bronze' | 'Silver' | 'Gold'>('Silver');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+
+  React.useEffect(() => {
+    if (currentUser && currentUser.role === 'ATLETA' && !name && !player1) {
+      const userFullName = currentUser.nome || currentUser.cognome 
+        ? `${currentUser.nome || ''} ${currentUser.cognome || ''}`.trim() 
+        : currentUser.username;
+      setPlayer1(userFullName);
+      setPhone(currentUser.telefono || '');
+    }
+  }, [currentUser]);
   const [phone2, setPhone2] = useState('');
   const [email2, setEmail2] = useState('');
   const [customCount, setCustomCount] = useState<number | ''>(24);
@@ -377,10 +389,10 @@ export default function TeamsTab({
   return (
     <div id="teams-tab-container" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Registration Column */}
-      {canWrite && (
+      {canRegisterTeam && (
         <div id="registration-panel" className={`lg:col-span-1 space-y-6 ${isLocked ? 'order-2 lg:order-none' : 'order-1 lg:order-none'}`}>
         <div className="bg-white rounded-3xl shadow-xl border-4 border-orange-300 p-6 relative overflow-hidden">
-          {!canWrite ? (
+          {!canRegisterTeam ? (
             <div className="absolute inset-0 bg-slate-50/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-25 animate-in fade-in duration-200">
               <div className="p-4 bg-sky-50 rounded-full border-4 border-sky-300 text-sky-500 mb-4">
                 <Lock className="w-8 h-8 stroke-[2.5]" />
@@ -435,6 +447,25 @@ export default function TeamsTab({
               />
             </div>
 
+            {isUserAthlete && (
+              <div className="mb-2">
+                <button
+                  type="button"
+                  id="self-prefill-btn"
+                  onClick={() => {
+                    const userFullName = currentUser?.nome || currentUser?.cognome 
+                      ? `${currentUser.nome || ''} ${currentUser.cognome || ''}`.trim() 
+                      : currentUser?.username || '';
+                    setPlayer1(userFullName);
+                    setPhone(currentUser?.telefono || '');
+                  }}
+                  className="w-full bg-orange-50 hover:bg-orange-100 text-orange-700 text-[11px] font-black uppercase tracking-wider py-2 px-3 rounded-xl border border-orange-200 shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  🙋 Compila con i miei dati Atleta
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="player-1-input" className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
@@ -444,7 +475,10 @@ export default function TeamsTab({
                   id="player-1-input"
                   type="text"
                   required
-                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-semibold bg-amber-50/20 focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800"
+                  disabled={currentUser?.role === 'ATLETA'}
+                  className={`w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-semibold focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800 ${
+                    currentUser?.role === 'ATLETA' ? 'bg-slate-100 cursor-not-allowed opacity-80' : 'bg-amber-50/20'
+                  }`}
                   placeholder="Nome e cognome"
                   value={player1}
                   onChange={(e) => setPlayer1(e.target.value)}
@@ -505,7 +539,10 @@ export default function TeamsTab({
                     <input
                       id="phone-input"
                       type="tel"
-                      className="w-full pl-9 pr-4 py-2 rounded-xl border-2 border-slate-300 text-xs font-semibold bg-amber-50/20 focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800"
+                      disabled={currentUser?.role === 'ATLETA'}
+                      className={`w-full pl-9 pr-4 py-2 rounded-xl border-2 border-slate-300 text-xs font-semibold focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800 ${
+                        currentUser?.role === 'ATLETA' ? 'bg-slate-100 cursor-not-allowed opacity-80' : 'bg-amber-50/20'
+                      }`}
                       placeholder="es. +39 333 1234567"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
@@ -691,7 +728,7 @@ export default function TeamsTab({
       )}
 
       {/* Roster / Directory Column */}
-      <div id="roster-panel" className={`${canWrite ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6 ${isLocked ? 'order-1 lg:order-none' : 'order-2 lg:order-none'}`}>
+      <div id="roster-panel" className={`${canRegisterTeam ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-6 ${isLocked ? 'order-1 lg:order-none' : 'order-2 lg:order-none'}`}>
         {/* Statistics headers */}
         <div className="flex flex-col items-center justify-center w-full py-4 text-center gap-4">
           {/* Centered Total Teams Badge/Button */}

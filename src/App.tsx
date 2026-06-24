@@ -6,6 +6,7 @@ import {
   AppUser,
   ArchivedTournament,
   ActiveTournamentSave,
+  RegistrationRequest,
 } from "./types";
 import {
   DEMO_TEAMS,
@@ -38,6 +39,10 @@ import {
   Check,
   Lock,
   X,
+  LogOut,
+  Calendar,
+  Edit,
+  MapPin,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -56,6 +61,17 @@ import {
   getDocs,
   getDoc,
 } from "firebase/firestore";
+
+const normalizePhoneForComparison = (phone: string) => {
+  let cleaned = phone.replace(/\D/g, ""); // strip non-digits
+  if (cleaned.startsWith("0039")) {
+    cleaned = cleaned.substring(4);
+  }
+  if (cleaned.startsWith("39") && cleaned.length > 10) {
+    cleaned = cleaned.substring(2);
+  }
+  return cleaned;
+};
 
 const logoUrl = new URL(
   "./assets/images/wsicily_logo_white_bg_1781554165519.jpg",
@@ -83,6 +99,63 @@ export default function App() {
 
   const [sessionTimeLeft, setSessionTimeLeft] = useState<number>(900); // 15 minutes session
   const currentUserRef = useRef<AppUser | null>(currentUser);
+  const [systemStatus, setSystemStatus] = useState<"online" | "offline">("online");
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "config", "status"), (docSnap) => {
+      if (docSnap.exists()) {
+        setSystemStatus(docSnap.data().status as "online" | "offline");
+      } else {
+        setSystemStatus("online");
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleToggleSystemStatus = async () => {
+    const newStatus = systemStatus === "online" ? "offline" : "online";
+    try {
+      await setDoc(doc(db, "config", "status"), { status: newStatus }, { merge: true });
+    } catch (err: any) {
+      console.error(err);
+      alert(`Errore durante l'aggiornamento dello stato del sistema: ${err?.message || err}`);
+    }
+  };
+
+  const handleSaveTournamentInfo = async () => {
+    try {
+      await setDoc(
+        doc(db, "config", "settings"),
+        {
+          tournamentDate: editTournamentDate,
+          tournamentGender: editTournamentGender,
+          tournamentLocation: editTournamentLocation,
+        },
+        { merge: true },
+      );
+      setIsEditingTournamentInfo(false);
+    } catch (err: any) {
+      console.error("Errore salvataggio info torneo:", err);
+      alert(`Errore durante il salvataggio delle info torneo: ${err?.message || err}`);
+    }
+  };
+
+  const handleSaveHeaderLocation = async () => {
+    setIsEditingHeaderLocation(false);
+    const newLocation = tempHeaderLocation.trim();
+    try {
+      await setDoc(
+        doc(db, "config", "settings"),
+        {
+          tournamentLocation: newLocation,
+        },
+        { merge: true },
+      );
+    } catch (err: any) {
+      console.error("Errore salvataggio luogo torneo dall'header:", err);
+      alert(`Errore durante il salvataggio del luogo del torneo: ${err?.message || err}`);
+    }
+  };
 
   const handleLogout = () => {
     if (currentUserRef.current) {
@@ -108,21 +181,23 @@ export default function App() {
     }
 
     const interval = setInterval(() => {
-      setSessionTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          handleLogout();
-          alert(
-            "La tua sessione di connessione è scaduta per inattività. Effettua nuovamente l'accesso.",
-          );
-          return 900;
-        }
-        return prev - 1;
-      });
+      setSessionTimeLeft((prev) => prev - 1);
     }, 1000);
 
     return () => clearInterval(interval);
   }, [currentUser]);
+
+  // Handle session expiration
+  useEffect(() => {
+    if (currentUser && sessionTimeLeft <= 0) {
+      handleLogout();
+      setTimeout(() => {
+        alert(
+          "La tua sessione di connessione è scaduta per inattività. Effettua nuovamente l'accesso.",
+        );
+      }, 0);
+    }
+  }, [sessionTimeLeft, currentUser]);
 
   // Handle user activity renewal of connection timer
   useEffect(() => {
@@ -173,6 +248,19 @@ export default function App() {
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Registration request form states
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [regUsername, setRegUsername] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regNome, setRegNome] = useState("");
+  const [regCognome, setRegCognome] = useState("");
+  const [regTelefono, setRegTelefono] = useState("");
+  const [regGenere, setRegGenere] = useState<"M" | "F" | "">("");
+  const [regDataNascita, setRegDataNascita] = useState("");
+  const [regRole, setRegRole] = useState<'admin' | 'collaborator' | 'reader' | 'ATLETA'>("reader");
+  const [regError, setRegError] = useState<string | null>(null);
+  const [regSuccess, setRegSuccess] = useState(false);
 
   // State initialized from localStorage (cached copy)
   const [teams, setTeams] = useState<Team[]>(() => {
@@ -231,6 +319,38 @@ export default function App() {
       return null;
     }
   });
+
+  const [tournamentDate, setTournamentDate] = useState<string>(() => {
+    try {
+      return localStorage.getItem("bv_tournament_date") || "";
+    } catch {
+      return "";
+    }
+  });
+
+  const [tournamentLocation, setTournamentLocation] = useState<string>(() => {
+    try {
+      return localStorage.getItem("bv_tournament_location") || "";
+    } catch {
+      return "";
+    }
+  });
+
+  const [isEditingHeaderLocation, setIsEditingHeaderLocation] = useState(false);
+  const [tempHeaderLocation, setTempHeaderLocation] = useState("");
+
+  const [tournamentGender, setTournamentGender] = useState<"maschile" | "misto" | "femminile" | "">(() => {
+    try {
+      return (localStorage.getItem("bv_tournament_gender") as any) || "";
+    } catch {
+      return "";
+    }
+  });
+
+  const [isEditingTournamentInfo, setIsEditingTournamentInfo] = useState(false);
+  const [editTournamentDate, setEditTournamentDate] = useState("");
+  const [editTournamentGender, setEditTournamentGender] = useState<"maschile" | "misto" | "femminile" | "">("");
+  const [editTournamentLocation, setEditTournamentLocation] = useState("");
 
   // Synced from Firestore in real-time for all connected users
   useEffect(() => {
@@ -299,10 +419,54 @@ export default function App() {
           if (data.loadedSaveName !== undefined)
             setLoadedSaveName(data.loadedSaveName);
           else setLoadedSaveName(null);
+
+          if (data.tournamentDate !== undefined) {
+            setTournamentDate(data.tournamentDate);
+            try {
+              localStorage.setItem("bv_tournament_date", data.tournamentDate);
+            } catch {}
+          } else {
+            setTournamentDate("");
+            try {
+              localStorage.removeItem("bv_tournament_date");
+            } catch {}
+          }
+
+          if (data.tournamentLocation !== undefined) {
+            setTournamentLocation(data.tournamentLocation);
+            try {
+              localStorage.setItem("bv_tournament_location", data.tournamentLocation);
+            } catch {}
+          } else {
+            setTournamentLocation("");
+            try {
+              localStorage.removeItem("bv_tournament_location");
+            } catch {}
+          }
+
+          if (data.tournamentGender !== undefined) {
+            setTournamentGender(data.tournamentGender);
+            try {
+              localStorage.setItem("bv_tournament_gender", data.tournamentGender);
+            } catch {}
+          } else {
+            setTournamentGender("");
+            try {
+              localStorage.removeItem("bv_tournament_gender");
+            } catch {}
+          }
         } else {
           setAdmittedTeamsCount(null);
           setActiveTournamentConfig(null);
           setLoadedSaveName(null);
+          setTournamentDate("");
+          setTournamentGender("");
+          setTournamentLocation("");
+          try {
+            localStorage.removeItem("bv_tournament_date");
+            localStorage.removeItem("bv_tournament_gender");
+            localStorage.removeItem("bv_tournament_location");
+          } catch {}
         }
       },
       (error) => {
@@ -329,9 +493,12 @@ export default function App() {
             dbUser.activeSessionId !== currentUserRef.current.activeSessionId
           ) {
             setCurrentUser(null);
-            alert(
-              "La tua sessione è stata terminata poiché è stato effettuato un nuovo accesso con lo stesso account da un altro dispositivo o browser.",
-            );
+            currentUserRef.current = null;
+            setTimeout(() => {
+              alert(
+                "La tua sessione è stata terminata poiché è stato effettuato un nuovo accesso con lo stesso account da un altro dispositivo o browser.",
+              );
+            }, 0);
           }
         }
       },
@@ -415,11 +582,12 @@ export default function App() {
           const snapshot = await getDocs(collection(db, "users"));
           if (snapshot.empty) {
             const adminUser: AppUser = {
-              id: "contrera.service@gmail.com",
-              username: "contrera.service@gmail.com",
+              id: "admin",
+              username: "admin",
               password: "admin",
               role: "admin",
               createdAt: new Date().toLocaleDateString("it-IT"),
+              telefono: "0000000000"
             };
             await setDoc(doc(db, "users", adminUser.id), adminUser);
             console.log("Pre-loaded root admin account successfully.");
@@ -431,6 +599,82 @@ export default function App() {
       seedDefaultAdmin();
     }
   }, [users]);
+
+  const handleRegisterRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError(null);
+
+    const cleanUsername = regUsername.trim().toLowerCase();
+    const cleanPassword = regPassword.trim();
+    const cleanTelefono = regTelefono.trim();
+    const cleanNome = regNome.trim();
+    const cleanCognome = regCognome.trim();
+
+    if (!cleanUsername || !cleanPassword || !cleanTelefono || !cleanNome || !cleanCognome) {
+      setRegError("Tutti i campi obbligatori devono essere compilati.");
+      return;
+    }
+
+    if (cleanUsername.length < 3) {
+      setRegError("Il nome utente deve avere almeno 3 caratteri.");
+      return;
+    }
+
+    // Uniqueness check
+    if (users.some((u) => u.username.toLowerCase() === cleanUsername || u.id === cleanUsername)) {
+      setRegError(`Il nome utente "${cleanUsername}" è già registrato.`);
+      return;
+    }
+
+    const normRegPhone = normalizePhoneForComparison(cleanTelefono);
+    const phoneExists = users.some((u) => {
+      if (!u.telefono) return false;
+      return normalizePhoneForComparison(u.telefono) === normRegPhone;
+    });
+
+    if (phoneExists) {
+      setRegError(`Il numero di telefono "${cleanTelefono}" è già associato ad un utente registrato.`);
+      return;
+    }
+
+    try {
+      const newRequest: RegistrationRequest = {
+        id: cleanUsername,
+        username: cleanUsername,
+        password: cleanPassword,
+        role: regRole,
+        nome: cleanNome,
+        cognome: cleanCognome,
+        telefono: cleanTelefono,
+        createdAt: new Date().toLocaleDateString("it-IT"),
+        status: "pending",
+      };
+
+      if (regGenere) {
+        newRequest.genere = regGenere;
+      }
+      if (regDataNascita) {
+        newRequest.dataNascita = regDataNascita;
+      }
+
+      await setDoc(doc(db, "registrationRequests", cleanUsername), newRequest);
+      setRegSuccess(true);
+      
+      // Reset form
+      setRegUsername("");
+      setRegPassword("");
+      setRegNome("");
+      setRegCognome("");
+      setRegTelefono("");
+      setRegGenere("");
+      setRegDataNascita("");
+      setRegRole("reader");
+    } catch (err: any) {
+      console.error("Errore invio richiesta registrazione:", err);
+      const errMsg = err?.message || String(err);
+      setRegError(`Si è verificato un errore durante l'invio della richiesta: ${errMsg}`);
+    }
+  };
 
   useEffect(() => {
     if (admittedTeamsCount !== null) {
@@ -1335,7 +1579,236 @@ export default function App() {
     (m) => m.status === "live",
   ).length;
 
+  if (currentUser && currentUser.role !== "admin" && systemStatus === "offline") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 text-slate-800 font-sans antialiased flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border-t-8 border-sky-500">
+          <div className="w-20 h-20 bg-slate-100 border-2 border-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+             <div className="text-4xl">😴</div>
+          </div>
+          <h2 className="text-2xl font-black text-slate-800 uppercase italic mb-4">Torneo Offline</h2>
+          <p className="text-slate-500 font-medium leading-relaxed mb-8">
+            Al momento non è attivo nessun torneo. Riprova più tardi quando la direzione gara aprirà le sessioni!
+          </p>
+          <button
+            onClick={handleLogout}
+            className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 py-3 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors"
+          >
+            Disconnetti e torna alla home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
+    if (isRegistering) {
+      return (
+        <div
+          id="auth-gate-root"
+          className="min-h-screen bg-gradient-to-br from-amber-100 to-orange-100 text-slate-800 font-sans antialiased flex flex-col items-center justify-center p-4 md:border-8 border-sky-450"
+        >
+          <motion.div
+            id="register-box"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="bg-white rounded-3xl shadow-2xl border-4 border-sky-400 p-8 w-full max-w-md font-sans space-y-6 relative overflow-hidden"
+          >
+            {regSuccess ? (
+              <div className="text-center space-y-5 py-6">
+                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">
+                  Richiesta Inviata! 🎉
+                </h3>
+                <p className="text-xs text-slate-600 font-semibold leading-relaxed max-w-sm mx-auto">
+                  Grazie per la registrazione! Gli amministratori approveranno la tua richiesta e riceverai una conferma su WhatsApp non appena l'account sarà attivo.
+                </p>
+                <button
+                  id="btn-back-to-login-success"
+                  type="button"
+                  onClick={() => {
+                    setIsRegistering(false);
+                    setRegSuccess(false);
+                  }}
+                  className="mt-4 px-6 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold uppercase text-xs tracking-wider rounded-xl transition-all cursor-pointer"
+                >
+                  Torna all'Accesso
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="text-center space-y-2">
+                  <h2 className="text-2xl font-black tracking-tight uppercase italic leading-none text-sky-850">
+                    Registrati
+                  </h2>
+                  <p className="text-[10px] font-bold text-sky-600 uppercase tracking-widest mt-2">
+                    📝 Richiesta di Registrazione
+                  </p>
+                  <p className="text-xs text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
+                    Inserisci i tuoi dati personali per richiedere l'accesso. Un amministratore approverà il tuo account.
+                  </p>
+                </div>
+
+                <form
+                  id="register-request-form"
+                  onSubmit={handleRegisterRequest}
+                  className="space-y-4 text-slate-800"
+                >
+                  {regError && (
+                    <div className="bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl p-3.5 text-xs font-bold text-center leading-relaxed">
+                      ⚠️ {regError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Nome
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Mario"
+                        value={regNome}
+                        onChange={(e) => setRegNome(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-semibold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Cognome
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Rossi"
+                        value={regCognome}
+                        onChange={(e) => setRegCognome(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-semibold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Telefono (WhatsApp)
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="3456789012"
+                        value={regTelefono}
+                        onChange={(e) => setRegTelefono(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-mono font-bold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Data di Nascita
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={regDataNascita}
+                        onChange={(e) => setRegDataNascita(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-mono font-bold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Genere
+                      </label>
+                      <select
+                        value={regGenere}
+                        onChange={(e) => setRegGenere(e.target.value as "M" | "F" | "")}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-semibold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm cursor-pointer"
+                      >
+                        <option value="">Seleziona</option>
+                        <option value="M">Maschio (M)</option>
+                        <option value="F">Femmina (F)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Ruolo
+                      </label>
+                      <select
+                        value={regRole}
+                        onChange={(e) => setRegRole(e.target.value as any)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-semibold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm cursor-pointer"
+                      >
+                        <option value="reader">Lettore (READER)</option>
+                        <option value="ATLETA">Atleta (ATLETA)</option>
+                        <option value="collaborator">Collaboratore (COLLABORATOR)</option>
+                        <option value="admin">Amministratore (ADMIN)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Username
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="mario_rossi"
+                        value={regUsername}
+                        onChange={(e) => setRegUsername(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-mono font-bold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
+
+                    <div className="space-y-1 text-left">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Password
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border-2 border-slate-200 font-mono font-bold bg-slate-50 text-slate-805 text-xs focus:outline-none focus:border-sky-500 focus:bg-white transition-all shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      id="btn-cancel-register"
+                      type="button"
+                      onClick={() => setIsRegistering(false)}
+                      className="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black uppercase text-xs tracking-wider py-3 rounded-2xl border-b-4 border-slate-300 transition-all cursor-pointer text-center"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      id="btn-submit-register"
+                      type="submit"
+                      className="w-1/2 bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-xs tracking-wider py-3 rounded-2xl border-b-4 border-sky-700 transition-all cursor-pointer text-center"
+                    >
+                      Invia 📝
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </motion.div>
+        </div>
+      );
+    }
+
     return (
       <div
         id="auth-gate-root"
@@ -1382,7 +1855,10 @@ export default function App() {
 
               // 1. Search in active users
               const activeUser = users.find(
-                (u) => u.username.trim().toLowerCase() === typedUser,
+                (u) =>
+                  u.username.trim().toLowerCase() === typedUser ||
+                  u.id === typedUser ||
+                  (u.telefono && u.telefono === typedUser),
               );
 
               // 2. Search in all saved tournaments (which are not currently active)
@@ -1390,7 +1866,10 @@ export default function App() {
               for (const save of saves) {
                 if (save.teamUsers) {
                   const found = save.teamUsers.find(
-                    (u) => u.username.trim().toLowerCase() === typedUser,
+                    (u) =>
+                      u.username.trim().toLowerCase() === typedUser ||
+                      u.id === typedUser ||
+                      (u.telefono && u.telefono === typedUser),
                   );
                   if (found) {
                     savedUser = found;
@@ -1461,13 +1940,13 @@ export default function App() {
                 htmlFor="login-input-username"
                 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block"
               >
-                Indirizzo Email / Username
+                Telefono / Username
               </label>
               <input
                 id="login-input-username"
                 type="text"
                 required
-                placeholder="Inserisci username o email"
+                placeholder="Inserisci numero di telefono o username"
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
                 className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 font-semibold bg-slate-50 text-slate-800 text-xs focus:outline-none focus:border-amber-400 focus:bg-white transition-all shadow-sm"
@@ -1498,6 +1977,25 @@ export default function App() {
               className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-xs tracking-wider py-3.5 rounded-2xl border-b-4 border-emerald-700 transition-all cursor-pointer shadow-md mt-2 hover:scale-[1.02] active:scale-[0.98]"
             >
               Accedi Ora 🚀
+            </button>
+
+            <div className="flex items-center my-3">
+              <div className="flex-grow border-t border-slate-200"></div>
+              <span className="flex-shrink mx-3 text-slate-400 text-[10px] font-bold uppercase tracking-wider">Oppure</span>
+              <div className="flex-grow border-t border-slate-200"></div>
+            </div>
+
+            <button
+              id="btn-toggle-register"
+              type="button"
+              onClick={() => {
+                setIsRegistering(true);
+                setRegError(null);
+                setRegSuccess(false);
+              }}
+              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-xs tracking-wider py-3.5 rounded-2xl border-b-4 border-sky-700 transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Richiedi Registrazione 📝
             </button>
           </form>
         </motion.div>
@@ -1533,97 +2031,235 @@ export default function App() {
                 Beach Volley Hub
               </h1>
               <p className="text-[10px] md:text-xs font-bold text-sky-100 uppercase tracking-widest mt-1.5 flex items-center gap-2">
-                <span>🏖️ AREA CAMPIONATI SU SABBIA</span>
+                {isEditingHeaderLocation ? (
+                  <input
+                    type="text"
+                    value={tempHeaderLocation}
+                    onChange={(e) => setTempHeaderLocation(e.target.value)}
+                    onBlur={handleSaveHeaderLocation}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleSaveHeaderLocation();
+                      } else if (e.key === "Escape") {
+                        setIsEditingHeaderLocation(false);
+                      }
+                    }}
+                    autoFocus
+                    className="bg-sky-600 text-white border-2 border-amber-300 rounded px-2 py-0.5 text-[10px] md:text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-300 shadow-inner w-44 md:w-56"
+                    placeholder="Inserisci luogo torneo..."
+                  />
+                ) : (
+                  <span
+                    onClick={() => {
+                      if (currentUser?.role === "admin" || currentUser?.role === "collaborator") {
+                        setTempHeaderLocation(tournamentLocation || "AREA CAMPIONATI SU SABBIA");
+                        setIsEditingHeaderLocation(true);
+                      }
+                    }}
+                    className={`flex items-center gap-1 select-none ${
+                      (currentUser?.role === "admin" || currentUser?.role === "collaborator")
+                        ? "hover:text-amber-200 cursor-pointer transition-colors"
+                        : ""
+                    }`}
+                    title={
+                      (currentUser?.role === "admin" || currentUser?.role === "collaborator")
+                        ? "Clicca per modificare il luogo del torneo 🏖️"
+                        : undefined
+                    }
+                  >
+                    <span>🏖️ {tournamentLocation ? tournamentLocation.toUpperCase() : "AREA CAMPIONATI SU SABBIA"}</span>
+                  </span>
+                )}
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-ping"></span>
                 <span>REAL-TIME DECK</span>
               </p>
             </div>
           </div>
 
-          {/* Quick Stats Banner / Helper */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-3 md:gap-4 bg-sky-600/70 border-2 border-sky-400/50 py-1.5 px-4 md:py-2 md:px-5 rounded-2xl shadow-inner text-[11px] md:text-xs text-white uppercase tracking-wider font-sans">
-              <div className="text-center">
-                <div className="text-sky-200 font-extrabold text-[9px] md:text-[10px] uppercase tracking-wider">
-                  Squadre
-                </div>
-                <div
-                  id="quick-panel-teams-count"
-                  className="font-extrabold text-orange-300 text-xs md:text-sm"
-                >
-                  {teams.length}
-                </div>
-              </div>
-              <div className="h-6 md:h-8 w-px bg-sky-400/50"></div>
-              <div className="text-center">
-                <div className="text-sky-200 font-extrabold text-[9px] md:text-[10px] uppercase tracking-wider">
-                  Stato Cup
-                </div>
-                <div
-                  id="quick-panel-tournament-status"
-                  className="font-bold text-white uppercase italic text-[11px] md:text-xs"
-                >
-                  {matches.length > 0
-                    ? matches.every((m) => m.status === "completed")
-                      ? "FINITO 🎉"
-                      : "IN CORSO 🏖️"
-                    : "SETUP 🛠️"}
-                </div>
-              </div>
-              {activeLiveGamesCount > 0 && (
-                <>
-                  <div className="h-6 md:h-8 w-px bg-sky-400/50"></div>
-                  <div className="flex items-center gap-1 bg-orange-500 text-white px-2 py-0.5 md:py-1 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-wider animate-pulse">
-                    <span className="h-1 w-1 rounded-full bg-white block animate-ping"></span>
-                    {activeLiveGamesCount} LIVE
-                  </div>
-                </>
-              )}
-            </div>
+          {/* Top Bar Controls Container */}
+          <div className="flex items-center justify-between w-full overflow-x-auto no-scrollbar gap-2">
+             
+             {/* Tournament Info */}
+             <div className="flex items-center gap-1.5 md:gap-2 bg-sky-800/60 backdrop-blur-md border-2 border-sky-400/40 py-1.5 px-2 md:px-3 rounded-2xl shadow-xl shrink-0">
+               {/* System Status Toggle */}
+               {currentUser?.role === "admin" && (
+                  <>
+                    <div className="flex items-center px-0.5 shrink-0">
+                      <button
+                        onClick={handleToggleSystemStatus}
+                        title="Cambia stato torneo"
+                        className={`h-7 md:h-8 px-2 flex items-center justify-center text-[9px] md:text-[10px] font-black rounded-lg border-2 transition-all cursor-pointer shadow-md ${
+                          systemStatus === "online"
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500 hover:text-white"
+                            : "bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500 hover:text-white"
+                        }`}
+                      >
+                        {systemStatus === "online" ? "🟢 ONLINE" : "🔴 OFFLINE"}
+                      </button>
+                    </div>
+                    <div className="h-6 md:h-8 w-px bg-sky-400/40 shrink-0"></div>
+                  </>
+               )}
 
-            {/* Authentic Session Administration Widget */}
-            <div className="flex items-center">
-              {currentUser && (
-                <div
-                  id="session-user-badge"
-                  className="bg-sky-850 border border-sky-400/30 rounded-2xl p-2 px-3 flex items-center gap-3 text-[11px] md:text-xs shadow-inner uppercase tracking-wider font-sans"
-                >
-                  <div className="text-left">
-                    <div className="font-extrabold text-amber-300 max-w-[120px] truncate">
-                      {currentUser.username}
-                    </div>
-                    <div className="text-[8px] text-sky-300 font-black mt-0.5 flex flex-col gap-0.5">
-                      <div className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                        {currentUser.role === "admin"
-                          ? "🛡️ Amministratore"
-                          : currentUser.role === "collaborator"
-                            ? "💼 Collaboratore"
-                            : currentUser.role === "ATLETA"
-                              ? "🏃 ATLETA"
-                              : "👁️ LETTORE"}
-                      </div>
-                      <div className="text-[9px] text-amber-300 font-extrabold font-mono mt-0.5">
-                        ⏳ {Math.floor(sessionTimeLeft / 60)}:
-                        {(sessionTimeLeft % 60).toString().padStart(2, "0")}
-                      </div>
-                    </div>
+               {/* Squadre */}
+               <div className="flex flex-col items-center px-0.5 md:px-1 shrink-0">
+                  <span className="text-sky-200 font-extrabold text-[8px] md:text-[9px] uppercase tracking-wider mb-0.5">Squadre</span>
+                  <span className="font-black text-orange-300 text-xs md:text-sm">{teams.length}</span>
+               </div>
+               
+               <div className="h-6 md:h-8 w-px bg-sky-400/40 shrink-0"></div>
+
+               {/* Stato Cup */}
+               <div className="flex flex-col items-center px-0.5 md:px-1 shrink-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                     <span className="text-sky-200 font-extrabold text-[8px] md:text-[9px] uppercase tracking-wider">
+                       Stato Cup
+                     </span>
                   </div>
+                  <span className="font-bold text-white uppercase italic text-[10px] md:text-[11px] leading-none">
+                    {matches.length > 0
+                      ? matches.every((m) => m.status === "completed")
+                        ? "FINITO 🎉"
+                        : "IN CORSO 🏖️"
+                      : "SETUP 🛠️"}
+                  </span>
+               </div>
+
+               {activeLiveGamesCount > 0 && (
+                   <>
+                     <div className="h-6 md:h-8 w-px bg-sky-400/40 shrink-0"></div>
+                     <div className="flex items-center px-0.5 shrink-0">
+                       <span className="flex items-center gap-1.5 bg-orange-500 text-white px-1.5 py-1 md:px-2 md:py-1 rounded-lg font-black text-[9px] md:text-[10px] uppercase tracking-wider animate-pulse shadow-[0_0_12px_rgba(249,115,22,0.6)]">
+                         <span className="h-1.5 w-1.5 rounded-full bg-white block animate-ping"></span>
+                         {activeLiveGamesCount} LIVE
+                       </span>
+                     </div>
+                   </>
+               )}
+             </div>
+
+             {/* User Info */}
+             {currentUser && (
+               <div className="flex items-center gap-1.5 md:gap-2 bg-sky-800/60 backdrop-blur-md border-2 border-sky-400/40 py-1.5 px-2 md:px-3 rounded-2xl shadow-xl shrink-0">
+                  <div className="flex flex-col text-right px-0.5 shrink-0">
+                     <span className="font-extrabold text-amber-300 text-[10px] md:text-[11px] truncate max-w-[80px] md:max-w-[120px] leading-tight drop-shadow-sm">
+                       {currentUser.username}
+                     </span>
+                     <div className="flex items-center justify-end gap-1 mt-1">
+                       <span className="text-[8px] md:text-[9px] text-sky-200 font-bold uppercase tracking-wider flex items-center gap-1">
+                          <span className={`w-1 h-1 rounded-full animate-pulse ${currentUser.role === 'admin' ? 'bg-fuchsia-400' : 'bg-emerald-400'}`}></span>
+                          {currentUser.role === "admin"
+                            ? "Admin"
+                            : currentUser.role === "collaborator"
+                              ? "Collab"
+                              : currentUser.role === "ATLETA"
+                                ? "Atleta"
+                                : "Lettore"}
+                       </span>
+                     </div>
+                  </div>
+                  
+                  <div className="h-6 md:h-8 w-px bg-sky-400/40 shrink-0"></div>
+
                   <button
-                    id="btn-logout"
                     onClick={() => {
                       handleLogout();
                       if (activeTab === "users" || activeTab === "archive") {
                         setActiveTab("teams");
                       }
                     }}
-                    className="bg-sky-700/80 hover:bg-rose-600 hover:text-white px-2.5 py-1 text-[9px] font-black rounded-xl border border-sky-500/30 transition-all cursor-pointer shrink-0"
+                    className="bg-sky-900/60 hover:bg-rose-600 text-sky-100 hover:text-white p-1.5 md:p-2 rounded-xl transition-all border border-sky-400/30 hover:border-rose-500/50 group shadow-md shrink-0"
+                    title="Disconnetti"
                   >
-                    Esci 🚪
+                    <LogOut className="w-3.5 h-3.5 md:w-4 md:h-4 group-hover:-translate-x-0.5 transition-transform" />
+                  </button>
+               </div>
+             )}
+          </div>
+        </div>
+
+        {/* riga con le informazioni dei tornei e genere */}
+        <div id="tournament-metadata-subbar" className="bg-sky-600/60 border-t border-sky-400/20 py-2 px-4 md:px-6 text-white text-center">
+          <div className="max-w-7xl mx-auto flex items-center justify-center flex-wrap gap-2 text-xs md:text-sm font-semibold">
+            {isEditingTournamentInfo ? (
+              <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4 w-full">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-orange-300 shrink-0" />
+                  <span className="text-sky-100 font-bold uppercase tracking-wider text-[10px]">Data:</span>
+                  <input
+                    type="text"
+                    placeholder="Es. 28 Giugno 2026 o data prevista"
+                    value={editTournamentDate}
+                    onChange={(e) => setEditTournamentDate(e.target.value)}
+                    className="bg-white text-slate-800 px-3 py-1 rounded-xl border border-sky-300 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-300 w-48 shadow-inner"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sky-100 font-bold uppercase tracking-wider text-[10px]">Genere:</span>
+                  <select
+                    value={editTournamentGender}
+                    onChange={(e) => setEditTournamentGender(e.target.value as any)}
+                    className="bg-white text-slate-800 px-3 py-1 rounded-xl border border-sky-300 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-300 shadow-inner"
+                  >
+                    <option value="">Non Specificato</option>
+                    <option value="maschile">Maschile ♂️</option>
+                    <option value="misto">Misto ⚧️</option>
+                    <option value="femminile">Femminile ♀️</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveTournamentInfo}
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase text-[10px] tracking-wider px-3 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer shadow-md transition-all active:scale-95"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Salva
+                  </button>
+                  <button
+                    onClick={() => setIsEditingTournamentInfo(false)}
+                    className="bg-rose-500 hover:bg-rose-600 text-white font-black uppercase text-[10px] tracking-wider px-3 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer shadow-md transition-all active:scale-95"
+                  >
+                    <X className="w-3.5 h-3.5" /> Annulla
                   </button>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-center gap-3 md:gap-4 w-full">
+                <div className="flex items-center gap-2 bg-sky-700/40 px-3 py-1.5 rounded-xl border border-sky-400/20 shadow-inner">
+                  <Calendar className="w-4 h-4 text-orange-300 shrink-0" />
+                  <span className="text-sky-200 font-bold uppercase tracking-wider text-[10px]">Data:</span>
+                  <span className="font-extrabold">
+                    {tournamentDate ? tournamentDate : <span className="text-sky-200/60 italic font-medium">Non configurata</span>}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 bg-sky-700/40 px-3 py-1.5 rounded-xl border border-sky-400/20 shadow-inner">
+                  <span className="text-sky-200 font-bold uppercase tracking-wider text-[10px]">Genere:</span>
+                  <span className="font-extrabold uppercase tracking-wide flex items-center gap-1">
+                    {tournamentGender === "maschile" && "♂️ Maschile"}
+                    {tournamentGender === "misto" && "⚧️ Misto"}
+                    {tournamentGender === "femminile" && "♀️ Femminile"}
+                    {!tournamentGender && <span className="text-sky-200/60 italic font-medium">Non specificato</span>}
+                  </span>
+                </div>
+
+                {(currentUser?.role === "admin" || currentUser?.role === "collaborator") && (
+                  <button
+                    onClick={() => {
+                      setEditTournamentDate(tournamentDate || "");
+                      setEditTournamentLocation(tournamentLocation || "");
+                      setEditTournamentGender(tournamentGender || "");
+                      setIsEditingTournamentInfo(true);
+                    }}
+                    className="bg-sky-700/50 hover:bg-sky-850 text-sky-100 hover:text-white p-2 rounded-xl flex items-center justify-center border border-sky-400/30 shadow-md transition-all cursor-pointer active:scale-95 shrink-0"
+                    title="Modifica impostazioni torneo"
+                  >
+                    <Edit className="w-3.5 h-3.5 text-amber-300" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
