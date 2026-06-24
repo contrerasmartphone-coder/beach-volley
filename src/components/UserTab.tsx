@@ -16,6 +16,7 @@ import {
   X,
   Copy,
   Trophy,
+  MessageSquare,
 } from "lucide-react";
 
 const normalizePhoneForComparison = (phone: string) => {
@@ -42,6 +43,9 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   const [userToDeleteState, setUserToDeleteState] = useState<AppUser | null>(
     null,
   );
+  
+  const [filterRole, setFilterRole] = useState<string>("tutti");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // New user credentials state
   const [newUsername, setNewUsername] = useState("");
@@ -117,7 +121,35 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
     );
   }
 
-  const adminUsers = users.filter((u) => u.isTeamUser !== true);
+  let filteredUsers = users.filter((u) => u.isTeamUser !== true);
+  
+  if (filterRole !== "tutti") {
+    filteredUsers = filteredUsers.filter((u) => u.role === filterRole);
+  }
+  
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filteredUsers = filteredUsers.filter((u) => 
+      u.cognome?.toLowerCase().includes(q) || 
+      u.telefono?.toLowerCase().includes(q)
+    );
+  }
+  
+  const getWaLink = (telefono: string) => {
+    let waPhone = telefono.replace(/\D/g, ""); // strip non-digits
+    if (waPhone.startsWith("0039")) {
+      waPhone = waPhone.substring(4);
+    } else if (waPhone.startsWith("39") && waPhone.length > 10) {
+      // already starts with 39 and has enough digits
+    } else if (waPhone.startsWith("3") && (waPhone.length === 9 || waPhone.length === 10)) {
+      waPhone = "39" + waPhone;
+    } else if (!waPhone.startsWith("39")) {
+      waPhone = "39" + waPhone;
+    }
+    return `https://wa.me/${waPhone}`;
+  };
+  
+  const adminUsers = filteredUsers;
   const pendingRequests = requests.filter((r) => r.status === "pending" || !r.status);
 
   const togglePasswordVisibility = (id: string) => {
@@ -166,6 +198,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       cognome: newCognome.trim(),
       telefono: cleanTelefono,
       isAthlete: (newRole === "admin" || newRole === "collaborator") ? newIsAthlete : (newRole === "ATLETA" ? true : false),
+      createdBy: currentUser?.username || "sistema",
     };
 
     if (newGenere) {
@@ -357,6 +390,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
         cognome: cleanCognome,
         telefono: cleanTelefono,
         isAthlete: (approveRole === "admin" || approveRole === "collaborator") ? approveIsAthlete : (approveRole === "ATLETA" ? true : false),
+        createdBy: currentUser?.username || "sistema",
       };
 
       if (approveGenere) {
@@ -539,23 +573,39 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
               <Shield className="w-5 h-5 text-sky-500" />
               Gestione Privilegi Utente Operatori ({adminUsers.length})
             </h2>
-            <p className="text-xs text-slate-400 font-extrabold uppercase tracking-wider mt-1">
-              Consolle per la regolazione e l'impostazione degli accessi al
-              software
-            </p>
           </div>
 
-          <button
-            id="btn-open-create-user-form"
-            onClick={() => {
-              setIsAddFormOpen(true);
-              setEditingUser(null);
-            }}
-            className="bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-[10px] tracking-wider py-2.5 px-4 rounded-xl shadow-md border-b-2 border-sky-700 select-none flex items-center gap-1.5 transition-all"
-          >
-            <UserPlus className="w-4 h-4" />
-            Aggiungi Utente ➕
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              placeholder="Cerca per cognome o telefono..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-bold w-48 sm:w-64 focus:outline-none focus:border-sky-500"
+            />
+            <select
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 cursor-pointer"
+            >
+              <option value="tutti">Tutti i ruoli</option>
+              <option value="admin">Admin</option>
+              <option value="collaborator">Collaboratore</option>
+              <option value="reader">Lettore</option>
+              <option value="ATLETA">Atleta</option>
+            </select>
+            <button
+              id="btn-open-create-user-form"
+              onClick={() => {
+                setIsAddFormOpen(true);
+                setEditingUser(null);
+              }}
+              className="bg-sky-500 hover:bg-sky-600 text-white font-black uppercase text-[10px] tracking-wider py-2.5 px-4 rounded-xl shadow-md border-b-2 border-sky-700 select-none flex items-center gap-1.5 transition-all"
+            >
+              <UserPlus className="w-4 h-4" />
+              Aggiungi Utente ➕
+            </button>
+          </div>
         </div>
 
         {/* User list table representation */}
@@ -601,9 +651,16 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        Creato il:{" "}
-                        <span className="font-semibold">{u.createdAt}</span>
+                      <div className="text-[10px] text-slate-400 mt-0.5 space-y-0.5">
+                        <div>
+                          Creato il:{" "}
+                          <span className="font-semibold">{u.createdAt}</span>
+                        </div>
+                        {u.createdBy && (
+                          <div className="text-[9px] text-sky-700/85 font-bold uppercase tracking-wider">
+                            Da: <span className="font-mono bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100">{u.createdBy}</span>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="p-3.5">
@@ -618,17 +675,17 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                           </div>
                         )}
                         {u.telefono ? (
-                          <div className="text-[10px] font-mono text-slate-500 font-bold">
+                          <a 
+                            href={getWaLink(u.telefono)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-mono text-emerald-600 font-bold hover:text-emerald-800 hover:underline flex items-center gap-1"
+                          >
                             📞 {u.telefono}
-                          </div>
+                          </a>
                         ) : (
                           <div className="text-[10px] text-slate-450 italic">
                             Senza recapito
-                          </div>
-                        )}
-                        {u.dataNascita && (
-                          <div className="text-[10px] text-slate-500 font-bold flex items-center gap-1 mt-0.5">
-                            📅 Nascita: {u.dataNascita}
                           </div>
                         )}
                       </div>
@@ -648,12 +705,12 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                         >
                           🛡️{" "}
                           {u.role === "admin"
-                            ? "Amministratore (Admin)"
+                            ? "Amministratore"
                             : u.role === "collaborator"
-                              ? "Collaboratore Score"
+                              ? "Collaboratore"
                               : u.role === "ATLETA"
                                 ? "Atleta"
-                                : "Lettore Spettatore"}
+                                : "Spettatore"}
                         </span>
                         {u.isAthlete && u.role !== "ATLETA" && (
                           <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-250 py-1 px-2.5 rounded-full uppercase tracking-wider">
@@ -710,6 +767,18 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                     </td>
                     <td className="p-3.5 text-right">
                       <div className="flex justify-end gap-1.5">
+                        <button
+                          id={`btn-send-creds-${u.id}`}
+                          onClick={() => {
+                            const message = `Ciao ${u.nome || "utente"}, ecco le tue credenziali per accedere al Beach Volley Hub:\nUsername: ${u.username}\nPassword: ${u.password}`;
+                            const waUrl = `https://wa.me/${u.telefono?.replace(/\D/g, "")}?text=${encodeURIComponent(message)}`;
+                            window.open(waUrl, "_blank");
+                          }}
+                          className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 p-2 rounded-lg transition-all border border-emerald-200"
+                          title="Invia credenziali via WhatsApp"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           id={`btn-edit-user-${u.id}`}
                           onClick={() => {
@@ -1087,37 +1156,29 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                   }
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-bold text-slate-800 focus:outline-none focus:border-sky-500 transition-all uppercase"
                 >
-                  <option value="reader">
-                    Lettore Spettatore (Solo lettura)
-                  </option>
-                  <option value="collaborator">
-                    Collaboratore Score (Aggiorna punteggi e tabelloni)
-                  </option>
-                  <option value="admin">
-                    Amministratore Completo (Accesso a tutto)
-                  </option>
-                  <option value="ATLETA">Atleta (Accesso Limitato)</option>
+                  <option value="reader">Spettatore</option>
+                  <option value="collaborator">Collaboratore</option>
+                  <option value="admin">Amministratore</option>
+                  <option value="ATLETA">Atleta</option>
                 </select>
 
-                {(editingUser.role === "admin" || editingUser.role === "collaborator") && (
-                  <div className="mt-4 flex items-center gap-2.5 bg-sky-50 border border-sky-100 rounded-xl p-3">
-                    <input
-                      type="checkbox"
-                      id="edit-user-is-athlete-checkbox"
-                      checked={!!editingUser.isAthlete}
-                      onChange={(e) =>
-                        setEditingUser({
-                          ...editingUser,
-                          isAthlete: e.target.checked,
-                        })
-                      }
-                      className="w-4 h-4 text-sky-600 focus:ring-sky-500 border-slate-300 rounded cursor-pointer"
-                    />
-                    <label htmlFor="edit-user-is-athlete-checkbox" className="text-xs font-bold text-sky-850 select-none cursor-pointer">
-                      Abilita anche come Atleta 🏃 (Può iscriversi ai tornei)
-                    </label>
-                  </div>
-                )}
+                <div className="mt-4 flex items-center gap-2.5 bg-sky-50 border border-sky-100 rounded-xl p-3">
+                  <input
+                    type="checkbox"
+                    id="edit-user-is-athlete-checkbox"
+                    checked={!!editingUser.isAthlete || editingUser.role === "ATLETA"}
+                    onChange={(e) =>
+                      setEditingUser({
+                        ...editingUser,
+                        isAthlete: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 text-sky-600 focus:ring-sky-500 border-slate-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="edit-user-is-athlete-checkbox" className="text-xs font-bold text-sky-850 select-none cursor-pointer">
+                    Abilita anche come Atleta 🏃 (Può iscriversi ai tornei)
+                  </label>
+                </div>
               </div>
 
               <div className="pt-4 flex gap-2">
@@ -1273,32 +1334,24 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                   onChange={(e) => setApproveRole(e.target.value as any)}
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl py-3 px-4 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500 transition-all uppercase"
                 >
-                  <option value="reader">
-                    Lettore Spettatore (Solo lettura)
-                  </option>
-                  <option value="collaborator">
-                    Collaboratore Score (Aggiorna punteggi e tabelloni)
-                  </option>
-                  <option value="admin">
-                    Amministratore Completo (Accesso a tutto)
-                  </option>
-                  <option value="ATLETA">Atleta (Accesso Limitato)</option>
+                  <option value="reader">Spettatore</option>
+                  <option value="collaborator">Collaboratore</option>
+                  <option value="admin">Amministratore</option>
+                  <option value="ATLETA">Atleta</option>
                 </select>
 
-                {(approveRole === "admin" || approveRole === "collaborator") && (
-                  <div className="mt-4 flex items-center gap-2.5 bg-emerald-50 border border-emerald-100 rounded-xl p-3">
-                    <input
-                      type="checkbox"
-                      id="approve-is-athlete-checkbox"
-                      checked={approveIsAthlete}
-                      onChange={(e) => setApproveIsAthlete(e.target.checked)}
-                      className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 border-slate-300 rounded cursor-pointer"
-                    />
-                    <label htmlFor="approve-is-athlete-checkbox" className="text-xs font-bold text-emerald-800 select-none cursor-pointer">
-                      Abilita anche come Atleta 🏃 (Può iscriversi ai tornei)
-                    </label>
-                  </div>
-                )}
+                <div className="mt-4 flex items-center gap-2.5 bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                  <input
+                    type="checkbox"
+                    id="approve-is-athlete-checkbox"
+                    checked={approveIsAthlete || approveRole === "ATLETA"}
+                    onChange={(e) => setApproveIsAthlete(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 border-slate-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="approve-is-athlete-checkbox" className="text-xs font-bold text-emerald-800 select-none cursor-pointer">
+                    Abilita anche come Atleta 🏃 (Può iscriversi ai tornei)
+                  </label>
+                </div>
               </div>
 
               <div className="pt-4 flex gap-2">

@@ -109,6 +109,7 @@ export interface AppUser {
   lastActiveAt?: number;
   dataNascita?: string; // Data di nascita
   isAthlete?: boolean; // Se lo staff è anche atleta o se abilitato
+  createdBy?: string; // Username of the admin/collaborator who created the account
 }
 
 export interface RegistrationRequest {

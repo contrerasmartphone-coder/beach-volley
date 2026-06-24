@@ -100,6 +100,7 @@ export default function App() {
   const [sessionTimeLeft, setSessionTimeLeft] = useState<number>(900); // 15 minutes session
   const currentUserRef = useRef<AppUser | null>(currentUser);
   const [systemStatus, setSystemStatus] = useState<"online" | "offline">("online");
+  const [isStatusLoaded, setIsStatusLoaded] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "config", "status"), (docSnap) => {
@@ -108,6 +109,7 @@ export default function App() {
       } else {
         setSystemStatus("online");
       }
+      setIsStatusLoaded(true);
     });
     return () => unsub();
   }, []);
@@ -1581,23 +1583,37 @@ export default function App() {
 
   if (currentUser && currentUser.role !== "admin" && systemStatus === "offline") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 text-slate-800 font-sans antialiased flex flex-col items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border-t-8 border-sky-500">
-          <div className="w-20 h-20 bg-slate-100 border-2 border-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-6">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-950 text-slate-100 font-sans antialiased flex flex-col items-center justify-center p-4"
+      >
+        <motion.div 
+          initial={{ scale: 0.9, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 100, damping: 15 }}
+          className="bg-slate-800/50 backdrop-blur-xl p-8 rounded-3xl shadow-2xl max-w-md w-full text-center border border-slate-700"
+        >
+          <motion.div 
+            animate={{ rotate: [0, -10, 10, -10, 0] }}
+            transition={{ repeat: Infinity, duration: 3, repeatDelay: 5 }}
+            className="w-20 h-20 bg-slate-700/50 rounded-2xl flex items-center justify-center mx-auto mb-6"
+          >
              <div className="text-4xl">😴</div>
-          </div>
-          <h2 className="text-2xl font-black text-slate-800 uppercase italic mb-4">Torneo Offline</h2>
-          <p className="text-slate-500 font-medium leading-relaxed mb-8">
-            Al momento non è attivo nessun torneo. Riprova più tardi quando la direzione gara aprirà le sessioni!
+          </motion.div>
+          <h2 className="text-3xl font-black text-white uppercase tracking-tight mb-4">Torneo a Riposo</h2>
+          <p className="text-slate-400 font-medium leading-relaxed mb-8">
+            Al momento non è attivo nessun torneo. La direzione gara sta riposando... Torna a controllare tra poco!
           </p>
           <button
             onClick={handleLogout}
-            className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 py-3 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors"
+            className="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors"
           >
-            Disconnetti e torna alla home
+            Disconnetti
           </button>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
     );
   }
 
@@ -2027,8 +2043,8 @@ export default function App() {
               />
             </div>
             <div>
-              <h1 className="text-2xl md:text-3xl font-black tracking-tight uppercase italic leading-none text-white drop-shadow-sm">
-                Beach Volley Hub
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight uppercase italic leading-none text-white drop-shadow-sm whitespace-nowrap">
+                WSicily beach volley hub
               </h1>
               <p className="text-[10px] md:text-xs font-bold text-sky-100 uppercase tracking-widest mt-1.5 flex items-center gap-2">
                 {isEditingHeaderLocation ? (
@@ -2087,14 +2103,21 @@ export default function App() {
                     <div className="flex items-center px-0.5 shrink-0">
                       <button
                         onClick={handleToggleSystemStatus}
+                        disabled={!isStatusLoaded}
                         title="Cambia stato torneo"
                         className={`h-7 md:h-8 px-2 flex items-center justify-center text-[9px] md:text-[10px] font-black rounded-lg border-2 transition-all cursor-pointer shadow-md ${
-                          systemStatus === "online"
-                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500 hover:text-white"
-                            : "bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500 hover:text-white"
+                          !isStatusLoaded
+                            ? "bg-slate-500/20 text-slate-300 border-slate-500/50 cursor-wait"
+                            : systemStatus === "online"
+                              ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500 hover:text-white"
+                              : "bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500 hover:text-white"
                         }`}
                       >
-                        {systemStatus === "online" ? "🟢 ONLINE" : "🔴 OFFLINE"}
+                        {!isStatusLoaded
+                          ? "⏳ Caricamento..."
+                          : systemStatus === "online"
+                            ? "🟢 ONLINE"
+                            : "🔴 OFFLINE"}
                       </button>
                     </div>
                     <div className="h-6 md:h-8 w-px bg-sky-400/40 shrink-0"></div>
