@@ -159,16 +159,21 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (currentUserRef.current) {
       const userDocRef = doc(db, "users", currentUserRef.current.id);
-      updateDoc(userDocRef, {
-        lastActiveAt: Date.now(),
-        activeSessionId: null,
-      }).catch(console.error);
+      try {
+        await updateDoc(userDocRef, {
+          lastActiveAt: Date.now(),
+          activeSessionId: null,
+        });
+      } catch (e) {
+        console.error("Errore durante il logout:", e);
+      }
     }
     localStorage.removeItem("bv_current_user");
     setCurrentUser(null);
+    window.location.reload();
   };
 
   // Sync ref with current user
