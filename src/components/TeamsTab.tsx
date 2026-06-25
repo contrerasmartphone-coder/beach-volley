@@ -48,7 +48,7 @@ export default function TeamsTab({
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
   const isUserAthlete = !!(currentUser && (currentUser.role === 'ATLETA' || currentUser.isAthlete === true));
-  const canRegisterTeam = !!(canWrite || isUserAthlete);
+  const canRegisterTeam = !!canWrite;
 
   const [name, setName] = useState('');
   const [player1, setPlayer1] = useState('');
@@ -234,8 +234,15 @@ export default function TeamsTab({
 
   const athletes = users.filter(u => u.role === 'ATLETA' || u.isAthlete);
 
+  const assignedAthleteIds = new Set(
+    teams.flatMap((t) => [t.player1Id, t.player2Id]).filter(Boolean)
+  );
+
   const getFilteredAthletes = (search: string, position: 1 | 2) => {
     return athletes.filter(u => {
+      // Check if already assigned to a team
+      if (assignedAthleteIds.has(u.id)) return false;
+
       const matchSearch = (u.nome || '').toLowerCase().includes(search.toLowerCase()) || 
                           (u.cognome || '').toLowerCase().includes(search.toLowerCase()) ||
                           u.username.toLowerCase().includes(search.toLowerCase());
