@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Team, AppUser } from '../types';
 import { DEMO_TEAMS, getInitialTeamStats, sortTeamsByEntryList } from '../utils';
-import { Plus, Users, Search, Trash2, Award, Sparkles, Check, Phone, Mail, Edit2, Lock, Eye, MessageSquare, RefreshCw } from 'lucide-react';
+import { Plus, Users, Search, Trash2, Award, Sparkles, Check, Phone, Mail, Edit2, Lock, Eye, MessageSquare, RefreshCw, X, User } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface TeamsTabProps {
@@ -17,6 +17,8 @@ interface TeamsTabProps {
   onSubstituteTeam?: (withdrawnId: string, promotedId: string) => void;
   currentUser?: AppUser | null;
   users?: AppUser[];
+  activeTournamentConfig?: any;
+  tournamentGender?: 'maschile' | 'misto' | 'femminile' | '';
 }
 
 const getWhatsAppUrl = (phone: string) => {
@@ -40,6 +42,8 @@ export default function TeamsTab({
   onSubstituteTeam,
   currentUser = null,
   users = [],
+  activeTournamentConfig = null,
+  tournamentGender = '',
 }: TeamsTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
@@ -49,6 +53,12 @@ export default function TeamsTab({
   const [name, setName] = useState('');
   const [player1, setPlayer1] = useState('');
   const [player2, setPlayer2] = useState('');
+  const [selectedPlayer1, setSelectedPlayer1] = useState<AppUser | null>(null);
+  const [selectedPlayer2, setSelectedPlayer2] = useState<AppUser | null>(null);
+  const [player1Search, setPlayer1Search] = useState('');
+  const [player2Search, setPlayer2Search] = useState('');
+  const [showPlayer1Search, setShowPlayer1Search] = useState(false);
+  const [showPlayer2Search, setShowPlayer2Search] = useState(false);
   const [level, setLevel] = useState<'Beginner' | 'Bronze' | 'Silver' | 'Gold'>('Silver');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -130,22 +140,24 @@ export default function TeamsTab({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isLocked) return;
+
+    if (!tournamentGender) {
+      alert("Per favore, imposta il Genere del torneo nell'intestazione prima di registrare una squadra.");
+      return;
+    }
+
     if (!name || !player1 || !player2) return;
 
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const registeredAtString = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    const registeredAtString = now.toISOString().replace('T', ' ').split('.')[0];
 
     const newTeam: Team = getInitialTeamStats({
       id: `team-${Date.now()}`,
       name: name.trim(),
       player1: player1.trim(),
       player2: player2.trim(),
+      player1Id: selectedPlayer1?.id,
+      player2Id: selectedPlayer2?.id,
       level,
       phone: phone.trim() || 'Non specificato',
       email: email.trim() || 'Non specificata',
@@ -160,13 +172,17 @@ export default function TeamsTab({
     setName('');
     setPlayer1('');
     setPlayer2('');
+    setSelectedPlayer1(null);
+    setSelectedPlayer2(null);
+    setPlayer1Search('');
+    setPlayer2Search('');
     setLevel('Silver');
     setPhone('');
     setEmail('');
     setPhone2('');
     setEmail2('');
 
-    setSuccessMsg('Squadra registrata con successo!');
+    setSuccessMsg('Squadra registrata con successo! 🏐');
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
@@ -215,6 +231,47 @@ export default function TeamsTab({
       t.player2.toLowerCase().includes(searchQuery.toLowerCase())
     )
   );
+
+  const athletes = users.filter(u => u.role === 'ATLETA' || u.isAthlete);
+
+  const getFilteredAthletes = (search: string, position: 1 | 2) => {
+    return athletes.filter(u => {
+      const matchSearch = (u.nome || '').toLowerCase().includes(search.toLowerCase()) || 
+                          (u.cognome || '').toLowerCase().includes(search.toLowerCase()) ||
+                          u.username.toLowerCase().includes(search.toLowerCase());
+      
+      if (!matchSearch) return false;
+
+      // Gender filter based on tournamentGender from header
+      if (tournamentGender === 'maschile') return u.genere === 'M';
+      if (tournamentGender === 'femminile') return u.genere === 'F';
+      if (tournamentGender === 'misto') {
+        if (position === 1) return u.genere === 'M';
+        if (position === 2) return u.genere === 'F';
+      }
+      return true;
+    }).filter(u => {
+      if (position === 1) return u.id !== selectedPlayer2?.id;
+      return u.id !== selectedPlayer1?.id;
+    });
+  };
+
+  const handleSelectAthlete = (u: AppUser, position: 1 | 2) => {
+    const fullName = `${u.nome || ''} ${u.cognome || ''}`.trim() || u.username;
+    if (position === 1) {
+      setSelectedPlayer1(u);
+      setPlayer1(fullName);
+      setPhone(u.telefono || '');
+      setShowPlayer1Search(false);
+      setPlayer1Search('');
+    } else {
+      setSelectedPlayer2(u);
+      setPlayer2(fullName);
+      setPhone2(u.telefono || '');
+      setShowPlayer2Search(false);
+      setPlayer2Search('');
+    }
+  };
 
   const beginnerCount = teams.filter((t) => t.level === 'Beginner').length;
   const bronzeCount = teams.filter((t) => t.level === 'Bronze').length;
@@ -466,37 +523,169 @@ export default function TeamsTab({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="player-1-input" className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                  Giocatore 1 *
+            <div className="grid grid-cols-1 gap-6">
+              {/* Player 1 Selection */}
+              <div className="relative">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <span>Giocatore 1 * {tournamentGender === 'misto' ? '(Maschio ♂️)' : ''}</span>
+                  {selectedPlayer1 && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        setSelectedPlayer1(null);
+                        setPlayer1('');
+                      }}
+                      className="text-[10px] text-rose-500 hover:underline flex items-center gap-0.5"
+                    >
+                      <X className="w-3 h-3" /> Rimuovi
+                    </button>
+                  )}
                 </label>
-                <input
-                  id="player-1-input"
-                  type="text"
-                  required
-                  disabled={currentUser?.role === 'ATLETA'}
-                  className={`w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-semibold focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800 ${
-                    currentUser?.role === 'ATLETA' ? 'bg-slate-100 cursor-not-allowed opacity-80' : 'bg-amber-50/20'
-                  }`}
-                  placeholder="Nome e cognome"
-                  value={player1}
-                  onChange={(e) => setPlayer1(e.target.value)}
-                />
+                
+                {!selectedPlayer1 ? (
+                  <div className="relative">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        placeholder="Cerca atleta..."
+                        className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-slate-200 text-sm font-semibold bg-white focus:outline-none focus:border-orange-400 transition-all"
+                        value={player1Search}
+                        onChange={(e) => {
+                          setPlayer1Search(e.target.value);
+                          setShowPlayer1Search(true);
+                        }}
+                        onFocus={() => setShowPlayer1Search(true)}
+                      />
+                    </div>
+                    
+                    {showPlayer1Search && (
+                      <div className="absolute z-30 w-full mt-2 bg-white border-2 border-slate-100 rounded-2xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in duration-200">
+                        {getFilteredAthletes(player1Search, 1).length > 0 ? (
+                          getFilteredAthletes(player1Search, 1).map(u => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => handleSelectAthlete(u, 1)}
+                              className="w-full px-4 py-3 text-left hover:bg-orange-50 border-b border-slate-50 last:border-0 flex items-center justify-between group transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 group-hover:bg-orange-200 group-hover:text-orange-600 transition-colors">
+                                  <User className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-800">{u.nome} {u.cognome}</p>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">@{u.username} • {u.genere === 'M' ? '♂️ Maschio' : '♀️ Femmina'}</p>
+                                </div>
+                              </div>
+                              <Plus className="w-4 h-4 text-slate-300 group-hover:text-orange-500" />
+                            </button>
+                          ))
+                        ) : (
+                          <div className="p-8 text-center">
+                            <p className="text-xs font-bold text-slate-400 uppercase italic">Nessun atleta trovato</p>
+                            <p className="text-[10px] text-slate-400 mt-1">Verifica i filtri di genere ({tournamentGender === 'maschile' ? 'Maschile' : tournamentGender === 'femminile' ? 'Femminile' : 'Misto'})</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-orange-50 border-2 border-orange-200 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-orange-200 rounded-full flex items-center justify-center text-orange-600">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-orange-900 uppercase italic">{selectedPlayer1.nome} {selectedPlayer1.cognome}</p>
+                        <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">@{selectedPlayer1.username}</p>
+                      </div>
+                    </div>
+                    <Check className="w-5 h-5 text-emerald-500" />
+                  </div>
+                )}
               </div>
-              <div>
-                <label htmlFor="player-2-input" className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-                  Giocatore 2 *
+
+              {/* Player 2 Selection */}
+              <div className="relative">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <span>Giocatore 2 * {tournamentGender === 'misto' ? '(Femmina ♀️)' : ''}</span>
+                  {selectedPlayer2 && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        setSelectedPlayer2(null);
+                        setPlayer2('');
+                      }}
+                      className="text-[10px] text-rose-500 hover:underline flex items-center gap-0.5"
+                    >
+                      <X className="w-3 h-3" /> Rimuovi
+                    </button>
+                  )}
                 </label>
-                <input
-                  id="player-2-input"
-                  type="text"
-                  required
-                  className="w-full px-3 py-2 rounded-xl border-2 border-slate-300 text-sm font-semibold bg-amber-50/20 focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800"
-                  placeholder="Nome e cognome"
-                  value={player2}
-                  onChange={(e) => setPlayer2(e.target.value)}
-                />
+                
+                {!selectedPlayer2 ? (
+                  <div className="relative">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        placeholder="Cerca atleta..."
+                        className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-slate-200 text-sm font-semibold bg-white focus:outline-none focus:border-orange-400 transition-all"
+                        value={player2Search}
+                        onChange={(e) => {
+                          setPlayer2Search(e.target.value);
+                          setShowPlayer2Search(true);
+                        }}
+                        onFocus={() => setShowPlayer2Search(true)}
+                      />
+                    </div>
+                    
+                    {showPlayer2Search && (
+                      <div className="absolute z-30 w-full mt-2 bg-white border-2 border-slate-100 rounded-2xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in duration-200">
+                        {getFilteredAthletes(player2Search, 2).length > 0 ? (
+                          getFilteredAthletes(player2Search, 2).map(u => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => handleSelectAthlete(u, 2)}
+                              className="w-full px-4 py-3 text-left hover:bg-orange-50 border-b border-slate-50 last:border-0 flex items-center justify-between group transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 group-hover:bg-orange-200 group-hover:text-orange-600 transition-colors">
+                                  <User className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-800">{u.nome} {u.cognome}</p>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">@{u.username} • {u.genere === 'M' ? '♂️ Maschio' : '♀️ Femmina'}</p>
+                                </div>
+                              </div>
+                              <Plus className="w-4 h-4 text-slate-300 group-hover:text-orange-500" />
+                            </button>
+                          ))
+                        ) : (
+                          <div className="p-8 text-center">
+                            <p className="text-xs font-bold text-slate-400 uppercase italic">Nessun atleta trovato</p>
+                            <p className="text-[10px] text-slate-400 mt-1">Verifica i filtri di genere ({tournamentGender === 'maschile' ? 'Maschile' : tournamentGender === 'femminile' ? 'Femminile' : 'Misto'})</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-orange-50 border-2 border-orange-200 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-orange-200 rounded-full flex items-center justify-center text-orange-600">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-orange-900 uppercase italic">{selectedPlayer2.nome} {selectedPlayer2.cognome}</p>
+                        <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">@{selectedPlayer2.username}</p>
+                      </div>
+                    </div>
+                    <Check className="w-5 h-5 text-emerald-500" />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -523,86 +712,7 @@ export default function TeamsTab({
               </div>
             </div>
 
-            <div className="border-t border-slate-100 my-4 pt-4 space-y-4">
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider">
-                Contatti per Notifiche
-              </h4>
-              
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/60 space-y-3">
-                <span className="text-[10px] font-black uppercase text-orange-600 tracking-wider">Contatti Giocatore 1 ({player1 || 'Giocatore 1'})</span>
-                <div>
-                  <label htmlFor="phone-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Telefono
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      id="phone-input"
-                      type="tel"
-                      disabled={currentUser?.role === 'ATLETA'}
-                      className={`w-full pl-9 pr-4 py-2 rounded-xl border-2 border-slate-300 text-xs font-semibold focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800 ${
-                        currentUser?.role === 'ATLETA' ? 'bg-slate-100 cursor-not-allowed opacity-80' : 'bg-amber-50/20'
-                      }`}
-                      placeholder="es. +39 333 1234567"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="email-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Email
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      id="email-input"
-                      type="email"
-                      className="w-full pl-9 pr-4 py-2 rounded-xl border-2 border-slate-300 text-xs font-semibold bg-amber-50/20 focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800"
-                      placeholder="es. giocatore1@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/60 space-y-3">
-                <span className="text-[10px] font-black uppercase text-orange-600 tracking-wider">Contatti Giocatore 2 ({player2 || 'Giocatore 2'})</span>
-                <div>
-                  <label htmlFor="phone2-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Telefono
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      id="phone2-input"
-                      type="tel"
-                      className="w-full pl-9 pr-4 py-2 rounded-xl border-2 border-slate-300 text-xs font-semibold bg-amber-50/20 focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-400 text-slate-800"
-                      placeholder="es. +39 339 9876543"
-                      value={phone2}
-                      onChange={(e) => setPhone2(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="email2-input" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Email
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      id="email2-input"
-                      type="email"
-                      className="w-full pl-9 pr-4 py-2 rounded-xl border-2 border-slate-300 text-xs font-semibold bg-amber-50/20 focus:outline-none focus:border-orange-400 transition-all placeholder:text-slate-404 text-slate-800"
-                      placeholder="es. giocatore2@email.com"
-                      value={email2}
-                      onChange={(e) => setEmail2(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* Removed phone and email fields for cleaner registration form */}
 
             {successMsg && (
               <div id="registration-success-msg" className="flex items-center gap-2 p-3 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-semibold border-2 border-emerald-200">

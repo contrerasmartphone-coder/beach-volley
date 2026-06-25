@@ -3,6 +3,8 @@ export interface Team {
   name: string;
   player1: string;
   player2: string;
+  player1Id?: string;
+  player2Id?: string;
   level: 'Beginner' | 'Bronze' | 'Silver' | 'Gold';
   phone: string;
   email: string;

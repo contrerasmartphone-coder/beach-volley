@@ -126,6 +126,30 @@ export default function App() {
 
   const handleSaveTournamentInfo = async () => {
     try {
+      // Validation if gender changed
+      if (tournamentGender && editTournamentGender && tournamentGender !== editTournamentGender) {
+        const invalidTeams = teams.filter(t => {
+          const p1 = users.find(u => u.id === t.player1Id || (`${u.nome || ''} ${u.cognome || ''}`.trim() === t.player1));
+          const p2 = users.find(u => u.id === t.player2Id || (`${u.nome || ''} ${u.cognome || ''}`.trim() === t.player2));
+          if (!p1 || !p2) return false;
+
+          if (editTournamentGender === 'maschile') return p1.genere !== 'M' || p2.genere !== 'M';
+          if (editTournamentGender === 'femminile') return p1.genere !== 'F' || p2.genere !== 'F';
+          if (editTournamentGender === 'misto') {
+            const isMixed = (p1.genere === 'M' && p2.genere === 'F') || (p1.genere === 'F' && p2.genere === 'M');
+            return !isMixed;
+          }
+          return false;
+        });
+
+        if (invalidTeams.length > 0) {
+          const confirmChange = window.confirm(
+            `Attenzione! Cambiando il genere in "${editTournamentGender.toUpperCase()}", ci sono ${invalidTeams.length} squadre che non rispettano più i requisiti di genere. Vuoi procedere comunque? Dovrai correggere queste squadre manualmente.`
+          );
+          if (!confirmChange) return;
+        }
+      }
+
       await setDoc(
         doc(db, "config", "settings"),
         {
@@ -159,21 +183,32 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = async (isAuto = false) => {
     if (currentUserRef.current) {
       const userDocRef = doc(db, "users", currentUserRef.current.id);
+      const username = currentUserRef.current.username;
+      
       try {
         await updateDoc(userDocRef, {
           lastActiveAt: Date.now(),
-          activeSessionId: null,
+          activeSessionId: "",
         });
-      } catch (e) {
-        console.error("Errore durante il logout:", e);
+
+        const logNotif: NotificationLog = {
+          id: `notif-logout-${Date.now()}`,
+          title: "Utente Disconnesso 👤",
+          message: isAuto 
+            ? `L'utente "${username}" è stato disconnesso automaticamente per inattività (15 min).`
+            : `L'utente "${username}" ha effettuato il logout.`,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          type: "system",
+        };
+        await setDoc(doc(db, "notifications", logNotif.id), cleanObject(logNotif));
+      } catch (err) {
+        console.error("Errore durante il logout:", err);
       }
     }
-    localStorage.removeItem("bv_current_user");
     setCurrentUser(null);
-    window.location.reload();
   };
 
   // Sync ref with current user
@@ -181,15 +216,32 @@ export default function App() {
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
+  const lastServerSyncRef = useRef<number>(Date.now());
+
   // Connection timer ticks down of active user session
   useEffect(() => {
     if (!currentUser) {
       setSessionTimeLeft(900);
+      lastServerSyncRef.current = Date.now();
       return;
     }
 
     const interval = setInterval(() => {
-      setSessionTimeLeft((prev) => prev - 1);
+      setSessionTimeLeft((prev) => {
+        const newVal = prev - 1;
+        
+        // Alignment logic: if we are still active locally (newVal > 0)
+        // but the server timer is approaching 15 minutes (e.g., > 14 minutes since last sync)
+        // we align the server timer with the local one to prevent phantom disconnection.
+        const now = Date.now();
+        if (newVal > 600 && (now - lastServerSyncRef.current) > 840000) {
+          const userDocRef = doc(db, "users", currentUser.id);
+          updateDoc(userDocRef, { lastActiveAt: now }).catch(console.error);
+          lastServerSyncRef.current = now;
+        }
+        
+        return newVal;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
@@ -198,7 +250,7 @@ export default function App() {
   // Handle session expiration
   useEffect(() => {
     if (currentUser && sessionTimeLeft <= 0) {
-      handleLogout();
+      handleLogout(true);
       setTimeout(() => {
         alert(
           "La tua sessione di connessione è scaduta per inattività. Effettua nuovamente l'accesso.",
@@ -213,41 +265,28 @@ export default function App() {
 
     const renewSession = () => {
       setSessionTimeLeft(900);
+      
+      // Align server timer if the difference is significant (> 5 minutes)
+      const now = Date.now();
+      if (now - lastServerSyncRef.current > 300000) {
+        const userDocRef = doc(db, "users", currentUser.id);
+        updateDoc(userDocRef, { lastActiveAt: now }).catch(console.error);
+        lastServerSyncRef.current = now;
+      }
     };
 
     window.addEventListener("click", renewSession);
     window.addEventListener("keypress", renewSession);
+    window.addEventListener("mousemove", renewSession);
+    window.addEventListener("touchstart", renewSession);
 
     return () => {
       window.removeEventListener("click", renewSession);
       window.removeEventListener("keypress", renewSession);
+      window.removeEventListener("mousemove", renewSession);
+      window.removeEventListener("touchstart", renewSession);
     };
   }, [currentUser]);
-
-  // Save active ping to DB once a minute to prevent idle timeout
-  useEffect(() => {
-    if (!currentUser?.id) return;
-
-    const writePing = async () => {
-      try {
-        await setDoc(
-          doc(db, "users", currentUser.id),
-          { lastActiveAt: Date.now() },
-          { merge: true },
-        );
-      } catch (err) {
-        console.error("Errore salvataggio ping attività:", err);
-      }
-    };
-
-    writePing(); // immediate write upon login
-
-    const timer = setInterval(() => {
-      writePing();
-    }, 60000);
-
-    return () => clearInterval(timer);
-  }, [currentUser?.id]);
 
   const [users, setUsers] = useState<AppUser[]>([]);
   const [archives, setArchives] = useState<ArchivedTournament[]>([]);
@@ -498,6 +537,9 @@ export default function App() {
           if (
             dbUser &&
             dbUser.activeSessionId &&
+            dbUser.activeSessionId !== "null" &&
+            dbUser.activeSessionId !== "undefined" &&
+            dbUser.activeSessionId !== "" &&
             dbUser.activeSessionId !== currentUserRef.current.activeSessionId
           ) {
             setCurrentUser(null);
@@ -878,159 +920,94 @@ export default function App() {
   };
 
   const handleLoadDemoTeams = async (count: number) => {
-    const selectedDemos: Team[] = [];
-    const adjective = [
-      "Sand Stormers",
-      "Golden Blocks",
-      "Sky Jumpers",
-      "Beach Aces",
-      "Wave Riders",
-      "Spike Kings",
-      "Sideout Pros",
-      "Sun Blockers",
-      "Vento d'Estate",
-      "Pazzi della Sabbia",
-      "Beach Boys",
-      "Hot Spikes",
-      "Bassa Difesa",
-      "Sabbia Caliente",
-      "Net Rippers",
-      "Volley Monsters",
-      "Sea Wolves",
-      "Coastal Giants",
-      "Sardine Smashers",
-      "Dune Defenders",
-      "Ocean Breakers",
-      "Tidal Voyagers",
-    ];
-    const names = [
-      "Alessandro",
-      "Marco",
-      "Filippo",
-      "Guido",
-      "Luca",
-      "Matteo",
-      "Simone",
-      "Davide",
-      "Claudio",
-      "Fabio",
-      "Andrea",
-      "Giorgio",
-      "Stefano",
-      "Roberto",
-      "Enrico",
-      "Gianni",
-      "Emanuele",
-      "Pietro",
-      "Daniele",
-      "Lorenzo",
-      "Alberto",
-      "Federico",
-      "Gabriele",
-      "Valerio",
-      "Michele",
-      "Salvatore",
-      "Vincenzo",
-      "Antonio",
-      "Giuseppe",
-      "Fabrizio",
-      "Christian",
-      "Manuel",
-    ];
-    const surnames = [
-      "Rossi",
-      "Bianchi",
-      "Neri",
-      "Verdi",
-      "Ferrari",
-      "Colombo",
-      "Ricci",
-      "Bruno",
-      "Moretti",
-      "Rizzo",
-      "Mancini",
-      "Costa",
-      "Gallo",
-      "Conti",
-      "Villa",
-      "Serra",
-      "Gatti",
-      "Fontana",
-      "Marini",
-      "Greco",
-      "Barbieri",
-      "Leone",
-      "Longo",
-      "Martinelli",
-      "Esposito",
-      "Romano",
-      "Vitale",
-      "De Luca",
-      "Cozza",
-      "Russo",
-      "Bernardi",
-      "Pellegrini",
-    ];
-    const levels: ("Beginner" | "Bronze" | "Silver" | "Gold")[] = [
-      "Gold",
-      "Silver",
-      "Bronze",
-      "Beginner",
-    ];
+    if (!tournamentGender) {
+      alert("Per favore, imposta il Genere del torneo nell'intestazione prima di generare le squadre.");
+      return;
+    }
+    const genderMapping = tournamentGender === "femminile" ? "F" : tournamentGender === "misto" ? "Mixed" : "M";
+    const athletes = users.filter((u) => u.role === "ATLETA" || u.isAthlete);
+
+    const males = athletes.filter((a) => a.genere === "M");
+    const females = athletes.filter((a) => a.genere === "F");
+
+    let possibleTeamsCount = 0;
+    if (genderMapping === "M") {
+      possibleTeamsCount = Math.floor(males.length / 2);
+    } else if (genderMapping === "F") {
+      possibleTeamsCount = Math.floor(females.length / 2);
+    } else if (genderMapping === "Mixed") {
+      possibleTeamsCount = Math.min(males.length, females.length);
+    }
+
+    if (possibleTeamsCount < count) {
+      alert(
+        `Numero di atleti registrati non sufficiente per generare ${count} squadre. Disponibili in base alla tipologia del torneo (${
+          genderMapping === "Mixed"
+            ? "Misto"
+            : genderMapping === "F"
+              ? "Femminile"
+              : "Maschile"
+        }): ${possibleTeamsCount} squadre.`,
+      );
+      return;
+    }
+
+    const shuffledMales = [...males].sort(() => Math.random() - 0.5);
+    const shuffledFemales = [...females].sort(() => Math.random() - 0.5);
+
+    const selectedTeams: Team[] = [];
+    const adjectives = ["Sabbia", "Beach", "Volley", "Power", "Pro", "Elite", "Super", "Magic"];
+    const nouns = ["Kings", "Queens", "Stars", "Warriors", "Aces", "Jumpers", "Riders", "Wolves"];
 
     for (let i = 0; i < count; i++) {
-      if (i < DEMO_TEAMS.length) {
-        selectedDemos.push(getInitialTeamStats(DEMO_TEAMS[i] as any));
+      let p1: AppUser;
+      let p2: AppUser;
+      if (genderMapping === "M") {
+        p1 = shuffledMales.pop()!;
+        p2 = shuffledMales.pop()!;
+      } else if (genderMapping === "F") {
+        p1 = shuffledFemales.pop()!;
+        p2 = shuffledFemales.pop()!;
       } else {
-        const p1Name = names[i % names.length];
-        const p1Surname = surnames[(i + 3) % surnames.length];
-        const p2Name = names[(i + 7) % names.length];
-        const p2Surname = surnames[(i + 11) % surnames.length];
-        const level = levels[i % levels.length];
-
-        const dateObj = new Date(
-          new Date("2026-05-26T10:00:00").getTime() + i * 15 * 60000,
-        );
-        const yyyy = dateObj.getFullYear();
-        const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
-        const dd = String(dateObj.getDate()).padStart(2, "0");
-        const hh = String(dateObj.getHours()).padStart(2, "0");
-        const minVal = String(dateObj.getMinutes()).padStart(2, "0");
-        const registeredStr = `${yyyy}-${mm}-${dd} ${hh}:${minVal}`;
-
-        const generatedTeam: Omit<
-          Team,
-          | "wins"
-          | "losses"
-          | "setsWon"
-          | "setsLost"
-          | "pointsWon"
-          | "pointsLost"
-          | "points"
-        > = {
-          id: `t${i + 1}`,
-          name: `${adjective[i % adjective.length]} ${Math.floor(i / adjective.length) + 1}`,
-          player1: `${p1Name} ${p1Surname}`,
-          player2: `${p2Name} ${p2Surname}`,
-          level,
-          phone: `33${Math.floor(10000000 + Math.random() * 90000000)
-            .toString()
-            .substring(0, 8)}`,
-          email: `${p1Name.toLowerCase()}.${p1Surname.toLowerCase()}@example.com`,
-          phone2: `34${Math.floor(10000000 + Math.random() * 90000000)
-            .toString()
-            .substring(0, 8)}`,
-          email2: `${p2Name.toLowerCase()}.${p2Surname.toLowerCase()}@example.com`,
-          registeredAt: registeredStr,
-        };
-        selectedDemos.push(getInitialTeamStats(generatedTeam as any));
+        // Mixed: P1 Male, P2 Female
+        p1 = shuffledMales.pop()!;
+        p2 = shuffledFemales.pop()!;
       }
+
+      const teamName = `${adjectives[Math.floor(Math.random() * adjectives.length)]} ${nouns[Math.floor(Math.random() * nouns.length)]} ${i + 1}`;
+      const levels: ("Beginner" | "Bronze" | "Silver" | "Gold")[] = ["Gold", "Silver", "Bronze", "Beginner"];
+
+      const now = new Date();
+      const registeredAtString = now.toISOString().replace("T", " ").split(".")[0];
+
+      selectedTeams.push(
+        getInitialTeamStats({
+          id: `team-gen-${Date.now()}-${i}`,
+          name: teamName,
+          player1: `${p1.nome || ""} ${p1.cognome || ""}`.trim() || p1.username,
+          player2: `${p2.nome || ""} ${p2.cognome || ""}`.trim() || p2.username,
+          player1Id: p1.id,
+          player2Id: p2.id,
+          level: levels[Math.floor(Math.random() * levels.length)],
+          phone: p1.telefono || "Non specificato",
+          email: "Non specificata",
+          phone2: p2.telefono || "Non specificato",
+          email2: "Non specificata",
+          registeredAt: registeredAtString,
+        }),
+      );
     }
 
     const demNotif: NotificationLog = {
       id: `notif-demo-${Date.now()}`,
-      title: "Squadre Demo Precaricate 🏐",
-      message: `Il roster è stato caricato con ${count} coppie di beach volley. Il tabellone è ora pronto per essere configurato!`,
+      title: "Squadre Generate Automaticamente 🏐",
+      message: `${count} squadre create attingendo dagli atleti registrati per il torneo ${
+        genderMapping === "Mixed"
+          ? "Misto"
+          : genderMapping === "F"
+            ? "Femminile"
+            : "Maschile"
+      }.`,
       time: new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -1044,16 +1021,15 @@ export default function App() {
       await clearCollection("notifications");
       await deleteDoc(doc(db, "config", "settings"));
 
-      const teamPromises = selectedDemos.map((team) =>
+      const teamPromises = selectedTeams.map((team) =>
         setDoc(doc(db, "teams", team.id), cleanObject(team)),
       );
       await Promise.all(teamPromises);
-      await setDoc(
-        doc(db, "notifications", demNotif.id),
-        cleanObject(demNotif),
-      );
+      await setDoc(doc(db, "notifications", demNotif.id), cleanObject(demNotif));
+      setTeams(selectedTeams);
+      setActiveTournamentConfig(null);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, "teams_demo");
+      handleFirestoreError(err, OperationType.WRITE, "teams_gen");
     }
   };
 
@@ -1074,6 +1050,7 @@ export default function App() {
       name: string;
       formula: "direct" | "pools" | "combined" | "double_elim";
       teamsCount: number;
+      genderType: "M" | "F" | "Mixed";
       groupCount: number;
       courtCount: number;
       pointsPerSet?: 15 | 21;
@@ -1926,7 +1903,17 @@ export default function App() {
                   // Persist the active session info to database so other active connections of the same user are closed
                   const userDocRef = doc(db, "users", activeUser.id);
                   setDoc(userDocRef, cleanObject(updatedUser))
-                    .then(() => {
+                    .then(async () => {
+                      // Login notification
+                      const loginNotif: NotificationLog = {
+                        id: `notif-login-${Date.now()}`,
+                        title: "Utente Connesso 🟢",
+                        message: `L'utente "${updatedUser.username}" è ora online e operativo sul deck.`,
+                        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                        type: "system",
+                      };
+                      await setDoc(doc(db, "notifications", loginNotif.id), cleanObject(loginNotif));
+                      
                       setCurrentUser(updatedUser);
                       setLoginUsername("");
                       setLoginPassword("");
@@ -2435,6 +2422,8 @@ export default function App() {
                   onClearAllTeams={handleClearAllTeams}
                   isLocked={matches.length > 0}
                   admittedTeamsCount={admittedTeamsCount}
+                  activeTournamentConfig={activeTournamentConfig}
+                  tournamentGender={tournamentGender}
                   isTournamentStarted={matches.some(
                     (m) =>
                       m.status === "completed" ||
@@ -2465,6 +2454,7 @@ export default function App() {
                   currentUser={currentUser}
                   activeTournamentConfig={activeTournamentConfig}
                   loadedSaveName={loadedSaveName}
+                  tournamentGender={tournamentGender}
                 />
               </motion.div>
             )}

@@ -15,6 +15,7 @@ interface BracketTabProps {
     name: string;
     formula: 'direct' | 'pools' | 'combined' | 'double_elim';
     teamsCount: number;
+    genderType: 'M' | 'F' | 'Mixed';
     groupCount: number;
     courtCount: number;
     pointsPerSet?: 15 | 21;
@@ -34,6 +35,7 @@ interface BracketTabProps {
   currentUser?: AppUser | null;
   activeTournamentConfig?: any;
   loadedSaveName?: string | null;
+  tournamentGender?: 'maschile' | 'misto' | 'femminile' | '';
 }
 
 export default function BracketTab({
@@ -45,6 +47,7 @@ export default function BracketTab({
   currentUser = null,
   activeTournamentConfig = null,
   loadedSaveName = null,
+  tournamentGender = '',
 }: BracketTabProps) {
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
@@ -2979,10 +2982,15 @@ export default function BracketTab({
     // Auto adjust groupCount logically if pools config chosen
     let resolvedGroupCount = groupCount;
 
+    const mappedGender: 'M' | 'F' | 'Mixed' = 
+      tournamentGender === 'femminile' ? 'F' : 
+      tournamentGender === 'misto' ? 'Mixed' : 'M';
+
     onGenerateTournament({
       name: tournamentName,
       formula,
       teamsCount: formula === 'double_elim' ? 8 : teamsCount,
+      genderType: mappedGender,
       groupCount: (formula === 'direct' || formula === 'double_elim') ? 1 : resolvedGroupCount,
       courtCount,
       pointsPerSet,
@@ -3100,6 +3108,18 @@ export default function BracketTab({
                 <option value="combined">Fasi Multiple: Gironi + Playoff 🥇</option>
                 <option value="double_elim">Vincenti e Perdenti (Doppia Eliminazione) 🔄</option>
               </select>
+            </div>
+
+            {/* Genere Torneo (Sincronizzato con Header) */}
+            <div className="space-y-1 opacity-80">
+              <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Genere Torneo</label>
+              <div className="w-full px-3 py-2 rounded-xl border-2 border-slate-200 font-bold bg-slate-100 text-slate-500 text-sm flex items-center gap-2">
+                {tournamentGender === 'maschile' && <>♂️ Maschile (2 Maschi)</>}
+                {tournamentGender === 'femminile' && <>♀️ Femminile (2 Femmine)</>}
+                {tournamentGender === 'misto' && <>⚧️ Misto (1 Maschio + 1 Femmina)</>}
+                {!tournamentGender && <>Non specificato (Default: Maschile)</>}
+                <span className="ml-auto text-[10px] text-slate-400 italic font-medium">(Modifica in testata)</span>
+              </div>
             </div>
 
             {/* Numero Squadre / Gironi + Playoff Selector */}

@@ -637,9 +637,12 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
               {adminUsers.map((u) => {
                 const isSelf = u.username === currentUser?.username;
                 const isOnline =
-                  !!u.activeSessionId &&
+                  u.activeSessionId &&
+                  u.activeSessionId !== "null" &&
+                  u.activeSessionId !== "undefined" &&
+                  u.activeSessionId !== "" &&
                   u.lastActiveAt &&
-                  Date.now() - u.lastActiveAt < 120000; // Online if active in last 2 minutes and has active session
+                  Date.now() - u.lastActiveAt < 900000; // Online if has active session and within 15 minutes window (since last login)
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/50">
                     <td className="p-3.5">
