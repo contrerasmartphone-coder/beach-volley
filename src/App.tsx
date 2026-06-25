@@ -156,6 +156,7 @@ export default function App() {
           tournamentDate: editTournamentDate,
           tournamentGender: editTournamentGender,
           tournamentLocation: editTournamentLocation,
+          visibilitySettings: visibilitySettings,
         },
         { merge: true },
       );
@@ -394,6 +395,18 @@ export default function App() {
     }
   });
 
+  const [visibilitySettings, setVisibilitySettings] = useState<{
+    entryList: boolean;
+    bracket: boolean;
+    standings: boolean;
+    notifications: boolean;
+  }>({
+    entryList: true,
+    bracket: true,
+    standings: true,
+    notifications: true,
+  });
+
   const [isEditingTournamentInfo, setIsEditingTournamentInfo] = useState(false);
   const [editTournamentDate, setEditTournamentDate] = useState("");
   const [editTournamentGender, setEditTournamentGender] = useState<"maschile" | "misto" | "femminile" | "">("");
@@ -501,6 +514,10 @@ export default function App() {
             try {
               localStorage.removeItem("bv_tournament_gender");
             } catch {}
+          }
+
+          if (data.visibilitySettings !== undefined) {
+            setVisibilitySettings(data.visibilitySettings);
           }
         } else {
           setAdmittedTeamsCount(null);
@@ -2225,6 +2242,35 @@ export default function App() {
                   </select>
                 </div>
 
+                <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4 bg-sky-700/40 p-2 rounded-2xl border border-sky-400/30">
+                  <span className="text-[9px] font-black uppercase text-sky-100 tracking-wider">Visibilità Pubblica:</span>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    {[
+                      { id: 'entryList', label: 'Lista Ingresso' },
+                      { id: 'bracket', label: 'Tabellone' },
+                      { id: 'standings', label: 'Classifiche' },
+                      { id: 'notifications', label: 'Notifiche' }
+                    ].map(s => (
+                      <label key={s.id} className="flex items-center gap-1.5 cursor-pointer group">
+                        <div className="relative flex items-center">
+                          <input 
+                            type="checkbox" 
+                            checked={visibilitySettings[s.id as keyof typeof visibilitySettings]} 
+                            onChange={() => setVisibilitySettings(prev => ({...prev, [s.id]: !prev[s.id as keyof typeof visibilitySettings]}))}
+                            className="w-4 h-4 rounded-md border-2 border-sky-400 bg-white checked:bg-orange-500 checked:border-orange-600 transition-all cursor-pointer appearance-none"
+                          />
+                          {visibilitySettings[s.id as keyof typeof visibilitySettings] && (
+                            <Check className="w-3 h-3 text-white absolute left-0.5 pointer-events-none" />
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-black uppercase tracking-tight transition-colors ${visibilitySettings[s.id as keyof typeof visibilitySettings] ? 'text-orange-300' : 'text-sky-300 group-hover:text-sky-100'}`}>
+                          {s.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleSaveTournamentInfo}
@@ -2292,35 +2338,43 @@ export default function App() {
                     currentUser &&
                     (currentUser.role === "admin" ||
                       currentUser.role === "collaborator");
-                  let navItems = [
-                    {
+                  let navItems = [];
+                  
+                  if (isOrganizer || visibilitySettings.entryList) {
+                    navItems.push({
                       id: "teams",
                       label: "Lista Ingresso",
                       count: teams.length,
                       icon: <Users className="w-3.5 h-3.5" />,
-                    },
-                    ...(isOrganizer || matches.length > 0
-                      ? [
-                          {
-                            id: "bracket",
-                            label: "Tabellone",
-                            count: matches.length,
-                            icon: <Award className="w-3.5 h-3.5" />,
-                          },
-                        ]
-                      : []),
-                    {
+                    });
+                  }
+
+                  if (isOrganizer || (visibilitySettings.bracket && matches.length > 0)) {
+                    navItems.push({
+                      id: "bracket",
+                      label: "Tabellone",
+                      count: matches.length,
+                      icon: <Award className="w-3.5 h-3.5" />,
+                    });
+                  }
+
+                  if (isOrganizer || visibilitySettings.standings) {
+                    navItems.push({
                       id: "standings",
                       label: "Classifiche",
                       icon: <TrendingUp className="w-3.5 h-3.5" />,
-                    },
-                    {
+                    });
+                  }
+
+                  if (isOrganizer || visibilitySettings.notifications) {
+                    navItems.push({
                       id: "notifications",
                       label: "Notifiche",
                       count: notifications.length,
                       icon: <Bell className="w-3.5 h-3.5" />,
-                    },
-                  ];
+                    });
+                  }
+
                   if (currentUser && currentUser.role === "admin") {
                     navItems.push({
                       id: "archive",
@@ -2405,7 +2459,7 @@ export default function App() {
           </div>
         ) : (
           <AnimatePresence mode="wait">
-            {activeTab === "teams" && (
+            {(activeTab === "teams" && (currentUser?.role === "admin" || currentUser?.role === "collaborator" || visibilitySettings.entryList)) && (
               <motion.div
                 key="teams"
                 initial={{ opacity: 0, y: 15 }}
@@ -2437,7 +2491,7 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === "bracket" && (
+            {(activeTab === "bracket" && (currentUser?.role === "admin" || currentUser?.role === "collaborator" || visibilitySettings.bracket)) && (
               <motion.div
                 key="bracket"
                 initial={{ opacity: 0, y: 15 }}
@@ -2459,7 +2513,7 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === "standings" && (
+            {(activeTab === "standings" && (currentUser?.role === "admin" || currentUser?.role === "collaborator" || visibilitySettings.standings)) && (
               <motion.div
                 key="standings"
                 initial={{ opacity: 0, y: 15 }}
@@ -2476,7 +2530,7 @@ export default function App() {
               </motion.div>
             )}
 
-            {activeTab === "notifications" && (
+            {(activeTab === "notifications" && (currentUser?.role === "admin" || currentUser?.role === "collaborator" || visibilitySettings.notifications)) && (
               <motion.div
                 key="notifications"
                 initial={{ opacity: 0, y: 15 }}
