@@ -9,20 +9,49 @@ interface StandingsTabProps {
   matches: Match[];
   activeTournamentConfig?: any;
   currentUser?: AppUser | null;
+  admittedTeamsCount?: number | null;
 }
 
-export default function StandingsTab({ teams, matches, activeTournamentConfig, currentUser = null }: StandingsTabProps) {
+export default function StandingsTab({
+  teams,
+  matches,
+  activeTournamentConfig,
+  currentUser = null,
+  admittedTeamsCount = null,
+}: StandingsTabProps) {
   const isOrganizer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isCombined = activeTournamentConfig?.formula === 'combined';
   const standingsMatches = isCombined ? matches.filter(m => m.phase === 'gironi') : matches;
 
+  // Separate active teams and withdrawn/substituted teams to avoid mixing them in normal lists
+  const activeTeams = teams.filter((t) => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
+
+  // Admitted and Reserve lists division when tournament behaves with exclusions (use activeTeams only)
+  const isLocked = matches.length > 0;
+  const limit = admittedTeamsCount !== null ? admittedTeamsCount : (activeTournamentConfig?.teamsCount ?? null);
+  const hasExclusions = !!(limit !== null && limit !== undefined && activeTeams.length > limit);
+
+  const chronologicallySorted = [...activeTeams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+
+  const reserveTeamIds = React.useMemo(() => {
+    return new Set(
+      hasExclusions && limit !== null && limit !== undefined
+        ? chronologicallySorted.slice(limit).map(t => t.id)
+        : []
+    );
+  }, [hasExclusions, limit, chronologicallySorted]);
+
+  const nonReserveTeams = React.useMemo(() => {
+    return teams.filter(t => !reserveTeamIds.has(t.id));
+  }, [teams, reserveTeamIds]);
+
   // Compute stats on-the-fly from historical match results sorted under FIPAV Classifica Avulsa
-  const sortedTeams = computeFipavStandings(teams, standingsMatches);
+  const sortedTeams = computeFipavStandings(nonReserveTeams, standingsMatches);
 
   // Compute group standings on the fly to get pool round ranking positions
   const groupMatches = matches.filter(m => m.phase === 'gironi' || m.groupName);
   const groupsStandings = React.useMemo(() => {
-    const computed = computeTeamStats(teams, groupMatches);
+    const computed = computeTeamStats(nonReserveTeams, groupMatches);
     const gr: Record<string, Team[]> = {};
     computed.forEach(t => {
       if (t.group) {

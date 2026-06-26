@@ -50,7 +50,8 @@ service cloud.firestore {
         && (!('dataNascita' in u) || u.dataNascita is string)
         && (!('genere' in u) || u.genere == 'M' || u.genere == 'F')
         && (!('activeSessionId' in u) || u.activeSessionId is string)
-        && (!('lastActiveAt' in u) || u.lastActiveAt is int || u.lastActiveAt is float);
+        && (!('lastActiveAt' in u) || u.lastActiveAt is int || u.lastActiveAt is float)
+        && (!('isTesseratoWsicily' in u) || u.isTesseratoWsicily is bool);
     }
 
     function isValidRegistrationRequest(r) {
@@ -89,6 +90,28 @@ service cloud.firestore {
         && s.matches is list
         && (!('activeTournamentConfig' in s) || s.activeTournamentConfig is map || s.activeTournamentConfig == null)
         && (!('admittedTeamsCount' in s) || s.admittedTeamsCount is int || s.admittedTeamsCount is float || s.admittedTeamsCount == null);
+    }
+
+    function isValidFreePlayMatch(m) {
+      return m.id is string && m.id.size() <= 128
+        && m.player1AId is string && m.player1AId.size() <= 128
+        && m.player1AName is string && m.player1AName.size() <= 300
+        && m.player1BId is string && m.player1BId.size() <= 128
+        && m.player1BName is string && m.player1BName.size() <= 300
+        && m.player2AId is string && m.player2AId.size() <= 128
+        && m.player2AName is string && m.player2AName.size() <= 300
+        && m.player2BId is string && m.player2BId.size() <= 128
+        && m.player2BName is string && m.player2BName.size() <= 300
+        && m.createdAt is string && m.createdAt.size() <= 100
+        && (m.status == 'pending' || m.status == 'completed')
+        && m.date is string && m.date.size() <= 100
+        && (!('completedAt' in m) || (m.completedAt is string && m.completedAt.size() <= 100));
+    }
+
+    match /freePlayMatches/{matchId} {
+      allow read: if true;
+      allow create, update: if isValidId(matchId) && isValidFreePlayMatch(request.resource.data);
+      allow delete: if isValidId(matchId);
     }
 
     match /teams/{teamId} {

@@ -59,6 +59,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   const [newGenere, setNewGenere] = useState<"M" | "F" | "">("");
   const [newDataNascita, setNewDataNascita] = useState("");
   const [newIsAthlete, setNewIsAthlete] = useState(false);
+  const [newIsTesseratoWsicily, setNewIsTesseratoWsicily] = useState(false);
 
   // Approval modal state
   const [requestToApprove, setRequestToApprove] = useState<RegistrationRequest | null>(null);
@@ -71,6 +72,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
   const [approveDataNascita, setApproveDataNascita] = useState("");
   const [approveRole, setApproveRole] = useState<"admin" | "collaborator" | "reader" | "ATLETA">("reader");
   const [approveIsAthlete, setApproveIsAthlete] = useState(false);
+  const [approveIsTesseratoWsicily, setApproveIsTesseratoWsicily] = useState(false);
 
   // Registration requests state
   const [requests, setRequests] = useState<RegistrationRequest[]>([]);
@@ -199,6 +201,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       telefono: cleanTelefono,
       isAthlete: (newRole === "admin" || newRole === "collaborator") ? newIsAthlete : (newRole === "ATLETA" ? true : false),
       createdBy: currentUser?.username || "sistema",
+      isTesseratoWsicily: newIsTesseratoWsicily,
     };
 
     if (newGenere) {
@@ -221,6 +224,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
       setNewGenere("");
       setNewDataNascita("");
       setNewIsAthlete(false);
+      setNewIsTesseratoWsicily(false);
       setTimeout(() => setSuccessText(null), 5000);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `users/${newUser.id}`);
@@ -306,6 +310,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
     setApproveDataNascita(req.dataNascita || "");
     setApproveRole(req.role || "reader");
     setApproveIsAthlete(req.isAthlete || false);
+    setApproveIsTesseratoWsicily(false);
   };
 
   const confirmApproveRequest = async () => {
@@ -391,6 +396,7 @@ export default function UserTab({ currentUser, users }: UserTabProps) {
         telefono: cleanTelefono,
         isAthlete: (approveRole === "admin" || approveRole === "collaborator") ? approveIsAthlete : (approveRole === "ATLETA" ? true : false),
         createdBy: currentUser?.username || "sistema",
+        isTesseratoWsicily: approveIsTesseratoWsicily,
       };
 
       if (approveGenere) {
@@ -720,6 +726,11 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                             🏃 Atleta
                           </span>
                         )}
+                        {u.isTesseratoWsicily && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-orange-50 text-orange-700 border border-orange-200 py-1 px-2.5 rounded-full uppercase tracking-wider">
+                            🎗️ Wsicily
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="p-3.5">
@@ -992,6 +1003,19 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                     </label>
                   </div>
                 )}
+
+                <div className="mt-4 flex items-center gap-2.5 bg-orange-50 border border-orange-100 rounded-xl p-3">
+                  <input
+                    type="checkbox"
+                    id="new-user-is-tesserato-checkbox"
+                    checked={newIsTesseratoWsicily}
+                    onChange={(e) => setNewIsTesseratoWsicily(e.target.checked)}
+                    className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-slate-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="new-user-is-tesserato-checkbox" className="text-xs font-bold text-orange-950 select-none cursor-pointer">
+                    Tesserato Wsicily 🎗️ (Richiesto per il Free Play)
+                  </label>
+                </div>
               </div>
 
               <div className="pt-4 flex gap-2">
@@ -1182,6 +1206,24 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                     Abilita anche come Atleta 🏃 (Può iscriversi ai tornei)
                   </label>
                 </div>
+
+                <div className="mt-4 flex items-center gap-2.5 bg-orange-50 border border-orange-100 rounded-xl p-3">
+                  <input
+                    type="checkbox"
+                    id="edit-user-is-tesserato-checkbox"
+                    checked={!!editingUser.isTesseratoWsicily}
+                    onChange={(e) =>
+                      setEditingUser({
+                        ...editingUser,
+                        isTesseratoWsicily: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-slate-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="edit-user-is-tesserato-checkbox" className="text-xs font-bold text-orange-950 select-none cursor-pointer">
+                    Tesserato Wsicily 🎗️ (Richiesto per il Free Play)
+                  </label>
+                </div>
               </div>
 
               <div className="pt-4 flex gap-2">
@@ -1353,6 +1395,19 @@ Puoi accedere ora all'applicazione! Benvenuto/a a bordo! 🏖️`;
                   />
                   <label htmlFor="approve-is-athlete-checkbox" className="text-xs font-bold text-emerald-800 select-none cursor-pointer">
                     Abilita anche come Atleta 🏃 (Può iscriversi ai tornei)
+                  </label>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2.5 bg-orange-50 border border-orange-100 rounded-xl p-3">
+                  <input
+                    type="checkbox"
+                    id="approve-is-tesserato-checkbox"
+                    checked={approveIsTesseratoWsicily}
+                    onChange={(e) => setApproveIsTesseratoWsicily(e.target.checked)}
+                    className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-slate-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="approve-is-tesserato-checkbox" className="text-xs font-bold text-orange-950 select-none cursor-pointer">
+                    Tesserato Wsicily 🎗️ (Richiesto per il Free Play)
                   </label>
                 </div>
               </div>

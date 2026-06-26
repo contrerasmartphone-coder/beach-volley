@@ -62,7 +62,21 @@ export default function ArchiveTab({
     const standsMatches = activeTournamentConfig?.formula === 'combined' 
       ? activeMatches.filter(m => m.phase === 'gironi') 
       : activeMatches;
-    const sortedTeams = computeFipavStandings(activeTeams, standsMatches);
+
+    // Filter out reserve teams
+    const limit = activeTournamentConfig?.teamsCount ?? null;
+    const activeTeamsFiltered = activeTeams.filter((t) => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
+    const hasExclusions = !!(limit !== null && activeTeamsFiltered.length > limit);
+    const chronologicallySorted = [...activeTeamsFiltered].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+
+    const reserveTeamIds = new Set(
+      hasExclusions && limit !== null
+        ? chronologicallySorted.slice(limit).map(t => t.id)
+        : []
+    );
+
+    const nonReserveTeams = activeTeams.filter(t => !reserveTeamIds.has(t.id));
+    const sortedTeams = computeFipavStandings(nonReserveTeams, standsMatches);
 
     const grandFinal = activeMatches.find(m => m.roundLabel === 'Finale' && (m.phase === 'eliminazione' || m.id.includes('de') || m.id.startsWith('m-p-')));
     const final3rd = activeMatches.find(m => m.roundLabel === 'Finale 3°/4° Posto');

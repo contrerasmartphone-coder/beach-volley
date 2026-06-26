@@ -165,9 +165,46 @@
         "status": { "type": "string", "enum": ["online", "offline"] }
       },
       "required": ["status"]
+    },
+    "FreePlayMatch": {
+      "title": "FreePlayMatch",
+      "description": "Represents a beach volley free play match queue item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "player1AId": { "type": "string" },
+        "player1AName": { "type": "string" },
+        "player1BId": { "type": "string" },
+        "player1BName": { "type": "string" },
+        "player2AId": { "type": "string" },
+        "player2AName": { "type": "string" },
+        "player2BId": { "type": "string" },
+        "player2BName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "completedAt": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": [
+        "player1AId",
+        "player1AName",
+        "player1BId",
+        "player1BName",
+        "player2AId",
+        "player2AName",
+        "player2BId",
+        "player2BName",
+        "createdAt",
+        "status",
+        "date"
+      ]
     }
   },
   "firestore": {
+    "/freePlayMatches/{matchId}": {
+      "schema": "FreePlayMatch",
+      "description": "Stores the active queue and archive of beach volley free play matches"
+    },
     "/config/status": {
       "schema": "SystemStatus",
       "description": "Stores the global connection status (Online/Offline) for non-admin users"

@@ -2886,10 +2886,22 @@ export default function BracketTab({
   const groupNames = Array.from(new Set(groupMatches.map(m => m.groupName).filter(Boolean))) as string[];
 
   const qualifiedTeamIds = React.useMemo(() => {
-    const sortedAvulsa = computeFipavStandings(teams, groupMatches);
+    const limit = activeTournamentConfig?.teamsCount ?? null;
+    const activeTeams = teams.filter((t) => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
+    const hasExclusions = !!(limit !== null && activeTeams.length > limit);
+    const chronologicallySorted = [...activeTeams].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt));
+
+    const reserveTeamIds = new Set(
+      hasExclusions && limit !== null
+        ? chronologicallySorted.slice(limit).map(t => t.id)
+        : []
+    );
+
+    const nonReserveTeams = teams.filter(t => !reserveTeamIds.has(t.id));
+    const sortedAvulsa = computeFipavStandings(nonReserveTeams, groupMatches);
     const qualifiedCount = activeTournamentConfig?.qualifiedCount || 4;
     return new Set(sortedAvulsa.slice(0, qualifiedCount).map(t => t.id));
-  }, [teams, groupMatches, activeTournamentConfig?.qualifiedCount]);
+  }, [teams, groupMatches, activeTournamentConfig]);
 
   useEffect(() => {
     const hasGironi = matches.some(m => m.phase === 'gironi');

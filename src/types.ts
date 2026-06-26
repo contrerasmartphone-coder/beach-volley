@@ -112,6 +112,7 @@ export interface AppUser {
   dataNascita?: string; // Data di nascita
   isAthlete?: boolean; // Se lo staff è anche atleta o se abilitato
   createdBy?: string; // Username of the admin/collaborator who created the account
+  isTesseratoWsicily?: boolean; // Se l'utente è tesserato Wsicily
 }
 
 export interface RegistrationRequest {
@@ -159,5 +160,32 @@ export interface ActiveTournamentSave {
   notifications?: NotificationLog[];
   timestamp?: number;
   teamUsers?: AppUser[];
+  tournamentDate?: string;
+  tournamentLocation?: string;
+  tournamentGender?: "maschile" | "misto" | "femminile" | "";
+  visibilitySettings?: {
+    entryList: boolean;
+    bracket: boolean;
+    standings: boolean;
+    notifications: boolean;
+    freePlay?: boolean;
+  };
 }
+
+export interface FreePlayMatch {
+  id: string;
+  player1AId: string;
+  player1AName: string;
+  player1BId: string;
+  player1BName: string;
+  player2AId: string;
+  player2AName: string;
+  player2BId: string;
+  player2BName: string;
+  createdAt: string; // ISO String or Local timestamp
+  status: 'pending' | 'completed';
+  completedAt?: string;
+  date: string; // e.g. YYYY-MM-DD
+}
+
 

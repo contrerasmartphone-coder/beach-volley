@@ -118,7 +118,8 @@ export default function TeamsTab({
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLocked) return;
+    const editable = canWrite && (!isLocked || !isTournamentStarted);
+    if (!editable) return;
     if (!selectedDetailsTeam || !editName || !editPlayer1 || !editPlayer2) return;
 
     const updatedTeam: Team = {

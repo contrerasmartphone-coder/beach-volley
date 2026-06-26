@@ -26,6 +26,7 @@ import StandingsTab from "./components/StandingsTab";
 import NotificationCenter from "./components/NotificationCenter";
 import ArchiveTab from "./components/ArchiveTab";
 import UserTab from "./components/UserTab";
+import FreePlayTab from "./components/FreePlayTab";
 import {
   Sun,
   Award,
@@ -43,6 +44,7 @@ import {
   Calendar,
   Edit,
   MapPin,
+  Play,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -60,6 +62,7 @@ import {
   onSnapshot,
   getDocs,
   getDoc,
+  deleteField,
 } from "firebase/firestore";
 
 const normalizePhoneForComparison = (phone: string) => {
@@ -400,11 +403,13 @@ export default function App() {
     bracket: boolean;
     standings: boolean;
     notifications: boolean;
+    freePlay: boolean;
   }>({
     entryList: true,
     bracket: true,
     standings: true,
     notifications: true,
+    freePlay: true,
   });
 
   const [isEditingTournamentInfo, setIsEditingTournamentInfo] = useState(false);
@@ -472,13 +477,23 @@ export default function App() {
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.admittedTeamsCount !== undefined)
+          if (data.admittedTeamsCount !== undefined) {
             setAdmittedTeamsCount(data.admittedTeamsCount);
-          if (data.activeTournamentConfig !== undefined)
+          } else {
+            setAdmittedTeamsCount(null);
+          }
+
+          if (data.activeTournamentConfig !== undefined) {
             setActiveTournamentConfig(data.activeTournamentConfig);
-          if (data.loadedSaveName !== undefined)
+          } else {
+            setActiveTournamentConfig(null);
+          }
+
+          if (data.loadedSaveName !== undefined) {
             setLoadedSaveName(data.loadedSaveName);
-          else setLoadedSaveName(null);
+          } else {
+            setLoadedSaveName(null);
+          }
 
           if (data.tournamentDate !== undefined) {
             setTournamentDate(data.tournamentDate);
@@ -518,6 +533,13 @@ export default function App() {
 
           if (data.visibilitySettings !== undefined) {
             setVisibilitySettings(data.visibilitySettings);
+          } else {
+            setVisibilitySettings({
+              entryList: true,
+              bracket: true,
+              standings: true,
+              notifications: true,
+            });
           }
         } else {
           setAdmittedTeamsCount(null);
@@ -526,6 +548,12 @@ export default function App() {
           setTournamentDate("");
           setTournamentGender("");
           setTournamentLocation("");
+          setVisibilitySettings({
+            entryList: true,
+            bracket: true,
+            standings: true,
+            notifications: true,
+          });
           try {
             localStorage.removeItem("bv_tournament_date");
             localStorage.removeItem("bv_tournament_gender");
@@ -1036,7 +1064,15 @@ export default function App() {
       await clearCollection("teams");
       await clearCollection("matches");
       await clearCollection("notifications");
-      await deleteDoc(doc(db, "config", "settings"));
+      await setDoc(
+        doc(db, "config", "settings"),
+        {
+          activeTournamentConfig: deleteField(),
+          admittedTeamsCount: deleteField(),
+          loadedSaveName: deleteField(),
+        },
+        { merge: true },
+      );
 
       const teamPromises = selectedTeams.map((team) =>
         setDoc(doc(db, "teams", team.id), cleanObject(team)),
@@ -1333,6 +1369,7 @@ export default function App() {
           admittedTeamsCount: config.teamsCount,
           activeTournamentConfig: config,
         }),
+        { merge: true },
       );
 
       // Clear existing matches
@@ -1430,7 +1467,15 @@ export default function App() {
   const handleUpdateMatches = async (newMatches: Match[]) => {
     try {
       if (newMatches.length === 0) {
-        await deleteDoc(doc(db, "config", "settings"));
+        await setDoc(
+          doc(db, "config", "settings"),
+          {
+            activeTournamentConfig: deleteField(),
+            admittedTeamsCount: deleteField(),
+            loadedSaveName: deleteField(),
+          },
+          { merge: true },
+        );
         await clearCollection("matches");
       } else {
         const resolved = recalculateTournamentStages(
@@ -1478,7 +1523,15 @@ export default function App() {
     try {
       await clearCollection("matches");
       await clearCollection("notifications");
-      await deleteDoc(doc(db, "config", "settings"));
+      await setDoc(
+        doc(db, "config", "settings"),
+        {
+          activeTournamentConfig: deleteField(),
+          admittedTeamsCount: deleteField(),
+          loadedSaveName: deleteField(),
+        },
+        { merge: true },
+      );
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, "all_tournament_data");
     }
@@ -1512,6 +1565,10 @@ export default function App() {
       notifications: notifications,
       timestamp: Date.now(),
       teamUsers: [],
+      tournamentDate: tournamentDate,
+      tournamentLocation: tournamentLocation,
+      tournamentGender: tournamentGender,
+      visibilitySettings: visibilitySettings,
     };
     try {
       await setDoc(doc(db, "saves", saveId), cleanObject(newSave));
@@ -1526,6 +1583,7 @@ export default function App() {
           },
           loadedSaveName: nameToUse,
         }),
+        { merge: true },
       );
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `saves/${saveId}`);
@@ -1561,7 +1619,17 @@ export default function App() {
           admittedTeamsCount: save.admittedTeamsCount,
           activeTournamentConfig: save.activeTournamentConfig,
           loadedSaveName: save.name,
+          tournamentDate: save.tournamentDate || "",
+          tournamentLocation: save.tournamentLocation || "",
+          tournamentGender: save.tournamentGender || "",
+          visibilitySettings: save.visibilitySettings || {
+            entryList: true,
+            bracket: true,
+            standings: true,
+            notifications: true,
+          },
         }),
+        { merge: true },
       );
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `restore/${save.id}`);
@@ -2249,7 +2317,8 @@ export default function App() {
                       { id: 'entryList', label: 'Lista Ingresso' },
                       { id: 'bracket', label: 'Tabellone' },
                       { id: 'standings', label: 'Classifiche' },
-                      { id: 'notifications', label: 'Notifiche' }
+                      { id: 'notifications', label: 'Notifiche' },
+                      { id: 'freePlay', label: 'Free Play' }
                     ].map(s => (
                       <label key={s.id} className="flex items-center gap-1.5 cursor-pointer group">
                         <div className="relative flex items-center">
@@ -2372,6 +2441,14 @@ export default function App() {
                       label: "Notifiche",
                       count: notifications.length,
                       icon: <Bell className="w-3.5 h-3.5" />,
+                    });
+                  }
+
+                  if (isOrganizer || visibilitySettings.freePlay) {
+                    navItems.push({
+                      id: "freeplay",
+                      label: "Free Play",
+                      icon: <Play className="w-3.5 h-3.5" />,
                     });
                   }
 
@@ -2526,6 +2603,7 @@ export default function App() {
                   matches={matches}
                   activeTournamentConfig={activeTournamentConfig}
                   currentUser={currentUser}
+                  admittedTeamsCount={admittedTeamsCount}
                 />
               </motion.div>
             )}
@@ -2569,6 +2647,18 @@ export default function App() {
                   onRestoreTournament={handleRestoreTournament}
                   onDeleteSave={handleDeleteSave}
                 />
+              </motion.div>
+            )}
+
+            {activeTab === "freeplay" && (currentUser?.role === "admin" || currentUser?.role === "collaborator" || visibilitySettings.freePlay) && (
+              <motion.div
+                key="freeplay"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.15 }}
+              >
+                <FreePlayTab currentUser={currentUser} users={users} />
               </motion.div>
             )}
 
