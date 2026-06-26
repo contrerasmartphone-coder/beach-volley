@@ -261,6 +261,27 @@ export default function FreePlayTab({ currentUser, users }: FreePlayTabProps) {
     }
   };
 
+  const handleClearCompletedToday = async () => {
+    if (!window.confirm("Sei sicuro di voler svuotare tutte le partite giocate di oggi? Questa operazione è irreversibile.")) {
+      return;
+    }
+    setErrorBanner(null);
+    setSuccessBanner(null);
+    try {
+      const todayMatches = matches.filter(
+        (m) => m.status === "completed" && m.date === getTodayDateString()
+      );
+      for (const match of todayMatches) {
+        await deleteDoc(doc(db, "freePlayMatches", match.id));
+      }
+      setSuccessBanner("Partite di oggi svuotate con successo!");
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, "freePlayMatches");
+      setErrorBanner("Errore durante lo svuotamento delle partite.");
+    }
+  };
+
   const startEditMatch = (match: FreePlayMatch) => {
     setEditingMatch(match);
     setEditPlayer1A(users.find((u) => u.id === match.player1AId) || null);
@@ -699,11 +720,19 @@ export default function FreePlayTab({ currentUser, users }: FreePlayTabProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Daily Stats (Match counter) */}
         <div className="bg-white rounded-3xl border-4 border-slate-250 shadow-sm overflow-hidden">
-          <div className="bg-slate-50 border-b border-slate-200 p-4">
+          <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
             <h2 className="text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
               <Trophy className="w-4 h-4 text-orange-500" />
               Conteggio Partite Concluse Oggi
             </h2>
+            {isAdminOrCollaborator && dailyStats.length > 0 && (
+              <button
+                onClick={handleClearCompletedToday}
+                className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:text-red-600 border-2 border-red-200 rounded-full py-1.5 px-3 hover:bg-red-50/50 transition-all cursor-pointer"
+              >
+                Svuota
+              </button>
+            )}
           </div>
 
           {dailyStats.length === 0 ? (
@@ -745,11 +774,19 @@ export default function FreePlayTab({ currentUser, users }: FreePlayTabProps) {
 
         {/* Daily Archive of concluded matches */}
         <div className="bg-white rounded-3xl border-4 border-slate-250 shadow-sm overflow-hidden">
-          <div className="bg-slate-50 border-b border-slate-200 p-4">
+          <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
             <h2 className="text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
               <Award className="w-4 h-4 text-emerald-500" />
               Archivio Partite Giornaliere ({completedMatchesToday.length})
             </h2>
+            {isAdminOrCollaborator && completedMatchesToday.length > 0 && (
+              <button
+                onClick={handleClearCompletedToday}
+                className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:text-red-600 border-2 border-red-200 rounded-full py-1.5 px-3 hover:bg-red-50/50 transition-all cursor-pointer"
+              >
+                Svuota
+              </button>
+            )}
           </div>
 
           {completedMatchesToday.length === 0 ? (

@@ -810,11 +810,14 @@ export default function App() {
       if (matches.length > 0) {
         allowedTabs.push("bracket");
       }
+      if (visibilitySettings.freePlay) {
+        allowedTabs.push("freeplay");
+      }
       if (!allowedTabs.includes(activeTab)) {
         setActiveTab("teams");
       }
     }
-  }, [currentUser, activeTab, matches.length]);
+  }, [currentUser, activeTab, matches.length, visibilitySettings.freePlay]);
 
   const clearCollection = async (collectionName: string) => {
     try {
