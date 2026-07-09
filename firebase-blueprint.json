@@ -198,9 +198,24 @@
         "status",
         "date"
       ]
+    },
+    "MvpVote": {
+      "title": "MvpVote",
+      "description": "Represents a vote cast by a user for the tournament MVP",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "votedPlayer": { "type": "string" },
+        "votedAt": { "type": "string" }
+      },
+      "required": ["userId", "votedPlayer", "votedAt"]
     }
   },
   "firestore": {
+    "/mvpVotes/{voteId}": {
+      "schema": "MvpVote",
+      "description": "Stores user votes for the tournament MVP award"
+    },
     "/freePlayMatches/{matchId}": {
       "schema": "FreePlayMatch",
       "description": "Stores the active queue and archive of beach volley free play matches"

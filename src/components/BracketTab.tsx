@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { useDialog } from '../context/DialogContext';
 import { Team, Match, SetScore, NotificationLog, AppUser } from '../types';
 import { simulateCompletedMatch, simulateSetScore, computeGroupStandings, generatePlayoffsFromGroups, computeTeamStats, generateDirectEliminationBracket, generateDoubleEliminationBracket, splitTeamsIntoGroups, generateRoundRobinMatches, autoResolveAndPropagate, isByeTeam, sortTeamsByEntryList, sortGroupStandings, computeFipavStandings, getGaraNumbersMap, parseTimeToMinutes, formatMinutesToTime, printHTML } from '../utils';
 import { Calendar, Play, Clock, Save, Edit2, Award, Zap, Shuffle, ListFilter, ArrowRight, Trophy, Sparkles, Check, AlertCircle, Info, RefreshCw, Lock, Printer, FileText, Coffee, ChevronDown, ChevronUp, Plus, Minus, ArrowLeftRight, Undo } from 'lucide-react';
@@ -49,6 +52,7 @@ export default function BracketTab({
   loadedSaveName = null,
   tournamentGender = '',
 }: BracketTabProps) {
+  const { alert: customAlert, confirm: customConfirm } = useDialog();
   const canWrite = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isAdmin = currentUser && currentUser.role === 'admin';
 
@@ -170,6 +174,75 @@ export default function BracketTab({
   const [activePhaseTab, setActivePhaseTab] = useState<'gironi' | 'eliminazione'>('gironi');
   const [selectedGroupTab, setSelectedGroupTab] = useState<string>('');
   const [groupViewMode, setGroupViewMode] = useState<'by-group' | 'all-list'>('by-group');
+
+  // MVP States and Realtime Subscription
+  const [matchMvpSelected, setMatchMvpSelected] = useState<string>('');
+  const [allVotes, setAllVotes] = useState<{ userId: string; votedPlayer: string; votedAt: string }[]>([]);
+  const [userHasVoted, setUserHasVoted] = useState(false);
+  const [userVotedFor, setUserVotedFor] = useState<string | null>(null);
+  const [isVotingModalOpen, setIsVotingModalOpen] = useState(false);
+  const [selectedMvpPlayer, setSelectedMvpPlayer] = useState<string>('');
+  const [isSubmittingVote, setIsSubmittingVote] = useState(false);
+  const [mvpVotingEnabled, setMvpVotingEnabled] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "mvpVotes"), (snapshot) => {
+      const votes: any[] = [];
+      snapshot.forEach(doc => {
+        votes.push({ id: doc.id, ...doc.data() });
+      });
+      setAllVotes(votes);
+      
+      if (currentUser) {
+        const myVote = votes.find(v => v.id === currentUser.id || v.userId === currentUser.id);
+        if (myVote) {
+          setUserHasVoted(true);
+          setUserVotedFor(myVote.votedPlayer);
+        } else {
+          setUserHasVoted(false);
+          setUserVotedFor(null);
+        }
+      }
+    });
+
+    const unsubSettings = onSnapshot(doc(db, "config", "settings"), (docSnap) => {
+      if (docSnap.exists()) {
+        setMvpVotingEnabled(docSnap.data().mvpVotingEnabled || false);
+      }
+    });
+
+    return () => {
+      unsub();
+      unsubSettings();
+    };
+  }, [currentUser]);
+
+  const getFirstMatchTimeAndDate = () => {
+    let firstTime = '09:00';
+    const scheduledMatches = matches.filter(m => m.time && m.time.includes(':'));
+    if (scheduledMatches.length > 0) {
+      const sortedByTime = [...scheduledMatches].sort((a, b) => {
+        const [hA, mA] = a.time.split(':').map(Number);
+        const [hB, mB] = b.time.split(':').map(Number);
+        return (hA * 60 + mA) - (hB * 60 + mB);
+      });
+      firstTime = sortedByTime[0].time;
+    }
+    return firstTime;
+  };
+
+  const isMvpVotingOpen = () => {
+    return mvpVotingEnabled;
+  };
+
+  const allPlayers = useMemo(() => {
+    const playersSet = new Set<string>();
+    teams.forEach(t => {
+      if (t.player1 && t.player1.trim() && !isByeTeam(t)) playersSet.add(t.player1.trim());
+      if (t.player2 && t.player2.trim() && !isByeTeam(t)) playersSet.add(t.player2.trim());
+    });
+    return Array.from(playersSet).sort();
+  }, [teams]);
   
   // Scoring Dialog Mode
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -654,7 +727,13 @@ export default function BracketTab({
     }
   }, [teamsCount, formula]);
 
-  const getSingleMatchDuration = (pts?: number, sets?: number) => {
+  const getSingleMatchDuration = (pts?: number, sets?: number, matchOrHasBye?: Match | boolean) => {
+    if (matchOrHasBye === true) return 0;
+    if (typeof matchOrHasBye === 'object' && matchOrHasBye !== null) {
+      if (isByeTeam(matchOrHasBye.team1) || isByeTeam(matchOrHasBye.team2)) {
+        return 0;
+      }
+    }
     const p = pts || 21;
     const s = sets || 3;
     const dSet1P15 = activeTournamentConfig?.durationSet1Points15 ?? durationSet1Points15 ?? 15;
@@ -1265,20 +1344,22 @@ export default function BracketTab({
     } else {
       setT1Set3(0); setT2Set3(0);
     }
+    setMatchMvpSelected(match.matchMvp || '');
   };
 
   const findSchedulingConflict = (matchId: string, court: string, time: string, pointsPerSet?: number, maxSets?: number) => {
     if (!court || !time) return null;
     
     const startMins = parseTimeToMinutes(time);
-    const duration = getSingleMatchDuration(pointsPerSet, maxSets);
+    const currentMatchObj = matches.find(x => x.id === matchId);
+    const duration = getSingleMatchDuration(pointsPerSet, maxSets, currentMatchObj);
     const endMins = startMins + duration;
     
     for (const m of matches) {
       if (m.id === matchId) continue;
       if (m.court === court && m.time) {
         const mStart = parseTimeToMinutes(m.time);
-        const mDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+        const mDuration = getSingleMatchDuration(m.pointsPerSet, m.maxSets, m);
         const mEnd = mStart + mDuration;
         
         // Overlap/Conflict check condition
@@ -1303,21 +1384,23 @@ export default function BracketTab({
     };
 
     const startMins = parseTimeToMinutes(newTime);
-    const duration = getSingleMatchDuration(updatedTarget.pointsPerSet, updatedTarget.maxSets);
+    const duration = getSingleMatchDuration(updatedTarget.pointsPerSet, updatedTarget.maxSets, updatedTarget);
     const endMins = startMins + duration;
 
     let otherMatchesOnCourt = matches.filter(m => m.id !== targetId && m.court === newCourt && m.time);
     
+    const Glen = (m: Match) => getSingleMatchDuration(m.pointsPerSet, m.maxSets, m);
+
     const unaffected = otherMatchesOnCourt.filter(m => {
       const mStart = parseTimeToMinutes(m.time!);
-      const mDur = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+      const mDur = Glen(m);
       const mEnd = mStart + mDur;
       return mEnd <= startMins; 
     });
 
     const affected = otherMatchesOnCourt.filter(m => {
       const mStart = parseTimeToMinutes(m.time!);
-      const mDur = getSingleMatchDuration(m.pointsPerSet, m.maxSets);
+      const mDur = Glen(m);
       const mEnd = mStart + mDur;
       return mEnd > startMins; 
     }).sort((a, b) => parseTimeToMinutes(a.time!) - parseTimeToMinutes(b.time!));
@@ -1334,7 +1417,7 @@ export default function BracketTab({
         time: formatMinutesToTime(actualStart),
         isManuallyScheduled: true,
       };
-      const mDur = getSingleMatchDuration(updatedM.pointsPerSet, updatedM.maxSets);
+      const mDur = getSingleMatchDuration(updatedM.pointsPerSet, updatedM.maxSets, updatedM);
       nextAvailable = actualStart + mDur;
       return updatedM;
     });
@@ -2297,6 +2380,7 @@ export default function BracketTab({
       outcomeType,
       retiredTeamId: outcomeType !== 'normal' ? retiredTeamId : undefined,
       isManuallyScheduled: true,
+      matchMvp: matchMvpSelected || undefined,
     };
 
     const conflict = findSchedulingConflict(
@@ -3149,6 +3233,10 @@ export default function BracketTab({
                     <option value={2}>2 Gironi</option>
                     <option value={3}>3 Gironi 🏐</option>
                     <option value={4}>4 Gironi</option>
+                    <option value={5}>5 Gironi</option>
+                    <option value={6}>6 Gironi</option>
+                    <option value={7}>7 Gironi</option>
+                    <option value={8}>8 Gironi</option>
                   </select>
                 </div>
 
@@ -3963,6 +4051,114 @@ export default function BracketTab({
                   </motion.div>
                 )}
               </AnimatePresence>
+            </div>
+          )}
+
+          {/* MVP Voting Button Block */}
+          {matches.length > 0 && (
+            <div className="flex flex-col items-center justify-center gap-1.5 mb-6">
+              {(() => {
+                const open = isMvpVotingOpen();
+                const btnColorClass = userHasVoted 
+                  ? 'bg-slate-300 border-b-4 border-slate-400 text-slate-500 cursor-not-allowed opacity-75'
+                  : open 
+                    ? 'bg-emerald-500 hover:bg-emerald-600 border-b-4 border-emerald-700 text-white active:translate-y-0.5' 
+                    : 'bg-rose-500 hover:bg-rose-600 border-b-4 border-rose-700 text-white active:translate-y-0.5';
+                
+                return (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!currentUser) {
+                        await customAlert({
+                          title: "Accesso Richiesto",
+                          message: "⚠️ Accedi con il tuo account o registrati per votare l'MVP del torneo!",
+                          type: 'warning'
+                        });
+                        return;
+                      }
+                      if (userHasVoted) {
+                        await customAlert({
+                          title: "Voto già espresso",
+                          message: "ℹ️ Hai già espresso la tua preferenza per l'MVP!",
+                          type: 'info'
+                        });
+                        return;
+                      }
+                      
+                      const finalMatch = matches.find(m => 
+                        m.roundLabel && 
+                        (m.roundLabel === 'Finale' || m.roundLabel.startsWith('Finale') || m.roundLabel.includes('Finale')) && 
+                        !m.roundLabel.includes('3°')
+                      );
+                      const isFinalCompleted = finalMatch ? finalMatch.status === 'completed' : false;
+                      
+                      if (isFinalCompleted) {
+                        await customAlert({
+                          title: "Votazioni Chiuse",
+                          message: "🔴 Le votazioni sono chiuse: il risultato della finale è già stato inserito!",
+                          type: 'error'
+                        });
+                        return;
+                      }
+                      
+                      if (!open) {
+                        await customAlert({
+                          title: "Votazioni non aperte",
+                          message: "🔴 Le votazioni non sono ancora aperte!",
+                          type: 'warning'
+                        });
+                        return;
+                      }
+                      
+                      setSelectedMvpPlayer('');
+                      setIsVotingModalOpen(true);
+                    }}
+                    className={`w-full max-w-xs py-3 px-5 rounded-2xl text-sm font-extrabold uppercase tracking-widest transition-all duration-150 flex items-center justify-center gap-2 shadow-lg ${btnColorClass}`}
+                  >
+                    <Award className="w-5 h-5 shrink-0" />
+                    {userHasVoted ? 'MVP Votato ✓' : 'Vota MVP'}
+                  </button>
+                );
+              })()}
+              
+              {/* Voting info helper text */}
+              {(() => {
+                const open = isMvpVotingOpen();
+                const finalMatch = matches.find(m => 
+                  m.roundLabel && 
+                  (m.roundLabel === 'Finale' || m.roundLabel.startsWith('Finale') || m.roundLabel.includes('Finale')) && 
+                  !m.roundLabel.includes('3°')
+                );
+                const isFinalCompleted = finalMatch ? finalMatch.status === 'completed' : false;
+                
+                if (userHasVoted) {
+                  return (
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2 py-0.5 rounded-md">
+                      Preferenza registrata per: <span className="underline">{userVotedFor}</span>
+                    </span>
+                  );
+                }
+                if (isFinalCompleted) {
+                  return (
+                    <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded-md">
+                      Votazioni concluse (Finale terminata)
+                    </span>
+                  );
+                }
+                if (!open) {
+                  return (
+                    <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded-md">
+                      Votazioni chiuse
+                    </span>
+                  );
+                }
+                return (
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2 py-0.5 rounded-md animate-pulse">
+                    🟢 Votazioni Aperte! Esprimi la tua preferenza
+                  </span>
+                );
+              })()}
             </div>
           )}
 
@@ -5491,6 +5687,42 @@ export default function BracketTab({
                           </div>
                         </div>
 
+                        {/* Match MVP Selection (Best Player of the Match) */}
+                        <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 p-3.5 rounded-2xl border-2 border-amber-200/60 space-y-2">
+                          <label htmlFor="match-mvp-dropdown" className="flex items-center gap-1.5 text-[10px] font-extrabold text-amber-800 uppercase tracking-wider font-sans">
+                            <Award className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-pulse" />
+                            🏆 Miglior Giocatore della Gara (MVP Match)
+                          </label>
+                          <select
+                            id="match-mvp-dropdown"
+                            className="w-full px-3 py-2 border-2 border-amber-200 bg-white font-extrabold text-slate-800 rounded-xl text-xs focus:outline-none focus:border-amber-500 transition-colors shadow-xs"
+                            value={matchMvpSelected}
+                            onChange={(e) => setMatchMvpSelected(e.target.value)}
+                          >
+                            <option value="">-- Seleziona il Miglior Giocatore (+1 punto Classifica MVP) --</option>
+                            {editingMatch.team1?.player1 && !isByeTeam(editingMatch.team1) && (
+                              <option value={editingMatch.team1.player1.trim()}>
+                                {editingMatch.team1.player1.trim()} ({editingMatch.team1.name})
+                              </option>
+                            )}
+                            {editingMatch.team1?.player2 && !isByeTeam(editingMatch.team1) && (
+                              <option value={editingMatch.team1.player2.trim()}>
+                                {editingMatch.team1.player2.trim()} ({editingMatch.team1.name})
+                              </option>
+                            )}
+                            {editingMatch.team2?.player1 && !isByeTeam(editingMatch.team2) && (
+                              <option value={editingMatch.team2.player1.trim()}>
+                                {editingMatch.team2.player1.trim()} ({editingMatch.team2.name})
+                              </option>
+                            )}
+                            {editingMatch.team2?.player2 && !isByeTeam(editingMatch.team2) && (
+                              <option value={editingMatch.team2.player2.trim()}>
+                                {editingMatch.team2.player2.trim()} ({editingMatch.team2.name})
+                              </option>
+                            )}
+                          </select>
+                        </div>
+
                         {/* Live Verification Indicator Banner */}
                         <div className={`p-3 rounded-xl text-center text-[11px] font-extrabold transition-all duration-150 ${
                           isSync 
@@ -5931,6 +6163,111 @@ export default function BracketTab({
               >
                 Avvia Incontro Live 🚀
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MVP Vote Modal */}
+      {isVotingModalOpen && (
+        <div id="mvp-voting-modal" className="fixed inset-0 z-55 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border-4 border-emerald-400 animate-in fade-in zoom-in-95 duration-150 flex flex-col">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-5 text-white border-b-4 border-emerald-600 text-center">
+              <h4 className="font-black text-lg italic uppercase tracking-tight">Esprimi la tua preferenza MVP 🏆</h4>
+              <p className="text-xs font-bold text-white/95 uppercase tracking-widest mt-1">
+                Ogni utente ha a disposizione un singolo voto
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs font-semibold text-slate-500 leading-relaxed text-center">
+                Seleziona dall'elenco l'atleta che reputi essere il miglior giocatore (MVP) di questa edizione del torneo. Il tuo voto si sommerà alle preferenze della community e alle valutazioni dei direttori di gara per decretare il vincitore assoluto.
+              </p>
+
+              <div className="space-y-1.5">
+                <label htmlFor="user-mvp-player-select" className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
+                  Scegli l'Atleta
+                </label>
+                <select
+                  id="user-mvp-player-select"
+                  className="w-full px-4 py-3 border-2 border-slate-200 bg-white font-extrabold text-slate-800 rounded-xl text-xs focus:outline-none focus:border-emerald-500 transition-colors shadow-xs"
+                  value={selectedMvpPlayer}
+                  onChange={(e) => setSelectedMvpPlayer(e.target.value)}
+                  disabled={isSubmittingVote}
+                >
+                  <option value="">-- Seleziona un Atleta dal menu --</option>
+                  {allPlayers.map((p) => {
+                    // Find which team this player belongs to
+                    const playerTeam = teams.find(t => t.player1?.trim() === p || t.player2?.trim() === p);
+                    const teamNameInfo = playerTeam ? ` (${playerTeam.name})` : '';
+                    return (
+                      <option key={p} value={p}>
+                        {p}{teamNameInfo}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {selectedMvpPlayer && (
+                <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl text-center">
+                  <p className="text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                    Confermi la preferenza per:
+                  </p>
+                  <p className="text-sm font-black text-emerald-950 mt-0.5">
+                    {selectedMvpPlayer}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsVotingModalOpen(false)}
+                  disabled={isSubmittingVote}
+                  className="flex-1 bg-slate-100 border-2 border-slate-200 text-slate-650 hover:bg-slate-200 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedMvpPlayer || isSubmittingVote}
+                  onClick={async () => {
+                    if (!currentUser || !selectedMvpPlayer) return;
+                    setIsSubmittingVote(true);
+                    try {
+                      // Submit vote using setDoc to lock one vote per user
+                      await setDoc(doc(db, "mvpVotes", currentUser.id), {
+                        userId: currentUser.id,
+                        votedPlayer: selectedMvpPlayer,
+                        votedAt: new Date().toISOString()
+                      });
+                      setIsVotingModalOpen(false);
+                      await customAlert({
+                        title: "Voto Registrato",
+                        message: `✓ Voto registrato con successo per ${selectedMvpPlayer}! Grazie per aver partecipato.`,
+                        type: 'success'
+                      });
+                    } catch (err) {
+                      console.error("Errore salvataggio voto:", err);
+                      await customAlert({
+                        title: "Errore",
+                        message: "⚠️ Errore durante l'invio del voto. Riprova più tardi.",
+                        type: 'error'
+                      });
+                    } finally {
+                      setIsSubmittingVote(false);
+                    }
+                  }}
+                  className={`flex-1 text-white py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-md ${
+                    selectedMvpPlayer && !isSubmittingVote
+                      ? 'bg-emerald-500 hover:bg-emerald-600 border-b-4 border-emerald-700 active:translate-y-0.5'
+                      : 'bg-slate-300 border-b-4 border-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  {isSubmittingVote ? 'Invio in corso...' : 'Invia Voto 🚀'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

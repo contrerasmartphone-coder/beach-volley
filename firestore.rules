@@ -92,6 +92,12 @@ service cloud.firestore {
         && (!('admittedTeamsCount' in s) || s.admittedTeamsCount is int || s.admittedTeamsCount is float || s.admittedTeamsCount == null);
     }
 
+    function isValidMvpVote(v) {
+      return v.userId is string
+        && v.votedPlayer is string && v.votedPlayer.size() <= 200
+        && v.votedAt is string;
+    }
+
     function isValidFreePlayMatch(m) {
       return m.id is string && m.id.size() <= 128
         && m.player1AId is string && m.player1AId.size() <= 128
@@ -154,6 +160,12 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isValidId(saveId) && isValidSave(request.resource.data);
       allow delete: if isValidId(saveId);
+    }
+
+    match /mvpVotes/{voteId} {
+      allow read: if true;
+      allow create, update: if voteId is string && voteId.size() <= 128 && isValidMvpVote(request.resource.data);
+      allow delete: if voteId is string && voteId.size() <= 128;
     }
 
     match /config/settings {

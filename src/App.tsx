@@ -1067,6 +1067,7 @@ export default function App() {
       await clearCollection("teams");
       await clearCollection("matches");
       await clearCollection("notifications");
+      await clearCollection("mvpVotes");
       await setDoc(
         doc(db, "config", "settings"),
         {
@@ -1094,6 +1095,7 @@ export default function App() {
       await clearCollection("teams");
       await clearCollection("matches");
       await clearCollection("notifications");
+      await clearCollection("mvpVotes");
       await deleteDoc(doc(db, "config", "settings"));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, "all");
@@ -1377,6 +1379,7 @@ export default function App() {
 
       // Clear existing matches
       await clearCollection("matches");
+      await clearCollection("mvpVotes");
 
       // Write updated teams in DB
       const teamPromises = updatedTeams.map((t) =>
@@ -1544,6 +1547,27 @@ export default function App() {
     nameToUse: string,
     overwriteSaveId?: string,
   ) => {
+    let fetchedMvpVotes: any[] = [];
+    let fetchedMvpSettings: any = null;
+
+    try {
+      const votesSnap = await getDocs(collection(db, "mvpVotes"));
+      votesSnap.forEach((d) => {
+        fetchedMvpVotes.push({ id: d.id, ...d.data() });
+      });
+
+      const settingsSnap = await getDoc(doc(db, "config", "settings"));
+      if (settingsSnap.exists()) {
+        const settingsData = settingsSnap.data();
+        fetchedMvpSettings = {
+          publishedMvp: settingsData.publishedMvp || null,
+          mvpVotingEnabled: settingsData.mvpVotingEnabled || false,
+        };
+      }
+    } catch (e) {
+      console.error("Errore recupero dati MVP per salvataggio:", e);
+    }
+
     const saveId = overwriteSaveId || `save-${Date.now()}`;
     const newSave: ActiveTournamentSave = {
       id: saveId,
@@ -1572,6 +1596,8 @@ export default function App() {
       tournamentLocation: tournamentLocation,
       tournamentGender: tournamentGender,
       visibilitySettings: visibilitySettings,
+      mvpVotes: fetchedMvpVotes,
+      mvpSettings: fetchedMvpSettings,
     };
     try {
       await setDoc(doc(db, "saves", saveId), cleanObject(newSave));
@@ -1598,6 +1624,7 @@ export default function App() {
       await clearCollection("teams");
       await clearCollection("matches");
       await clearCollection("notifications");
+      await clearCollection("mvpVotes");
 
       const teamPromises = save.teams.map((t) =>
         setDoc(doc(db, "teams", t.id), cleanObject(t)),
@@ -1616,6 +1643,13 @@ export default function App() {
         await Promise.all(notifPromises);
       }
 
+      if (save.mvpVotes && save.mvpVotes.length > 0) {
+        const mvpPromises = save.mvpVotes.map((v) =>
+          setDoc(doc(db, "mvpVotes", v.id), cleanObject(v)),
+        );
+        await Promise.all(mvpPromises);
+      }
+
       await setDoc(
         doc(db, "config", "settings"),
         cleanObject({
@@ -1631,6 +1665,8 @@ export default function App() {
             standings: true,
             notifications: true,
           },
+          publishedMvp: save.mvpSettings?.publishedMvp || null,
+          mvpVotingEnabled: save.mvpSettings?.mvpVotingEnabled || false,
         }),
         { merge: true },
       );

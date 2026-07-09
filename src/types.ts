@@ -77,6 +77,7 @@ export interface Match {
   outcomeType?: 'normal' | 'injury_during' | 'injury_before' | 'forfeit';
   retiredTeamId?: string; // ID of the team that retired/injured/absent
   isManuallyScheduled?: boolean; // If schedule was modified manually or shifted
+  matchMvp?: string; // Best player of the match voted by admin/collaborator
 }
 
 export interface NotificationLog {
@@ -169,6 +170,11 @@ export interface ActiveTournamentSave {
     standings: boolean;
     notifications: boolean;
     freePlay?: boolean;
+  };
+  mvpVotes?: any[];
+  mvpSettings?: {
+    publishedMvp: any;
+    mvpVotingEnabled: boolean;
   };
 }
 

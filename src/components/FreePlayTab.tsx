@@ -282,6 +282,25 @@ export default function FreePlayTab({ currentUser, users }: FreePlayTabProps) {
     }
   };
 
+  const handleClearAllCompletedFreePlay = async () => {
+    if (!window.confirm("Sei sicuro di voler AZZERARE TUTTI i conteggi e cancellare tutte le partite giocate? Questa operazione è irreversibile.")) {
+      return;
+    }
+    setErrorBanner(null);
+    setSuccessBanner(null);
+    try {
+      const completedMatches = matches.filter((m) => m.status === "completed");
+      for (const match of completedMatches) {
+        await deleteDoc(doc(db, "freePlayMatches", match.id));
+      }
+      setSuccessBanner("Tutti i conteggi e le partite giocate sono stati azzerati con successo!");
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, "freePlayMatches");
+      setErrorBanner("Errore durante lo svuotamento dei conteggi.");
+    }
+  };
+
   const startEditMatch = (match: FreePlayMatch) => {
     setEditingMatch(match);
     setEditPlayer1A(users.find((u) => u.id === match.player1AId) || null);
@@ -727,7 +746,7 @@ export default function FreePlayTab({ currentUser, users }: FreePlayTabProps) {
             </h2>
             {isAdminOrCollaborator && dailyStats.length > 0 && (
               <button
-                onClick={handleClearCompletedToday}
+                onClick={handleClearAllCompletedFreePlay}
                 className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:text-red-600 border-2 border-red-200 rounded-full py-1.5 px-3 hover:bg-red-50/50 transition-all cursor-pointer"
               >
                 Svuota

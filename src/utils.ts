@@ -359,7 +359,8 @@ export function scheduleEliminationRounds(
 
     for (let p = 0; p < roundMatches.length; p++) {
       const match = roundMatches[p];
-      const duration = getMatchDuration(match.pointsPerSet, match.maxSets, customDurations) || defaultDuration;
+      const isBye = isByeTeam(match.team1) || isByeTeam(match.team2);
+      const duration = isBye ? 0 : (getMatchDuration(match.pointsPerSet, match.maxSets, customDurations) || defaultDuration);
       
       const courtNum = (p % courtCount) + 1;
       const courtIdx = courtNum - 1;
@@ -1227,26 +1228,24 @@ export function generateRoundRobinMatches(
   // 3. Pre-resolve BYEs to find matches involving BYE teams which are resolved instantly
   const preResolved = autoResolveAndPropagate(interleavedMatches);
 
-  // 4. Coordinate assigned courts and match starting times for active (non-BYE) matches
-  let globalMatchIndex = 0;
-  let slotStartTimeMinutes = startHr * 60 + startMin;
+  // 4. Coordinate assigned courts and match starting times
+  const courtNextTime = Array(courtCount).fill(startHr * 60 + startMin);
 
-  preResolved.forEach((match) => {
-    const courtIndex = (globalMatchIndex % courtCount) + 1;
-    match.court = `Campo ${courtIndex}`;
+  preResolved.forEach((match, index) => {
+    const isBye = isByeTeam(match.team1) || isByeTeam(match.team2);
+    const duration = isBye ? 0 : durationMinutes;
 
-    if (globalMatchIndex > 0 && courtIndex === 1) {
-      slotStartTimeMinutes += durationMinutes;
-    }
+    const courtNum = (index % courtCount) + 1;
+    const courtIdx = courtNum - 1;
 
-    const adjustedSlotTime = adjustTimeForRest(slotStartTimeMinutes, durationMinutes, breakStart, breakEnd);
-    if (adjustedSlotTime !== slotStartTimeMinutes) {
-      slotStartTimeMinutes = adjustedSlotTime;
-    }
+    const matchStart = courtNextTime[courtIdx];
+    const adjustedMatchTime = adjustTimeForRest(matchStart, duration, breakStart, breakEnd);
 
-    match.time = formatMinutesToTime(slotStartTimeMinutes);
-    match.position = globalMatchIndex + 1;
-    globalMatchIndex++;
+    match.time = formatMinutesToTime(adjustedMatchTime);
+    match.court = `Campo ${courtNum}`;
+    match.position = index + 1;
+
+    courtNextTime[courtIdx] = adjustedMatchTime + duration;
   });
 
   return preResolved;
@@ -1522,35 +1521,8 @@ export function generateDoubleEliminationBracket(
     });
   }
 
-  const [startHr, startMin] = startHour.split(':').map(Number);
-
-  // Helper to schedule match time and court
-  const scheduleTimes: number[] = [];
-  let currentSlotTime = startHr * 60 + startMin;
-  for (let i = 0; i < 20; i++) {
-    const courtIndex = (i % courtCount) + 1;
-    if (i > 0 && courtIndex === 1) {
-      currentSlotTime += durationMinutes;
-    }
-    const adjusted = adjustTimeForRest(currentSlotTime, durationMinutes, breakStart, breakEnd);
-    if (adjusted !== currentSlotTime) {
-      currentSlotTime = adjusted;
-    }
-    scheduleTimes.push(currentSlotTime);
-  }
-
-  const getScheduledTimeAndCourt = (index: number) => {
-    const courtNum = (index % courtCount) + 1;
-    const timeMins = scheduleTimes[index] || (startHr * 60 + startMin);
-    return {
-      time: formatMinutesToTime(timeMins),
-      court: `Campo ${courtNum}`
-    };
-  };
-
-  // MATCH 1-4: Primo Turno (Qualificazione) - paired as "prima contro ultima" (1st vs Nth, 2nd vs N-1th...)
+  // MATCH 1-4: Primo Turno (Round 1)
   for (let i = 0; i < 4; i++) {
-    const { time, court } = getScheduledTimeAndCourt(i);
     matches.push({
       id: `m-de-${i + 1}`,
       round: 1,
@@ -1562,8 +1534,8 @@ export function generateDoubleEliminationBracket(
       team2Score: 0,
       sets: [],
       status: 'scheduled',
-      court,
-      time,
+      court: '',
+      time: '',
       phase: 'eliminazione',
       nextMatchId: `m-de-${5 + Math.floor(i / 2)}`, // Matches 1,2 go to 5; Matches 3,4 go to 6
       nextMatchSlot: i % 2 === 0 ? 'team1' : 'team2',
@@ -1576,7 +1548,6 @@ export function generateDoubleEliminationBracket(
 
   // MATCH 5-6: Tabellone Vincenti (Round 2)
   for (let i = 0; i < 2; i++) {
-    const { time, court } = getScheduledTimeAndCourt(4 + i);
     matches.push({
       id: `m-de-${5 + i}`,
       round: 2,
@@ -1588,8 +1559,8 @@ export function generateDoubleEliminationBracket(
       team2Score: 0,
       sets: [],
       status: 'scheduled',
-      court,
-      time,
+      court: '',
+      time: '',
       phase: 'eliminazione',
       nextMatchId: i === 0 ? 'm-de-9' : 'm-de-10', // Winner of 5 goes to m-de-9 slot team1, Winner of 6 goes to m-de-10 slot team2
       nextMatchSlot: i === 0 ? 'team1' : 'team2',
@@ -1600,7 +1571,6 @@ export function generateDoubleEliminationBracket(
 
   // MATCH 7-8: Tabellone Perdenti (Round 2)
   for (let i = 0; i < 2; i++) {
-    const { time, court } = getScheduledTimeAndCourt(6 + i);
     matches.push({
       id: `m-de-${7 + i}`,
       round: 2,
@@ -1612,8 +1582,8 @@ export function generateDoubleEliminationBracket(
       team2Score: 0,
       sets: [],
       status: 'scheduled',
-      court,
-      time,
+      court: '',
+      time: '',
       phase: 'eliminazione',
       nextMatchId: i === 0 ? 'm-de-10' : 'm-de-9', // Winner of 7 goes to m-de-10 slot team1, Winner of 8 goes to m-de-9 slot team2 (crossover)
       nextMatchSlot: i === 0 ? 'team1' : 'team2',
@@ -1622,9 +1592,8 @@ export function generateDoubleEliminationBracket(
     });
   }
 
-  // MATCH 9-10: Semifinali
+  // MATCH 9-10: Semifinali (Round 3)
   for (let i = 0; i < 2; i++) {
-    const { time, court } = getScheduledTimeAndCourt(8 + i);
     matches.push({
       id: `m-de-${9 + i}`,
       round: 3,
@@ -1636,8 +1605,8 @@ export function generateDoubleEliminationBracket(
       team2Score: 0,
       sets: [],
       status: 'scheduled',
-      court,
-      time,
+      court: '',
+      time: '',
       phase: 'eliminazione',
       nextMatchId: 'm-de-11',
       nextMatchSlot: i === 0 ? 'team1' : 'team2',
@@ -1646,8 +1615,7 @@ export function generateDoubleEliminationBracket(
     });
   }
 
-  // MATCH 11: Finale
-  const { time: fTime, court: fCourt } = getScheduledTimeAndCourt(10);
+  // MATCH 11: Finale (Round 4)
   matches.push({
     id: 'm-de-11',
     round: 4,
@@ -1659,14 +1627,40 @@ export function generateDoubleEliminationBracket(
     team2Score: 0,
     sets: [],
     status: 'scheduled',
-    court: fCourt,
-    time: fTime,
+    court: '',
+    time: '',
     phase: 'eliminazione',
     pointsPerSet: sfPointsPerSet || pointsPerSet,
     maxSets: sfMaxSets || maxSets,
   });
 
-  return autoResolveAndPropagate(matches);
+  // Group by round and schedule using scheduleEliminationRounds
+  const roundsMap: Record<number, Match[]> = {};
+  matches.forEach(m => {
+    const r = m.round || 1;
+    if (!roundsMap[r]) {
+      roundsMap[r] = [];
+    }
+    roundsMap[r].push(m);
+  });
+
+  const sortedRoundNumbers = Object.keys(roundsMap).map(Number).sort((a, b) => a - b);
+  const roundMatchesArr: Match[][] = [];
+  sortedRoundNumbers.forEach(r => {
+    const sMatches = roundsMap[r].sort((a, b) => a.position - b.position);
+    roundMatchesArr.push(sMatches);
+  });
+
+  const scheduledMatches = scheduleEliminationRounds(
+    roundMatchesArr,
+    startHour,
+    courtCount,
+    durationMinutes,
+    breakStart,
+    breakEnd
+  );
+
+  return autoResolveAndPropagate(scheduledMatches);
 }
 
 export function recalculateTournamentStages(
@@ -1783,7 +1777,8 @@ export function recalculateTournamentStages(
     let latestGroupEndMinutes = 0;
     groupMatches.forEach(m => {
       if (m.time && m.time.includes(':')) {
-        const matchDuration = getMatchDuration(m.pointsPerSet, m.maxSets, customDurations);
+        const isBye = isByeTeam(m.team1) || isByeTeam(m.team2);
+        const matchDuration = isBye ? 0 : getMatchDuration(m.pointsPerSet, m.maxSets, customDurations);
         const [h, min] = m.time.split(':').map(Number);
         const endMins = h * 60 + min + matchDuration;
         if (endMins > latestGroupEndMinutes) {

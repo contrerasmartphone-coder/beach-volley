@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { collection, onSnapshot, doc, setDoc, query, getDocs, deleteDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { Team, Match, AppUser } from '../types';
 import { computeFipavStandings, computeTeamStats, sortGroupStandings } from '../utils';
-import { Trophy, Award, BarChart3, Medal, ListOrdered, Percent, Sparkles } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Trophy, Award, BarChart3, Medal, ListOrdered, Percent, Sparkles, Check, ChevronDown, Lock, ShieldAlert, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { useDialog } from '../context/DialogContext';
 
 interface StandingsTabProps {
   teams: Team[];
@@ -19,9 +22,99 @@ export default function StandingsTab({
   currentUser = null,
   admittedTeamsCount = null,
 }: StandingsTabProps) {
+  const { alert: customAlert, confirm: customConfirm } = useDialog();
+  const [mvpVotes, setMvpVotes] = useState<any[]>([]);
+  const [publishedMvp, setPublishedMvp] = useState<any>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [mvpVotingEnabled, setMvpVotingEnabled] = useState<boolean>(false);
+  const [isTogglingVoting, setIsTogglingVoting] = useState(false);
+  const [isResettingVotes, setIsResettingVotes] = useState(false);
+
+  useEffect(() => {
+    const unsubVotes = onSnapshot(collection(db, "mvpVotes"), (snapshot) => {
+      const votes: any[] = [];
+      snapshot.forEach(doc => {
+        votes.push({ id: doc.id, ...doc.data() });
+      });
+      setMvpVotes(votes);
+    });
+
+    const unsubSettings = onSnapshot(doc(db, "config", "settings"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setPublishedMvp(data.publishedMvp || null);
+        setMvpVotingEnabled(data.mvpVotingEnabled || false);
+      }
+    });
+
+    return () => {
+      unsubVotes();
+      unsubSettings();
+    };
+  }, []);
+
   const isOrganizer = currentUser && (currentUser.role === 'admin' || currentUser.role === 'collaborator');
   const isCombined = activeTournamentConfig?.formula === 'combined';
   const standingsMatches = isCombined ? matches.filter(m => m.phase === 'gironi') : matches;
+
+  const mvpStandings = useMemo(() => {
+    const stats: Record<string, { player: string; teamName: string; userVotes: number; matchMvpPoints: number; totalScore: number }> = {};
+    
+    // Initialize all players
+    teams.forEach(t => {
+      const isBye = t.name.toLowerCase().includes('bye') || t.name.toLowerCase().includes('riposo');
+      if (isBye) return;
+      if (t.player1 && t.player1.trim()) {
+        const p1 = t.player1.trim();
+        stats[p1] = { player: p1, teamName: t.name, userVotes: 0, matchMvpPoints: 0, totalScore: 0 };
+      }
+      if (t.player2 && t.player2.trim()) {
+        const p2 = t.player2.trim();
+        stats[p2] = { player: p2, teamName: t.name, userVotes: 0, matchMvpPoints: 0, totalScore: 0 };
+      }
+    });
+
+    // Add user votes
+    mvpVotes.forEach(v => {
+      if (v.votedPlayer && stats[v.votedPlayer.trim()]) {
+        stats[v.votedPlayer.trim()].userVotes += 1;
+      }
+    });
+
+    // Add match mvp points
+    matches.forEach(m => {
+      if (m.status === 'completed' && m.matchMvp) {
+        const mvpPlayer = m.matchMvp.trim();
+        if (stats[mvpPlayer]) {
+          stats[mvpPlayer].matchMvpPoints += 1;
+        } else {
+          // Fallback if player name is not in teams (e.g. slight spelling change)
+          stats[mvpPlayer] = { player: mvpPlayer, teamName: 'N/A', userVotes: 0, matchMvpPoints: 1, totalScore: 1 };
+        }
+      }
+    });
+
+    // Calculate total score and return sorted array
+    return Object.values(stats)
+      .map(s => ({
+        ...s,
+        totalScore: s.userVotes + s.matchMvpPoints
+      }))
+      .sort((a, b) => b.totalScore - a.totalScore);
+  }, [teams, matches, mvpVotes]);
+
+  const rankedMvpStandings = useMemo(() => {
+    let currentRank = 1;
+    return mvpStandings.map((s, idx) => {
+      if (idx > 0 && s.totalScore < mvpStandings[idx - 1].totalScore) {
+        currentRank = idx + 1;
+      }
+      return {
+        ...s,
+        rank: currentRank
+      };
+    });
+  }, [mvpStandings]);
 
   // Separate active teams and withdrawn/substituted teams to avoid mixing them in normal lists
   const activeTeams = teams.filter((t) => !t.isWithdrawn && !t.name.endsWith(' [RITIRATA]'));
@@ -448,6 +541,364 @@ export default function StandingsTab({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* MVP Section */}
+      <div id="mvp-results-section" className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-3xl border-4 border-slate-850 p-6 shadow-xl space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-2">
+            <Award className="w-6 h-6 text-amber-400 animate-pulse shrink-0" />
+            <div>
+              <h3 className="font-black tracking-wider uppercase text-sm font-sans text-amber-300">
+                Premiazione MVP del Torneo 🏆
+              </h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                Somma Voti Community + Miglior Giocatore Gare
+              </p>
+            </div>
+          </div>
+          {isOrganizer && (
+            <span className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full text-[9px] font-black uppercase text-amber-400">
+              <Lock className="w-3 h-3" /> Console Amministratore
+            </span>
+          )}
+        </div>
+
+        {/* 1. If winner is published, show the beautiful published winner block for everyone */}
+        {publishedMvp ? (
+          <div className="bg-slate-950/60 p-5 rounded-2xl border border-amber-500/30 space-y-5 animate-in fade-in duration-200">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-black tracking-widest uppercase text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full border border-amber-400/20">
+                🏆 Vincitore Ufficiale MVP 🏆
+              </span>
+              <h2 className="text-2xl font-black text-white uppercase tracking-tight pt-2 drop-shadow-md">
+                {publishedMvp.winner}
+              </h2>
+              <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">
+                Eletto Miglior Giocatore di questa Edizione
+              </p>
+            </div>
+
+            {/* Podium details with percentage of votes */}
+            {publishedMvp.podium && publishedMvp.podium.length > 0 && (
+              <div className="space-y-3 pt-3 border-t border-slate-900">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block text-center">
+                  Podio Finale MVP (Community + Gare)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {publishedMvp.podium.map((p: any, idx: number) => (
+                    <div
+                      key={`podium-mvp-${idx}`}
+                      className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-center space-y-1"
+                    >
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider block">
+                        {p.rank || (idx + 1)}° Classificato
+                      </span>
+                      <p className="text-xs font-black text-slate-200 truncate uppercase">
+                        {p.player}
+                      </p>
+                      <div className="flex items-center justify-center gap-1.5 pt-1">
+                        <span className="bg-amber-500/10 text-amber-400 text-[10px] font-black px-2 py-0.5 rounded-md font-mono">
+                          {p.percentage}%
+                        </span>
+                        <span className="text-[9px] text-slate-500 font-semibold">
+                          ({p.votes} {p.votes === 1 ? 'punto' : 'punti'})
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          !isOrganizer && (
+            <div className="text-center p-6 text-slate-400 text-xs font-bold bg-slate-950/20 rounded-2xl border border-slate-850">
+              <p>Le votazioni sono in corso o in fase di elaborazione!</p>
+              <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest mt-1">
+                La classifica ufficiale sarà pubblicata dagli organizzatori al termine del torneo.
+              </p>
+            </div>
+          )
+        )}
+
+        {/* 2. Admin Real-time Standings View */}
+        {isOrganizer && (
+          <div className="space-y-4">
+            {/* Controllo Apertura/Chiusura Votazioni */}
+            <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800 flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h5 className="text-xs font-black uppercase text-slate-300 tracking-wider">
+                  Stato Votazioni MVP 🏆
+                </h5>
+                <p className="text-[10px] text-slate-450 mt-1 flex items-center gap-1.5 font-bold uppercase">
+                  {mvpVotingEnabled ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                      <span className="text-emerald-400">Votazioni APERTE ed attive per gli utenti</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                      <span className="text-rose-400">Votazioni CHIUSE / disattivate</span>
+                    </>
+                  )}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={isTogglingVoting}
+                  onClick={async () => {
+                    const nextState = !mvpVotingEnabled;
+                    const confirmToggle = await customConfirm({
+                      title: "Stato Votazioni",
+                      message: nextState 
+                        ? "Sei sicuro di voler APRIRE le votazioni MVP agli utenti?" 
+                        : "Sei sicuro di voler CHIUDERE le votazioni MVP agli utenti?",
+                      type: 'confirm'
+                    });
+                    if (!confirmToggle) return;
+
+                    setIsTogglingVoting(true);
+                    try {
+                      await setDoc(doc(db, "config", "settings"), {
+                        mvpVotingEnabled: nextState
+                      }, { merge: true });
+                      await customAlert({
+                        title: "Successo",
+                        message: `Votazioni MVP ${nextState ? 'APERTE 🟢' : 'CHIUSE 🔴'} con successo!`,
+                        type: 'success'
+                      });
+                    } catch (err) {
+                      console.error("Errore modifica stato votazioni:", err);
+                      await customAlert({
+                        title: "Errore",
+                        message: "Si è verificato un errore durante la modifica dello stato delle votazioni.",
+                        type: 'error'
+                      });
+                    } finally {
+                      setIsTogglingVoting(false);
+                    }
+                  }}
+                  className={`font-black text-[10px] py-2 px-3.5 rounded-xl uppercase tracking-wider transition-all shadow-md cursor-pointer ${
+                    mvpVotingEnabled
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                      : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                  }`}
+                >
+                  {isTogglingVoting ? 'Elaborazione...' : (mvpVotingEnabled ? 'Chiudi Votazioni 🔒' : 'Apri Votazioni 🔓')}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isResettingVotes || (mvpVotes.length === 0 && !publishedMvp)}
+                  onClick={async () => {
+                    const confirmReset = await customConfirm({
+                      title: "Azzera Votazioni",
+                      message: "Sei ASSOLUTAMENTE sicuro di voler AZZERARE TUTTI i voti MVP pervenuti dagli utenti e il podio pubblicato?\nQuesta operazione è irreversibile e consentirà agli utenti di votare nuovamente.",
+                      type: 'warning',
+                      confirmText: 'Sì, Azzera tutto',
+                      cancelText: 'Annulla'
+                    });
+                    if (!confirmReset) return;
+
+                    setIsResettingVotes(true);
+                    try {
+                      const q = query(collection(db, "mvpVotes"));
+                      const snap = await getDocs(q);
+                      const batchPromises = snap.docs.map(docSnap => deleteDoc(doc(db, "mvpVotes", docSnap.id)));
+                      await Promise.all(batchPromises);
+
+                      // Also reset/clear the published MVP podium
+                      await setDoc(doc(db, "config", "settings"), {
+                        publishedMvp: null
+                      }, { merge: true });
+
+                      await customAlert({
+                        title: "Voti e Podio Azzerati",
+                        message: "🧹 Tutti i voti MVP degli utenti e il podio pubblicato sono stati azzerati con successo!",
+                        type: 'success'
+                      });
+                    } catch (err) {
+                      console.error("Errore azzeramento voti:", err);
+                      await customAlert({
+                        title: "Errore",
+                        message: "Si è verificato un errore durante l'azzeramento dei voti e del podio.",
+                        type: 'error'
+                      });
+                    } finally {
+                      setIsResettingVotes(false);
+                    }
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700 disabled:bg-slate-800 disabled:text-slate-500 text-white font-black text-[10px] py-2 px-3.5 rounded-xl uppercase tracking-wider transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isResettingVotes ? 'Eliminazione...' : 'Azzera Votazioni'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/80 p-4 rounded-2xl border border-amber-500/20 space-y-3.5">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                    Classifica Voti in Tempo Reale (Privata per Admin)
+                  </h4>
+                  <p className="text-[9px] text-slate-400 font-semibold mt-0.5">
+                    Voti totali pervenuti dagli utenti: <strong className="text-white font-mono">{mvpVotes.length}</strong>
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={isPublishing || mvpStandings.length === 0}
+                    onClick={async () => {
+                      if (mvpStandings.length === 0) {
+                        await customAlert({
+                          title: "Nessun Voto",
+                          message: "Nessun atleta ha ancora ricevuto voti.",
+                          type: 'info'
+                        });
+                        return;
+                      }
+                      
+                      const confirmPublish = await customConfirm({
+                        title: "Pubblica Vincitore MVP",
+                        message: `Vuoi pubblicare ${mvpStandings[0].player} come vincitore MVP del torneo e mostrare a tutti il podio finale?`,
+                        type: 'confirm'
+                      });
+                      if (!confirmPublish) return;
+
+                      setIsPublishing(true);
+                      try {
+                        const totalWeightedVotes = rankedMvpStandings.reduce((acc, curr) => acc + (curr.totalScore || 0), 0);
+                        const podium = rankedMvpStandings.filter(s => s.rank <= 3).map(s => {
+                          const percentage = totalWeightedVotes > 0 
+                            ? Math.round((s.totalScore / totalWeightedVotes) * 100 * 10) / 10 
+                            : 0;
+                          return {
+                            player: s.player,
+                            votes: s.totalScore,
+                            percentage: percentage,
+                            rank: s.rank
+                          };
+                        });
+
+                        const winners = rankedMvpStandings.filter(s => s.rank === 1).map(s => s.player);
+                        const winnerText = winners.length > 0 ? winners.join(' / ') : '';
+
+                        await setDoc(doc(db, "config", "settings"), {
+                          publishedMvp: {
+                            winner: winnerText,
+                            podium: podium,
+                            publishedAt: new Date().toISOString()
+                          },
+                          mvpVotingEnabled: false
+                        }, { merge: true });
+
+                        await customAlert({
+                          title: "Successo 🎉",
+                          message: "Vincitore MVP e Podio pubblicati con successo!",
+                          type: 'success'
+                        });
+                      } catch (err) {
+                        console.error("Errore pubblicazione MVP:", err);
+                        await customAlert({
+                          title: "Errore",
+                          message: "Si è verificato un errore durante la pubblicazione.",
+                          type: 'error'
+                        });
+                      } finally {
+                        setIsPublishing(false);
+                      }
+                    }}
+                    className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 text-white font-black text-[10px] py-2 px-3 rounded-xl uppercase tracking-wider transition-all shadow-md cursor-pointer"
+                  >
+                    {isPublishing ? 'Pubblicazione...' : 'Pubblica Vincitore'}
+                  </button>
+                  {publishedMvp && (
+                    <button
+                      type="button"
+                      disabled={isPublishing}
+                      onClick={async () => {
+                        const confirmUnpublish = await customConfirm({
+                          title: "Nascondi Pubblicazione",
+                          message: "Sei sicuro di voler nascondere la pubblicazione dell'MVP a tutti gli utenti?",
+                          type: 'warning'
+                        });
+                        if (!confirmUnpublish) return;
+
+                        setIsPublishing(true);
+                        try {
+                          await setDoc(doc(db, "config", "settings"), {
+                            publishedMvp: null
+                          }, { merge: true });
+                          await customAlert({
+                            title: "Rimosso",
+                            message: "✓ Pubblicazione MVP rimossa con successo.",
+                            type: 'success'
+                          });
+                        } catch (err) {
+                          console.error("Errore rimozione pubblicazione MVP:", err);
+                          await customAlert({
+                            title: "Errore",
+                            message: "Si è verificato un errore durante la rimozione della pubblicazione.",
+                            type: 'error'
+                          });
+                        } finally {
+                          setIsPublishing(false);
+                        }
+                      }}
+                      className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] py-2 px-3 rounded-xl uppercase tracking-wider transition-all shadow-md cursor-pointer"
+                    >
+                      Nascondi
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {rankedMvpStandings.length === 0 ? (
+                <p className="text-center py-6 text-[11px] text-slate-500 font-bold uppercase tracking-wider">
+                  Nessun voto inserito fino a questo momento
+                </p>
+              ) : (
+                <div className="max-h-60 overflow-y-auto divide-y divide-slate-900 pr-1 space-y-1">
+                  {rankedMvpStandings.map((s, idx) => (
+                    <div
+                      key={`mvp-row-${s.player}`}
+                      className="flex items-center justify-between py-2 text-xs font-semibold"
+                    >
+                      <div className="flex items-center gap-2 truncate min-w-0">
+                        <span className="font-mono text-[10px] font-black text-slate-500 w-5">
+                          #{s.rank}
+                        </span>
+                        <div className="truncate">
+                          <p className="font-black text-slate-200 uppercase truncate">
+                            {s.player}
+                          </p>
+                          <p className="text-[9px] text-slate-500 truncate">
+                            {s.teamName}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 font-mono text-right">
+                        <div className="text-[9px] text-slate-400">
+                          <span>{s.userVotes}p (utenti)</span>
+                          <span className="mx-1">•</span>
+                          <span>{s.matchMvpPoints}p (match)</span>
+                        </div>
+                        <span className="bg-amber-400 text-slate-950 text-[11px] font-black w-7 h-7 rounded-full flex items-center justify-center shadow-xs">
+                          {s.totalScore}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
