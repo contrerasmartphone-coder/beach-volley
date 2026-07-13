@@ -7,6 +7,7 @@ import {
   ArchivedTournament,
   ActiveTournamentSave,
   RegistrationRequest,
+  SocialPost,
 } from "./types";
 import {
   DEMO_TEAMS,
@@ -27,6 +28,8 @@ import NotificationCenter from "./components/NotificationCenter";
 import ArchiveTab from "./components/ArchiveTab";
 import UserTab from "./components/UserTab";
 import FreePlayTab from "./components/FreePlayTab";
+import SocialTab from "./components/SocialTab";
+import ToastItem from "./components/ToastItem";
 import {
   Sun,
   Award,
@@ -45,6 +48,10 @@ import {
   Edit,
   MapPin,
   Play,
+  MessageCircle,
+  Camera,
+  Trash2,
+  Clock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -87,8 +94,23 @@ const contreraLogoUrl = new URL(
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "teams" | "bracket" | "standings" | "notifications" | "archive" | "users"
-  >("teams");
+    "teams" | "bracket" | "standings" | "notifications" | "archive" | "users" | "freeplay" | "social"
+  >(() => {
+    try {
+      const saved = localStorage.getItem("bv_active_tab");
+      return (saved as any) || "teams";
+    } catch {
+      return "teams";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("bv_active_tab", activeTab);
+    } catch (e) {
+      console.error("Errore salvataggio tab attivo:", e);
+    }
+  }, [activeTab]);
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
@@ -104,6 +126,7 @@ export default function App() {
   const currentUserRef = useRef<AppUser | null>(currentUser);
   const [systemStatus, setSystemStatus] = useState<"online" | "offline">("online");
   const [isStatusLoaded, setIsStatusLoaded] = useState(false);
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "config", "status"), (docSnap) => {
@@ -341,6 +364,10 @@ export default function App() {
     }
   });
 
+  const [toasts, setToasts] = useState<NotificationLog[]>([]);
+
+  const [posts, setPosts] = useState<SocialPost[]>([]);
+
   const [admittedTeamsCount, setAdmittedTeamsCount] = useState<number | null>(
     () => {
       try {
@@ -404,12 +431,14 @@ export default function App() {
     standings: boolean;
     notifications: boolean;
     freePlay: boolean;
+    social: boolean;
   }>({
     entryList: true,
     bracket: true,
     standings: true,
     notifications: true,
     freePlay: true,
+    social: true,
   });
 
   const [isEditingTournamentInfo, setIsEditingTournamentInfo] = useState(false);
@@ -452,6 +481,7 @@ export default function App() {
       },
     );
 
+    let isFirstRun = true;
     const unsubNotifs = onSnapshot(
       collection(db, "notifications"),
       (snapshot) => {
@@ -465,6 +495,19 @@ export default function App() {
           if (tA !== tB) return tB - tA;
           return b.id.localeCompare(a.id);
         });
+
+        if (!isFirstRun) {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === "added") {
+              const newNotif = change.doc.data() as NotificationLog;
+              setToasts((prev) => {
+                if (prev.some((t) => t.id === newNotif.id)) return prev;
+                return [...prev, newNotif];
+              });
+            }
+          });
+        }
+        isFirstRun = false;
         setNotifications(list);
       },
       (error) => {
@@ -532,15 +575,25 @@ export default function App() {
           }
 
           if (data.visibilitySettings !== undefined) {
-            setVisibilitySettings(data.visibilitySettings);
+            setVisibilitySettings({
+              entryList: data.visibilitySettings.entryList !== false,
+              bracket: data.visibilitySettings.bracket !== false,
+              standings: data.visibilitySettings.standings !== false,
+              notifications: data.visibilitySettings.notifications !== false,
+              freePlay: data.visibilitySettings.freePlay !== false,
+              social: data.visibilitySettings.social !== false,
+            });
           } else {
             setVisibilitySettings({
               entryList: true,
               bracket: true,
               standings: true,
               notifications: true,
+              freePlay: true,
+              social: true,
             });
           }
+          setIsConfigLoaded(true);
         } else {
           setAdmittedTeamsCount(null);
           setActiveTournamentConfig(null);
@@ -553,16 +606,20 @@ export default function App() {
             bracket: true,
             standings: true,
             notifications: true,
+            freePlay: true,
+            social: true,
           });
           try {
             localStorage.removeItem("bv_tournament_date");
             localStorage.removeItem("bv_tournament_gender");
             localStorage.removeItem("bv_tournament_location");
           } catch {}
+          setIsConfigLoaded(true);
         }
       },
       (error) => {
         console.error("Firestore sync error (config):", error);
+        setIsConfigLoaded(true);
       },
     );
 
@@ -636,6 +693,21 @@ export default function App() {
       },
     );
 
+    const unsubPosts = onSnapshot(
+      collection(db, "posts"),
+      (snapshot) => {
+        const list: SocialPost[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push(docSnap.data() as SocialPost);
+        });
+        list.sort((a, b) => b.createdAt - a.createdAt);
+        setPosts(list);
+      },
+      (error) => {
+        console.error("Firestore sync error (posts):", error);
+      },
+    );
+
     return () => {
       unsubTeams();
       unsubMatches();
@@ -644,6 +716,7 @@ export default function App() {
       unsubUsers();
       unsubArchives();
       unsubSaves();
+      unsubPosts();
     };
   }, []);
 
@@ -802,6 +875,7 @@ export default function App() {
   }, [loadedSaveName]);
 
   useEffect(() => {
+    if (!isConfigLoaded) return;
     const isOrganizer =
       currentUser &&
       (currentUser.role === "admin" || currentUser.role === "collaborator");
@@ -813,11 +887,14 @@ export default function App() {
       if (visibilitySettings.freePlay) {
         allowedTabs.push("freeplay");
       }
+      if (visibilitySettings.social) {
+        allowedTabs.push("social");
+      }
       if (!allowedTabs.includes(activeTab)) {
         setActiveTab("teams");
       }
     }
-  }, [currentUser, activeTab, matches.length, visibilitySettings.freePlay]);
+  }, [currentUser, activeTab, matches.length, visibilitySettings.freePlay, visibilitySettings.social, isConfigLoaded]);
 
   const clearCollection = async (collectionName: string) => {
     try {
@@ -1456,8 +1533,15 @@ export default function App() {
         cleanObject(swapNotif),
       );
 
-      // Save full individual changes immediately to Firestore
-      const teamPromises = updatedTeams.map((t) =>
+      // Only write teams that have actually changed or are new
+      const changedTeams = updatedTeams.filter((t) => {
+        const original = teams.find((oldTeam) => oldTeam.id === t.id);
+        return (
+          !original ||
+          JSON.stringify(cleanObject(original)) !== JSON.stringify(cleanObject(t))
+        );
+      });
+      const teamPromises = changedTeams.map((t) =>
         setDoc(doc(db, "teams", t.id), cleanObject(t)),
       );
       await Promise.all(teamPromises);
@@ -1491,7 +1575,14 @@ export default function App() {
           activeTournamentConfig?.breakEnd,
           activeTournamentConfig,
         );
-        const promises = resolved.map((m) =>
+        const changedMatches = resolved.filter((m) => {
+          const original = matches.find((oldMatch) => oldMatch.id === m.id);
+          return (
+            !original ||
+            JSON.stringify(cleanObject(original)) !== JSON.stringify(cleanObject(m))
+          );
+        });
+        const promises = changedMatches.map((m) =>
           setDoc(doc(db, "matches", m.id), cleanObject(m)),
         );
         await Promise.all(promises);
@@ -1664,6 +1755,8 @@ export default function App() {
             bracket: true,
             standings: true,
             notifications: true,
+            freePlay: true,
+            social: true,
           },
           publishedMvp: save.mvpSettings?.publishedMvp || null,
           mvpVotingEnabled: save.mvpSettings?.mvpVotingEnabled || false,
@@ -2357,7 +2450,8 @@ export default function App() {
                       { id: 'bracket', label: 'Tabellone' },
                       { id: 'standings', label: 'Classifiche' },
                       { id: 'notifications', label: 'Notifiche' },
-                      { id: 'freePlay', label: 'Free Play' }
+                      { id: 'freePlay', label: 'Free Play' },
+                      { id: 'social', label: 'Social' }
                     ].map(s => (
                       <label key={s.id} className="flex items-center gap-1.5 cursor-pointer group">
                         <div className="relative flex items-center">
@@ -2488,6 +2582,16 @@ export default function App() {
                       id: "freeplay",
                       label: "Free Play",
                       icon: <Play className="w-3.5 h-3.5" />,
+                    });
+                  }
+
+                  if (isOrganizer || visibilitySettings.social) {
+                    const activeCount = posts.filter(p => p.expiresAt > Date.now()).length;
+                    navItems.push({
+                      id: "social",
+                      label: "Social",
+                      count: activeCount,
+                      icon: <MessageCircle className="w-3.5 h-3.5" />,
                     });
                   }
 
@@ -2701,6 +2805,18 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeTab === "social" && (currentUser?.role === "admin" || currentUser?.role === "collaborator" || visibilitySettings.social) && (
+              <motion.div
+                key="social"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.15 }}
+              >
+                <SocialTab currentUser={currentUser} posts={posts} />
+              </motion.div>
+            )}
+
             {activeTab === "users" && currentUser?.role === "admin" && (
               <motion.div
                 key="users"
@@ -2855,6 +2971,19 @@ export default function App() {
           BEACH HUB 2026
         </div>
       </footer>
+
+      {/* Floating In-App Toast Notifications Container */}
+      <div className="fixed top-4 right-4 z-[9999] w-full max-w-sm flex flex-col gap-3 pointer-events-none px-4 md:px-0">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <ToastItem
+              key={toast.id}
+              toast={toast}
+              onClose={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

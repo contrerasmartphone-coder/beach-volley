@@ -98,6 +98,17 @@ service cloud.firestore {
         && v.votedAt is string;
     }
 
+    function isValidPost(p) {
+      return p.id is string && p.id.size() <= 128
+        && p.userId is string && p.userId.size() <= 128
+        && p.userName is string && p.userName.size() <= 200
+        && (!('userRole' in p) || (p.userRole is string && p.userRole.size() <= 50))
+        && (!('content' in p) || (p.content is string && p.content.size() <= 1000))
+        && (!('imageUrl' in p) || (p.imageUrl is string && p.imageUrl.size() <= 2000000))
+        && (p.createdAt is int || p.createdAt is float)
+        && (p.expiresAt is int || p.expiresAt is float);
+    }
+
     function isValidFreePlayMatch(m) {
       return m.id is string && m.id.size() <= 128
         && m.player1AId is string && m.player1AId.size() <= 128
@@ -118,6 +129,12 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isValidId(matchId) && isValidFreePlayMatch(request.resource.data);
       allow delete: if isValidId(matchId);
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create, update: if isValidId(postId) && isValidPost(request.resource.data);
+      allow delete: if isValidId(postId);
     }
 
     match /teams/{teamId} {

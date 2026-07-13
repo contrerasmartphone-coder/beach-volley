@@ -170,6 +170,7 @@ export interface ActiveTournamentSave {
     standings: boolean;
     notifications: boolean;
     freePlay?: boolean;
+    social?: boolean;
   };
   mvpVotes?: any[];
   mvpSettings?: {
@@ -192,6 +193,17 @@ export interface FreePlayMatch {
   status: 'pending' | 'completed';
   completedAt?: string;
   date: string; // e.g. YYYY-MM-DD
+}
+
+export interface SocialPost {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole?: string;
+  content: string;
+  imageUrl?: string;
+  createdAt: number; // millisecond timestamp
+  expiresAt: number; // millisecond timestamp (createdAt + 24h)
 }
 
 

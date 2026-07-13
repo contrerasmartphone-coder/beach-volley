@@ -47,32 +47,6 @@ export default function NotificationCenter({
   const [pushMessage, setPushMessage] = useState('Attenzione: la partita del girone è stata anticipata di 10 minuti per evitare ritardi.');
   const [pushType, setPushType] = useState<NotificationLog['type']>('schedule_change');
   const [successSent, setSuccessSent] = useState(false);
-  const [browserPermission, setBrowserPermission] = useState<string>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
-  );
-
-  // Request standard browser notifications
-  const handleEnableBrowserNotifications = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      alert('Questo browser non supporta l\'API Notification nativa.');
-      return;
-    }
-
-    try {
-      const permission = await Notification.requestPermission();
-      setBrowserPermission(permission);
-      
-      if (permission === 'granted') {
-        new window.Notification('Notifiche Abilitate! 🏐', {
-          body: 'Riceverai aggiornamenti in tempo reale sui risultati e gli orari del torneo di beach volley direttamente sul tuo schermo.',
-          icon: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=80&w=200',
-        });
-      }
-    } catch (err) {
-      console.warn('Errore durante la richiesta permessi notifiche:', err);
-      setBrowserPermission('denied');
-    }
-  };
 
   // Trigger custom notification composition
   const handleSendCustomNotification = (e: React.FormEvent) => {
@@ -88,17 +62,6 @@ export default function NotificationCenter({
     };
 
     onAddNotification(newNotification);
-
-    // Try sending native operating system push if permission granted
-    if (browserPermission === 'granted') {
-      try {
-        new window.Notification(pushTitle, {
-          body: pushMessage,
-        });
-      } catch (err) {
-        console.warn('Impossibile emettere notifica nativa:', err);
-      }
-    }
 
     // Reset Form & Show visual feedback
     setPushMessage('');
@@ -120,53 +83,20 @@ export default function NotificationCenter({
       {/* Control Console / Dispatcher Column */}
       {canWrite && (
         <div id="dispatcher-console" className="lg:col-span-1 space-y-6">
-          {/* Browser Permission Panel */}
+          {/* Info Banner on In-App Notifications */}
           <div className="bg-white rounded-3xl border-4 border-sky-200 p-6 shadow-xl">
-            <div className="flex items-center gap-2.5 mb-3.5">
+            <div className="flex items-center gap-2.5 mb-2">
               <div className="p-2.5 bg-sky-50 border-2 border-sky-100 rounded-xl text-sky-600">
                 <Bell className="w-5 h-5 stroke-[2.5]" />
               </div>
               <div>
-                <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wide">Notifiche di Sistema</h4>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Invia alert sui dispositivi dei giocatori</p>
+                <h4 className="font-extrabold text-slate-800 text-sm uppercase tracking-wide">Notifiche In-App</h4>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Avvisi in tempo reale attivi</p>
               </div>
             </div>
-
-            {browserPermission === 'default' && (
-              <div className="bg-orange-50 border-2 border-orange-200 rounded-2xl p-4 text-center space-y-3">
-                <p className="text-xs font-bold text-orange-950 uppercase tracking-wide">
-                  Abilita le notifiche native del browser per ricevere alert sul desktop quando aggiorni il tabellone o finisce un set!
-                </p>
-                <button
-                  id="enable-native-notifications-btn"
-                  onClick={handleEnableBrowserNotifications}
-                  className="w-full bg-orange-400 hover:bg-orange-500 text-white font-black py-2.5 px-3 rounded-full text-xs transition-all border-b-4 border-orange-600 active:translate-y-0.5 shadow-md uppercase tracking-wider"
-                >
-                  Abilita Notifiche Desktop
-                </button>
-              </div>
-            )}
-
-            {browserPermission === 'granted' && (
-              <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-3.5 flex items-center gap-2 text-emerald-800 text-xs font-bold uppercase tracking-wider">
-                <Check className="w-4 h-4 shrink-0 text-emerald-600 stroke-[3]" />
-                <span>Notifiche browser <strong className="text-emerald-950 underline">Abilitate</strong>! Ok.</span>
-              </div>
-            )}
-
-            {browserPermission === 'denied' && (
-              <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex items-center gap-2 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
-                <span>Notifiche disattivate nel browser. Feed attivo.</span>
-              </div>
-            )}
-
-            {browserPermission === 'unsupported' && (
-              <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 flex items-center gap-2 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>In-app simulation mode attiva.</span>
-              </div>
-            )}
+            <p className="text-xs text-slate-600 leading-relaxed font-medium">
+              Tutte le notifiche vengono visualizzate istantaneamente sullo schermo con banner in-app per tutti gli utenti connessi.
+            </p>
           </div>
 
           {/* Sender Dispatcher Form */}
